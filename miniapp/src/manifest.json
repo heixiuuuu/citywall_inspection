@@ -1,0 +1,29 @@
+{
+  "name": "古城墙病害巡检",
+  "appid": "",
+  "description": "古城墙病害巡检系统微信小程序（巡检员现场端）",
+  "versionName": "0.1.0",
+  "versionCode": "100",
+  "transformPx": false,
+  "app-plus": {
+    "usingComponents": true,
+    "compilerVersion": 3
+  },
+  "quickapp": {},
+  "mp-weixin": {
+    "appid": "",
+    "setting": {
+      "urlCheck": true,
+      "es6": true,
+      "minified": true
+    },
+    "usingComponents": true,
+    "permission": {
+      "scope.userLocation": {
+        "desc": "用于巡检点位打卡与现场定位"
+      }
+    },
+    "requiredPrivateInfos": ["getLocation"]
+  },
+  "vueVersion": "3"
+}

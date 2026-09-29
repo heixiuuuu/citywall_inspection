@@ -1,0 +1,48 @@
+# ===== 数据与文档（本地素材与设计稿，不入库） =====
+data/*
+docs/*
+!data/.gitkeep
+!docs/.gitkeep
+
+# ===== 运行时生成 =====
+*.log
+*.out
+
+# ===== 环境变量与密钥 =====
+.env
+.env.*
+!.env.example
+
+# ===== Go =====
+server/bin/
+*.exe
+*.test
+vendor/
+
+# ===== Python =====
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+recognizer/models/*.pt
+recognizer/models/*.weights
+
+# ===== Node / 前端构建 =====
+node_modules/
+dist/
+*.local
+.eslintcache
+web/dist/
+miniapp/unpackage/
+miniapp/dist/
+
+# ===== 本地受控存储（图片 / 报告 / 临时文件，运行时生成） =====
+data/storage/
+
+# ===== IDE / 系统文件 =====
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
