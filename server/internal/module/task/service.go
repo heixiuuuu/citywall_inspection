@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"citywall/server/internal/middleware"
+	"citywall/server/internal/module/audit"
 )
 
 // 领域错误（Handler 映射 HTTP 状态）。
@@ -88,12 +89,19 @@ type service struct {
 	repo        Repository
 	obsStatus   ObservationStatusProvider
 	pointGetter func(ctx context.Context, pointID int64) (PointSnapshot, error)
+	audit       audit.Recorder
 }
 
 // NewService 构造任务服务。
-// obs 为任务点记录状态提供者；pointGetter 由 site 模块提供（派发时读取点位当前信息）。
-func NewService(repo Repository, obs ObservationStatusProvider, pointGetter func(ctx context.Context, pointID int64) (PointSnapshot, error)) Service {
-	return &service{repo: repo, obsStatus: obs, pointGetter: pointGetter}
+// obs 为任务点记录状态提供者；pointGetter 由 site 模块提供（派发时读取点位当前信息）；
+// rec 为审计记录器（可为 no-op，审计失败不阻断业务）。
+func NewService(
+	repo Repository,
+	obs ObservationStatusProvider,
+	pointGetter func(ctx context.Context, pointID int64) (PointSnapshot, error),
+	rec audit.Recorder,
+) Service {
+	return &service{repo: repo, obsStatus: obs, pointGetter: pointGetter, audit: rec}
 }
 
 func (s *service) Create(ctx context.Context, actor *middleware.Actor, in CreateInput) (*Task, error) {
@@ -173,6 +181,15 @@ func (s *service) Dispatch(ctx context.Context, actor *middleware.Actor, taskID,
 	t.Status = StatusAssigned
 	t.Revision++
 	t.DispatchedAt = &now
+	s.audit.Record(ctx, &audit.Event{
+		EntityType: "task",
+		EntityID:   t.ID,
+		Action:     "dispatch",
+		ActorID:    actor.UserID,
+		OldStatus:  StatusDraft,
+		NewStatus:  StatusAssigned,
+		Revision:   &t.Revision,
+	})
 	return t, nil
 }
 
@@ -235,6 +252,15 @@ func (s *service) SubmitTask(ctx context.Context, actor *middleware.Actor, taskI
 	}
 	t.Status = StatusPendingReview
 	t.Revision++
+	s.audit.Record(ctx, &audit.Event{
+		EntityType: "task",
+		EntityID:   t.ID,
+		Action:     "submit_task",
+		ActorID:    actor.UserID,
+		OldStatus:  StatusAssigned,
+		NewStatus:  StatusPendingReview,
+		Revision:   &t.Revision,
+	})
 	return t, nil
 }
 
@@ -280,7 +306,16 @@ func (s *service) Complete(ctx context.Context, actor *middleware.Actor, taskID,
 	t.Status = StatusCompleted
 	t.Revision++
 	t.CompletedAt = &now
-	_ = finalNote // TODO(init): finalNote 写入审计事件。
+	s.audit.Record(ctx, &audit.Event{
+		EntityType: "task",
+		EntityID:   t.ID,
+		Action:     "complete",
+		ActorID:    actor.UserID,
+		OldStatus:  StatusPendingReview,
+		NewStatus:  StatusCompleted,
+		Revision:   &t.Revision,
+		Reason:     finalNote,
+	})
 	return t, nil
 }
 

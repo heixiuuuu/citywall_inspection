@@ -17,6 +17,7 @@ import (
 
 	"citywall/server/internal/infrastructure/recognizer"
 	"citywall/server/internal/middleware"
+	"citywall/server/internal/module/audit"
 	"citywall/server/internal/module/task"
 )
 
@@ -134,11 +135,13 @@ type service struct {
 	taskPoints       TaskPointRepository
 	taskLife         TaskLifecycle
 	taskPointLister  TaskPointLister
+	audit            audit.Recorder
 }
 
 // NewService 构造现场记录服务。
-func NewService(repo Repository, st Storage, rc RecognizerClient, tp TaskPointRepository, tl TaskLifecycle, lister TaskPointLister) Service {
-	return &service{repo: repo, storage: st, recognizer: rc, taskPoints: tp, taskLife: tl, taskPointLister: lister}
+// rec 为审计记录器（可为 no-op，审计失败不阻断业务）。
+func NewService(repo Repository, st Storage, rc RecognizerClient, tp TaskPointRepository, tl TaskLifecycle, lister TaskPointLister, rec audit.Recorder) Service {
+	return &service{repo: repo, storage: st, recognizer: rc, taskPoints: tp, taskLife: tl, taskPointLister: lister, audit: rec}
 }
 
 func (s *service) Create(ctx context.Context, actor *middleware.Actor, source string, taskPointID *int64, locationText string) (*Observation, error) {
@@ -492,6 +495,15 @@ func (s *service) Submit(ctx context.Context, actor *middleware.Actor, obsID, re
 			_ = s.taskLife.MarkInProgressIfAssigned(ctx, tp.TaskID)
 		}
 	}
+	s.audit.Record(ctx, &audit.Event{
+		EntityType: "observation",
+		EntityID:   o.ID,
+		Action:     "submit",
+		ActorID:    actor.UserID,
+		OldStatus:  ObsDraft,
+		NewStatus:  ObsSubmitted,
+		Revision:   &o.Revision,
+	})
 	return o, nil
 }
 
@@ -557,6 +569,16 @@ func (s *service) Review(ctx context.Context, actor *middleware.Actor, obsID, re
 	o.Status = newStatus
 	o.Revision++
 	o.ReviewedAt = &now
+	s.audit.Record(ctx, &audit.Event{
+		EntityType: "observation",
+		EntityID:   o.ID,
+		Action:     "review",
+		ActorID:    actor.UserID,
+		OldStatus:  ObsSubmitted,
+		NewStatus:  newStatus,
+		Revision:   &o.Revision,
+		Reason:     in.Reason,
+	})
 	return o, nil
 }
 

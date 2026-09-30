@@ -46,3 +46,4 @@ data/storage/
 *.swp
 .DS_Store
 Thumbs.db
+server.pid

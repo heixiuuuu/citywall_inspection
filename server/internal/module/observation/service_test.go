@@ -8,6 +8,7 @@ import (
 
 	"citywall/server/internal/infrastructure/recognizer"
 	"citywall/server/internal/middleware"
+	"citywall/server/internal/module/audit"
 	"citywall/server/internal/module/task"
 )
 
@@ -245,6 +246,7 @@ func newObsService() (*service, *fakeObsRepo) {
 		taskPoints:      &fakeTaskPoint{points: points},
 		taskLife:        &fakeTaskPoint{points: points},
 		taskPointLister: &fakeTaskPoint{points: points},
+		audit:           audit.NewRecorder(nil),
 	}
 	return s, repo
 }

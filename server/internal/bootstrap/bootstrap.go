@@ -14,6 +14,7 @@ import (
 	"citywall/server/internal/infrastructure/database"
 	"citywall/server/internal/infrastructure/recognizer"
 	"citywall/server/internal/infrastructure/storage"
+	"citywall/server/internal/module/audit"
 	"citywall/server/internal/module/identity"
 	"citywall/server/internal/module/observation"
 	"citywall/server/internal/module/site"
@@ -60,9 +61,11 @@ func New(cfg *config.Config) (*App, error) {
 	obsRepo := observation.NewGORMRepository(db)
 
 	// Service 装配（依赖方向：task → 记录状态接口；observation → 任务点/生命周期接口；site → 点位快照读取）。
+	// 审计记录器：MySQL 就绪时落库，否则 no-op（dev 降级，审计失败不阻断业务）。
+	recorder := audit.NewRecorder(db)
 	identitySvc := identity.NewService(identityRepo, tm)
 	siteSvc := site.NewService(siteRepo)
-	obsSvc := observation.NewService(obsRepo, st, rc, taskRepo, taskRepo, taskRepo)
+	obsSvc := observation.NewService(obsRepo, st, rc, taskRepo, taskRepo, taskRepo, recorder)
 	taskSvc := task.NewService(taskRepo, obsSvc, func(ctx context.Context, pointID int64) (task.PointSnapshot, error) {
 		p, err := siteRepo.GetPoint(ctx, pointID)
 		if err != nil {
@@ -77,7 +80,7 @@ func New(cfg *config.Config) (*App, error) {
 			RadiusM:   p.RadiusM,
 			Hint:      p.LocationHint,
 		}, nil
-	})
+	}, recorder)
 
 	h := router.Handlers{
 		Identity:    api.NewIdentityHandler(identitySvc),

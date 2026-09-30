@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"citywall/server/internal/middleware"
+	"citywall/server/internal/module/audit"
 )
 
 // ---- fakes ----
@@ -140,7 +141,7 @@ func inspector() *middleware.Actor {
 func newService(f *fakeRepo, obs map[int64]string) Service {
 	return NewService(f, &fakeObsStatus{m: obs}, func(_ context.Context, id int64) (PointSnapshot, error) {
 		return PointSnapshot{PointID: id, Name: "P1", SegmentID: 1, Latitude: 1, Longitude: 1, RadiusM: 50, Hint: "hint"}, nil
-	})
+	}, audit.NewRecorder(nil))
 }
 
 func createTask(t *testing.T, svc Service, actor *middleware.Actor) int64 {
