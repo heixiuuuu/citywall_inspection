@@ -96,6 +96,20 @@ func (r *GORMRepository) UpdateStatus(ctx context.Context, id int64, fromRevisio
 	return res.RowsAffected, res.Error
 }
 
+// CancelTask 取消任务：仅非终态可取消，写入取消理由与时间；已取消的幂等返回影响行数 0（由 service 判断现状）。
+func (r *GORMRepository) CancelTask(ctx context.Context, id int64, fromRevision int64, reason string) (int64, error) {
+	res := r.db.WithContext(ctx).
+		Model(&Task{}).
+		Where("id = ? AND revision = ? AND status IN ?", id, fromRevision, []string{StatusDraft, StatusAssigned, StatusInProgress}).
+		Updates(map[string]any{
+			"status":        StatusCancelled,
+			"cancel_reason": reason,
+			"cancelled_at":  gorm.Expr("NOW()"),
+			"revision":      gorm.Expr("revision + 1"),
+		})
+	return res.RowsAffected, res.Error
+}
+
 func (r *GORMRepository) ListPoints(ctx context.Context, taskID int64) ([]TaskPoint, error) {
 	var pts []TaskPoint
 	return pts, r.db.WithContext(ctx).

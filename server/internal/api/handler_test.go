@@ -108,6 +108,9 @@ func (f *fakeTask) SubmitTask(_ context.Context, _ *middleware.Actor, id, _ int6
 func (f *fakeTask) Complete(_ context.Context, _ *middleware.Actor, id, _ int64, _ string) (*task.Task, error) {
 	return &task.Task{ID: id, Status: task.StatusCompleted, Revision: 4}, nil
 }
+func (f *fakeTask) Cancel(_ context.Context, _ *middleware.Actor, id, _ int64, _ string) (*task.Task, error) {
+	return &task.Task{ID: id, Status: task.StatusCancelled, Revision: 5}, nil
+}
 
 type fakeObs struct{ failWith error }
 

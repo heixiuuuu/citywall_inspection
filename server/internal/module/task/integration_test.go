@@ -207,6 +207,30 @@ func TestGORMListPageAndCount(t *testing.T) {
 	}
 }
 
+func TestGORMCancelTask(t *testing.T) {
+	db := integrationDB(t)
+	repo := newTxRepo(t, db)
+	ctx := context.Background()
+
+	tk := &Task{Title: "it-cancel", AssigneeID: 3, Status: StatusDraft, Revision: 1}
+	if err := repo.InsertTask(ctx, tk); err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+	n, err := repo.CancelTask(ctx, tk.ID, 1, "需求变更")
+	if err != nil || n != 1 {
+		t.Fatalf("cancel: n=%d err=%v", n, err)
+	}
+	got, err := repo.GetByID(ctx, tk.ID)
+	if err != nil || got.Status != StatusCancelled || got.CancelReason != "需求变更" || got.CancelledAt == nil {
+		t.Fatalf("after cancel: %+v err=%v", got, err)
+	}
+	// 已取消（终态）重复取消 → 0 行。
+	n, err = repo.CancelTask(ctx, tk.ID, 1, "again")
+	if err != nil || n != 0 {
+		t.Fatalf("repeat cancel should hit 0: n=%d err=%v", n, err)
+	}
+}
+
 func TestGORMMarkInProgressOnlyWhenAssigned(t *testing.T) {
 	db := integrationDB(t)
 	repo := newTxRepo(t, db)

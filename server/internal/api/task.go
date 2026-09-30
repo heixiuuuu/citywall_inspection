@@ -151,6 +151,36 @@ func (h *TaskHandler) Complete(c *gin.Context) {
 	writeData(c, http.StatusOK, gin.H{"task": t})
 }
 
+type cancelTaskRequest struct {
+	Revision int64  `json:"revision" binding:"required"`
+	Reason   string `json:"reason" binding:"required"`
+}
+
+// Cancel 取消任务（管理员；非终态可取消，已取消幂等）。
+func (h *TaskHandler) Cancel(c *gin.Context) {
+	actor, ok := middleware.GetActor(c)
+	if !ok {
+		writeError(c, http.StatusUnauthorized, "UNAUTHORIZED", "not authenticated")
+		return
+	}
+	id, err := pathID(c)
+	if err != nil {
+		writeError(c, http.StatusBadRequest, "VALIDATION_ERROR", err.Error())
+		return
+	}
+	var req cancelTaskRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		writeError(c, http.StatusBadRequest, "VALIDATION_ERROR", err.Error())
+		return
+	}
+	t, err := h.service.Cancel(context.Background(), actor, id, req.Revision, req.Reason)
+	if err != nil {
+		writeErr(c, err)
+		return
+	}
+	writeData(c, http.StatusOK, gin.H{"task": t})
+}
+
 // idAndRevision 解析路径 id 与请求体 revision。
 func idAndRevision(c *gin.Context) (int64, int64, bool) {
 	id, err := pathID(c)

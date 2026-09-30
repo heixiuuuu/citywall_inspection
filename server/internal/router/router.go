@@ -51,6 +51,7 @@ func Router(h Handlers, tm *authn.TokenManager, reqIDHeader string) *gin.Engine 
 		taskGroup.GET("/:id", h.Task.Get)
 		taskGroup.POST("/:id/submit", h.Task.SubmitTask)
 		taskGroup.POST("/:id/complete", h.Task.Complete)
+		taskGroup.POST("/:id/cancel", h.Task.Cancel)
 
 		// 现场记录与图片。
 		obsGroup := v1.Group("/observations", authed)

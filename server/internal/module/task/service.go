@@ -56,6 +56,7 @@ type Repository interface {
 	ListPage(ctx context.Context, actorID int64, isAdmin bool, status string, limit, offset int) ([]Task, error)
 	CountTasks(ctx context.Context, actorID int64, isAdmin bool, status string) (int64, error)
 	UpdateStatus(ctx context.Context, id int64, fromRevision int64, status string) (int64, error)
+	CancelTask(ctx context.Context, id int64, fromRevision int64, reason string) (int64, error)
 	ListPoints(ctx context.Context, taskID int64) ([]TaskPoint, error)
 	FillPointSnapshots(ctx context.Context, taskID int64, snaps []PointSnapshot) error
 }
@@ -98,6 +99,8 @@ type Service interface {
 	SubmitTask(ctx context.Context, actor *middleware.Actor, taskID, revision int64) (*Task, error)
 	// Complete 完成任务：PENDING_REVIEW → COMPLETED（审核员）。
 	Complete(ctx context.Context, actor *middleware.Actor, taskID, revision int64, finalNote string) (*Task, error)
+	// Cancel 取消任务：DRAFT/ASSIGNED/IN_PROGRESS → CANCELLED（管理员；已取消幂等返回现状）。
+	Cancel(ctx context.Context, actor *middleware.Actor, taskID, revision int64, reason string) (*Task, error)
 }
 
 type service struct {
@@ -350,6 +353,53 @@ func (s *service) Complete(ctx context.Context, actor *middleware.Actor, taskID,
 		NewStatus:  StatusCompleted,
 		Revision:   &t.Revision,
 		Reason:     finalNote,
+	})
+	return t, nil
+}
+
+// Cancel 取消任务：仅管理员，非终态可取消；已取消且 revision 匹配时幂等返回现状。
+func (s *service) Cancel(ctx context.Context, actor *middleware.Actor, taskID, revision int64, reason string) (*Task, error) {
+	if !hasRole(actor, "ADMIN") {
+		return nil, ErrForbidden
+	}
+	t, err := s.repo.GetByID(ctx, taskID)
+	if err != nil {
+		return nil, ErrNotFound
+	}
+	// 幂等：已是 CANCELLED 且 revision 一致 → 直接返回现状。
+	if t.Status == StatusCancelled && t.Revision == revision {
+		return t, nil
+	}
+	switch t.Status {
+	case StatusDraft, StatusAssigned, StatusInProgress:
+	default:
+		return nil, ErrInvalidState
+	}
+	if t.Revision != revision {
+		return nil, ErrStatusConflict
+	}
+	oldStatus := t.Status
+	n, err := s.repo.CancelTask(ctx, taskID, revision, reason)
+	if err != nil {
+		return nil, err
+	}
+	if n == 0 {
+		return nil, ErrStatusConflict
+	}
+	now := time.Now().UTC()
+	t.Status = StatusCancelled
+	t.Revision++
+	t.CancelledAt = &now
+	t.CancelReason = reason
+	s.audit.Record(ctx, &audit.Event{
+		EntityType: "task",
+		EntityID:   t.ID,
+		Action:     "cancel",
+		ActorID:    actor.UserID,
+		OldStatus:  oldStatus,
+		NewStatus:  StatusCancelled,
+		Revision:   &t.Revision,
+		Reason:     reason,
 	})
 	return t, nil
 }

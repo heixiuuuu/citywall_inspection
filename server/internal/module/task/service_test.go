@@ -114,6 +114,19 @@ func (f *fakeRepo) UpdateStatus(_ context.Context, id int64, fromRevision int64,
 	return 1, nil
 }
 
+func (f *fakeRepo) CancelTask(_ context.Context, id int64, fromRevision int64, reason string) (int64, error) {
+	t, ok := f.tasks[id]
+	if !ok || t.Revision != fromRevision {
+		return 0, nil
+	}
+	switch t.Status {
+	case StatusDraft, StatusAssigned, StatusInProgress:
+	default:
+		return 0, nil
+	}
+	return 1, nil
+}
+
 func (f *fakeRepo) ListPoints(_ context.Context, taskID int64) ([]TaskPoint, error) {
 	return f.points[taskID], nil
 }
@@ -285,5 +298,47 @@ func TestCompleteLifecycle(t *testing.T) {
 	}
 	if tk.Status != StatusCompleted {
 		t.Fatalf("status = %s", tk.Status)
+	}
+}
+
+func TestCancelLifecycle(t *testing.T) {
+	f := newFakeRepo()
+	svc := newService(f, nil)
+	id := createTask(t, svc, admin())
+	// 非管理员无权取消。
+	if _, err := svc.Cancel(context.Background(), inspector(), id, 1, "no"); !errors.Is(err, ErrForbidden) {
+		t.Fatalf("expected forbidden, got %v", err)
+	}
+	// 管理员取消草稿任务。
+	tk, err := svc.Cancel(context.Background(), admin(), id, 1, "需求变更")
+	if err != nil {
+		t.Fatalf("cancel: %v", err)
+	}
+	if tk.Status != StatusCancelled || tk.Revision != 2 {
+		t.Fatalf("status=%s rev=%d", tk.Status, tk.Revision)
+	}
+	// 幂等：已取消且 revision 匹配 → 返回现状（不报错）。
+	tk2, err := svc.Cancel(context.Background(), admin(), id, 2, "重复取消")
+	if err != nil || tk2.Status != StatusCancelled {
+		t.Fatalf("idempotent cancel: %+v err=%v", tk2, err)
+	}
+}
+
+func TestCancelInvalidState(t *testing.T) {
+	f := newFakeRepo()
+	svc := newService(f, map[int64]string{1: "ACCEPTED", 2: "ACCEPTED"})
+	id := createTask(t, svc, admin())
+	_, _ = svc.Dispatch(context.Background(), admin(), id, 1)
+	_, _ = svc.SubmitTask(context.Background(), inspector(), id, 2)
+	// PENDING_REVIEW 不可取消。
+	if _, err := svc.Cancel(context.Background(), admin(), id, 3, "x"); !errors.Is(err, ErrInvalidState) {
+		t.Fatalf("expected invalid state, got %v", err)
+	}
+	// revision 冲突。
+	f2 := newFakeRepo()
+	svc2 := newService(f2, nil)
+	id2 := createTask(t, svc2, admin())
+	if _, err := svc2.Cancel(context.Background(), admin(), id2, 99, "x"); !errors.Is(err, ErrStatusConflict) {
+		t.Fatalf("expected conflict, got %v", err)
 	}
 }

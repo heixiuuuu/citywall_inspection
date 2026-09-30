@@ -343,6 +343,29 @@ paths:
           description: 完成成功
         '409':
           $ref: '#/components/responses/Conflict'
+  /api/v1/tasks/{id}/cancel:
+    post:
+      tags: [task]
+      summary: 取消任务（管理员；DRAFT/ASSIGNED/IN_PROGRESS → CANCELLED，已取消幂等返回现状）
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [revision, reason]
+              properties:
+                revision: { type: integer, example: 1 }
+                reason: { type: string, example: '需求变更' }
+      responses:
+        '200':
+          description: 取消成功（或已取消幂等返回）
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
 
   # ---------- 现场记录 ----------
   /api/v1/observations:
