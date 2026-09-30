@@ -15,7 +15,7 @@
       </el-tag>
     </div>
 
-    <el-table :data="filtered" v-loading="loading" stripe>
+    <el-table :data="tasks" v-loading="loading" stripe>
       <el-table-column prop="id" label="ID" width="64" />
       <el-table-column prop="title" label="标题" min-width="180" />
       <el-table-column label="状态" width="110">
@@ -28,14 +28,30 @@
         <template #default="{ row }">{{ row.due_at ? row.due_at.slice(0, 10) : '—' }}</template>
       </el-table-column>
       <el-table-column prop="revision" label="版本" width="70" />
-      <el-table-column label="操作" width="240" fixed="right">
+      <el-table-column label="操作" width="300" fixed="right">
         <template #default="{ row }">
           <el-button link type="primary" @click="openDetail(row)">详情</el-button>
           <el-button v-if="isAdmin && row.status === 'DRAFT'" link type="warning" @click="dispatch(row)">派发</el-button>
           <el-button v-if="canReview && row.status === 'PENDING_REVIEW'" link type="success" @click="complete(row)">完成</el-button>
+          <el-button
+            v-if="isAdmin && ['DRAFT', 'ASSIGNED', 'IN_PROGRESS'].includes(row.status)"
+            link
+            type="danger"
+            @click="cancel(row)"
+          >取消</el-button>
         </template>
       </el-table-column>
     </el-table>
+
+    <div class="pager">
+      <el-pagination
+        layout="prev, pager, next, total"
+        :total="total"
+        :page-size="pageSize"
+        :current-page="page"
+        @current-change="(p: number) => { page = p; load() }"
+      />
+    </div>
 
     <!-- 创建任务 -->
     <el-dialog v-model="createVisible" title="新建巡检任务" width="520">
@@ -94,9 +110,9 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { fetchTasks, createTask, fetchTask, dispatchTask, completeTask } from '@/shared/api/task'
+import { fetchTasks, createTask, fetchTask, dispatchTask, completeTask, cancelTask } from '@/shared/api/task'
 import { fetchPoints, type InspectionPoint } from '@/shared/api/site'
 
 const roles: string[] = JSON.parse(localStorage.getItem('city_wall_roles') ?? '[]')
@@ -115,10 +131,15 @@ const tasks = ref<any[]>([])
 const points = ref<InspectionPoint[]>([])
 const loading = ref(false)
 const activeStatus = ref('')
+const page = ref(1)
+const pageSize = 20
+const total = ref(0)
 
-const filtered = computed(() =>
-  activeStatus.value ? tasks.value.filter((t) => t.status === activeStatus.value) : tasks.value,
-)
+// 切换状态过滤时回到第一页并从服务端重新拉取。
+watch(activeStatus, () => {
+  page.value = 1
+  load()
+})
 
 const createVisible = ref(false)
 const creating = ref(false)
@@ -141,7 +162,13 @@ onMounted(() => {
 async function load() {
   loading.value = true
   try {
-    tasks.value = await fetchTasks()
+    const res = await fetchTasks({
+      status: activeStatus.value || undefined,
+      page: page.value,
+      page_size: pageSize,
+    })
+    tasks.value = res.tasks
+    total.value = res.total
   } catch {
     ElMessage.error('加载任务失败')
   } finally {
@@ -252,6 +279,26 @@ async function complete(row: any) {
     if (e !== 'cancel') ElMessage.error(e?.message || '操作失败')
   }
 }
+
+async function cancel(row: any) {
+  try {
+    const { value } = await ElMessageBox.prompt(
+      '填写取消原因（将写入任务与审计记录）',
+      `确认取消「${row.title}」？`,
+      {
+        type: 'warning',
+        inputType: 'textarea',
+        inputPlaceholder: '如：巡检计划调整，改期执行',
+        inputValidator: (v) => (v ? true : '取消原因必填'),
+      },
+    )
+    const t = await cancelTask(row.id, row.revision, value)
+    ElMessage.success(`任务已取消（版本 ${t.revision}）`)
+    load()
+  } catch (e: any) {
+    if (e !== 'cancel') ElMessage.error(e?.message || '操作失败')
+  }
+}
 </script>
 
 <style scoped>
@@ -268,6 +315,11 @@ async function complete(row: any) {
 }
 .tag-filter {
   cursor: pointer;
+}
+.pager {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 14px;
 }
 .subtitle {
   margin: 20px 0 10px;

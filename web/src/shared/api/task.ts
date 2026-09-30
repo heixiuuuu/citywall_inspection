@@ -21,6 +21,8 @@ export interface Task {
   revision: number
   dispatched_at: string | null
   completed_at: string | null
+  cancelled_at: string | null
+  cancel_reason: string | null
 }
 
 export interface TaskPoint {
@@ -44,9 +46,26 @@ export interface CreateTaskPayload {
   point_ids: number[]
 }
 
-export async function fetchTasks(): Promise<Task[]> {
-  const data = await request<{ tasks: Task[] }>('/tasks')
-  return data.tasks
+export interface TaskListParams {
+  status?: string
+  page?: number
+  page_size?: number
+}
+
+export interface TaskListResult {
+  tasks: Task[]
+  total: number
+  page: number
+  page_size: number
+}
+
+export async function fetchTasks(params: TaskListParams = {}): Promise<TaskListResult> {
+  const qs = new URLSearchParams()
+  if (params.status) qs.set('status', params.status)
+  qs.set('page', String(params.page ?? 1))
+  qs.set('page_size', String(params.page_size ?? 20))
+  const data = await request<TaskListResult>(`/tasks?${qs.toString()}`)
+  return data
 }
 
 export async function createTask(payload: CreateTaskPayload): Promise<Task> {
@@ -73,6 +92,14 @@ export async function completeTask(id: number, revision: number, finalNote?: str
   const data = await request<{ task: Task }>(`/tasks/${id}/complete`, {
     method: 'POST',
     body: JSON.stringify({ revision, final_note: finalNote ?? '' }),
+  })
+  return data.task
+}
+
+export async function cancelTask(id: number, revision: number, reason: string): Promise<Task> {
+  const data = await request<{ task: Task }>(`/tasks/${id}/cancel`, {
+    method: 'POST',
+    body: JSON.stringify({ revision, reason }),
   })
   return data.task
 }
