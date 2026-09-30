@@ -3,6 +3,8 @@ uvicorn[standard]>=0.30
 python-multipart>=0.0.9
 pydantic>=2.7
 Pillow>=10.3
+pytest>=8.0
+httpx>=0.27
 
 # 模型接入阶段按需追加（当前骨架使用固定响应验证契约）：
 # torch>=2.2
