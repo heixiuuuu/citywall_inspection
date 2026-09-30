@@ -39,7 +39,7 @@
   "auth": {
     "jwt_secret": "dev-only-secret-please-change",
     "token_ttl_hours": 72,
-    "wechat_app_id": "",
+    "wechat_app_id": "wx72b5ed580b73500a",
     "wechat_app_secret": ""
   },
   "upload": {
