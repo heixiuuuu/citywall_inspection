@@ -12,17 +12,17 @@ jobs:
   server:
     name: Server (Go)
     runs-on: ubuntu-latest
-    # 集成测试（GORM + 真实 MySQL）就绪后启用 service 容器：
-    # services:
-    #   mysql:
-    #     image: mysql:8.0
-    #     env:
-    #       MYSQL_ROOT_PASSWORD: root
-    #       MYSQL_DATABASE: city_wall
-    #     ports: ["3306:3306"]
-    #     options: >-
-    #       --health-cmd "mysqladmin ping -h localhost -proot"
-    #       --health-interval 10s --health-timeout 5s --health-retries 5
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: city_wall
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd "mysqladmin ping -h localhost -proot"
+          --health-interval 10s --health-timeout 5s --health-retries 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -40,6 +40,14 @@ jobs:
         env:
           GOPROXY: https://goproxy.cn,direct
         run: go test ./...
+      - name: Prepare test database
+        run: docker exec "${{ job.services.mysql.id }}" mysql -uroot -proot -e "CREATE DATABASE IF NOT EXISTS city_wall_test CHARACTER SET utf8mb4;"
+      - name: Integration tests (GORM + MySQL)
+        working-directory: server
+        env:
+          GOPROXY: https://goproxy.cn,direct
+          CITY_WALL_TEST_DSN: "root:root@tcp(127.0.0.1:3306)/city_wall_test?charset=utf8mb4&parseTime=True&loc=UTC&multiStatements=true"
+        run: go test -tags integration ./internal/module/task/ ./internal/module/observation/
 
   recognizer:
     name: Recognizer (Python)
