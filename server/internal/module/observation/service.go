@@ -13,6 +13,7 @@ import (
 	_ "image/png"
 	"io"
 	"os"
+	"sync"
 	"time"
 
 	"citywall/server/internal/infrastructure/recognizer"
@@ -116,7 +117,7 @@ type ReviewInput struct {
 type Service interface {
 	Create(ctx context.Context, actor *middleware.Actor, source string, taskPointID *int64, locationText string) (*Observation, error)
 	Update(ctx context.Context, actor *middleware.Actor, id, revision int64, in PatchInput) (*Observation, error)
-	AddImage(ctx context.Context, actor *middleware.Actor, obsID int64, mediaType string, data []byte, role string) (*Image, error)
+	AddImage(ctx context.Context, actor *middleware.Actor, obsID int64, mediaType string, data []byte, role string, idempotencyKey string) (*Image, error)
 	GetImageContent(ctx context.Context, actor *middleware.Actor, imageID int64) (*Image, io.ReadCloser, error)
 	Recognize(ctx context.Context, actor *middleware.Actor, imageID int64, requestID string) (*RecognitionAttempt, []Detection, error)
 	SaveConclusion(ctx context.Context, actor *middleware.Actor, obsID, revision int64, in ConclusionInput) (*ConclusionRevision, error)
@@ -138,12 +139,21 @@ type service struct {
 	taskLife         TaskLifecycle
 	taskPointLister  TaskPointLister
 	audit            audit.Recorder
+	idemMu           sync.Mutex
+	idemResults      map[string]idemResult
+}
+
+// idemResult 幂等键对应的首次执行结果（图片或错误）。
+type idemResult struct {
+	img *Image
+	err error
 }
 
 // NewService 构造现场记录服务。
 // rec 为审计记录器（可为 no-op，审计失败不阻断业务）。
 func NewService(repo Repository, st Storage, rc RecognizerClient, tp TaskPointRepository, tl TaskLifecycle, lister TaskPointLister, rec audit.Recorder) Service {
-	return &service{repo: repo, storage: st, recognizer: rc, taskPoints: tp, taskLife: tl, taskPointLister: lister, audit: rec}
+	return &service{repo: repo, storage: st, recognizer: rc, taskPoints: tp, taskLife: tl, taskPointLister: lister, audit: rec,
+		idemResults: make(map[string]idemResult)}
 }
 
 func (s *service) Create(ctx context.Context, actor *middleware.Actor, source string, taskPointID *int64, locationText string) (*Observation, error) {
@@ -224,7 +234,16 @@ func (s *service) Update(ctx context.Context, actor *middleware.Actor, id, revis
 	return o, nil
 }
 
-func (s *service) AddImage(ctx context.Context, actor *middleware.Actor, obsID int64, mediaType string, data []byte, role string) (*Image, error) {
+func (s *service) AddImage(ctx context.Context, actor *middleware.Actor, obsID int64, mediaType string, data []byte, role string, idempotencyKey string) (*Image, error) {
+	// 幂等键：同键重放直接返回首次结果（含首次错误），不产生重复图片/记录。
+	if idempotencyKey != "" {
+		s.idemMu.Lock()
+		if cached, ok := s.idemResults[idempotencyKey]; ok {
+			s.idemMu.Unlock()
+			return cached.img, cached.err
+		}
+		s.idemMu.Unlock()
+	}
 	o, err := s.repo.GetByID(ctx, obsID)
 	if err != nil {
 		return nil, ErrNotFound
@@ -255,6 +274,11 @@ func (s *service) AddImage(ctx context.Context, actor *middleware.Actor, obsID i
 	}
 	if err := s.repo.LinkImage(ctx, obsID, img.ID, role); err != nil {
 		return nil, err
+	}
+	if idempotencyKey != "" {
+		s.idemMu.Lock()
+		s.idemResults[idempotencyKey] = idemResult{img: img}
+		s.idemMu.Unlock()
 	}
 	return img, nil
 }

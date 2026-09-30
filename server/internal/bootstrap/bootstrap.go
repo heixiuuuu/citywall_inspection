@@ -86,7 +86,7 @@ func New(cfg *config.Config) (*App, error) {
 		Identity:    api.NewIdentityHandler(identitySvc),
 		Site:        api.NewSiteHandler(siteSvc),
 		Task:        api.NewTaskHandler(taskSvc),
-		Observation: api.NewObservationHandler(obsSvc),
+		Observation: api.NewObservationHandler(obsSvc, cfg.Upload.IdempotencyKeyHeader),
 	}
 	app.engine = router.Router(h, tm, cfg.Upload.RequestIDHeader)
 	registerReadyz(app)

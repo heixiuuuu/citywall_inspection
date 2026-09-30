@@ -283,6 +283,7 @@ func newObsService() (*service, *fakeObsRepo) {
 		taskLife:        &fakeTaskPoint{points: points},
 		taskPointLister: &fakeTaskPoint{points: points},
 		audit:           audit.NewRecorder(nil),
+		idemResults:     make(map[string]idemResult),
 	}
 	return s, repo
 }
@@ -335,7 +336,7 @@ func TestSubmitRequiresOverviewAndConclusion(t *testing.T) {
 		t.Fatalf("expected missing overview, got %v", err)
 	}
 	// 有概览图但无结论（AddImage 不 bump revision）。
-	_, _ = s.AddImage(context.Background(), inspector(), o.ID, "image/png", pngBytes(), ImageRoleOverview)
+	_, _ = s.AddImage(context.Background(), inspector(), o.ID, "image/png", pngBytes(), ImageRoleOverview, "")
 	if _, err := s.Submit(context.Background(), inspector(), o.ID, 1); !errors.Is(err, ErrMissingConclusion) {
 		t.Fatalf("expected missing conclusion, got %v", err)
 	}
@@ -359,7 +360,7 @@ func TestReviewRules(t *testing.T) {
 	s, _ := newObsService()
 	tp := int64(1)
 	o, _ := s.Create(context.Background(), inspector(), SourceTask, &tp, "loc")
-	_, _ = s.AddImage(context.Background(), inspector(), o.ID, "image/png", pngBytes(), ImageRoleOverview)
+	_, _ = s.AddImage(context.Background(), inspector(), o.ID, "image/png", pngBytes(), ImageRoleOverview, "")
 	_, _ = s.SaveConclusion(context.Background(), inspector(), o.ID, 1, ConclusionInput{Outcome: OutcomeNormal})
 	_, _ = s.Submit(context.Background(), inspector(), o.ID, 2)
 
@@ -393,7 +394,7 @@ func TestRecognizeFailureKeepsRecord(t *testing.T) {
 	s, repo := newObsService()
 	tp := int64(1)
 	o, _ := s.Create(context.Background(), inspector(), SourceTask, &tp, "loc")
-	img, _ := s.AddImage(context.Background(), inspector(), o.ID, "image/png", pngBytes(), ImageRoleOverview)
+	img, _ := s.AddImage(context.Background(), inspector(), o.ID, "image/png", pngBytes(), ImageRoleOverview, "")
 	// 模拟识别服务不可用。
 	s.recognizer = &fakeRecognizer{err: recognizer.ErrTimeout}
 	attempt, dets, err := s.Recognize(context.Background(), inspector(), img.ID, "req1")
@@ -415,7 +416,7 @@ func TestRecognizeSuccessWithDetections(t *testing.T) {
 	s, _ := newObsService()
 	tp := int64(1)
 	o, _ := s.Create(context.Background(), inspector(), SourceTask, &tp, "loc")
-	img, _ := s.AddImage(context.Background(), inspector(), o.ID, "image/png", pngBytes(), ImageRoleOverview)
+	img, _ := s.AddImage(context.Background(), inspector(), o.ID, "image/png", pngBytes(), ImageRoleOverview, "")
 	s.recognizer = &fakeRecognizer{res: &recognizer.Result{
 		ModelVersion: "yolo_baseline_001",
 		Detections: []recognizer.Detection{
@@ -438,7 +439,7 @@ func TestGetImageContentForbiddenForOthers(t *testing.T) {
 	s, _ := newObsService()
 	tp := int64(1)
 	o, _ := s.Create(context.Background(), inspector(), SourceTask, &tp, "loc")
-	img, _ := s.AddImage(context.Background(), inspector(), o.ID, "image/png", pngBytes(), ImageRoleOverview)
+	img, _ := s.AddImage(context.Background(), inspector(), o.ID, "image/png", pngBytes(), ImageRoleOverview, "")
 	// 其他巡检员无权访问。
 	other := &middleware.Actor{UserID: 99, Roles: []string{"INSPECTOR"}}
 	if _, _, err := s.GetImageContent(context.Background(), other, img.ID); !errors.Is(err, ErrForbidden) {
@@ -458,10 +459,10 @@ func TestListImages(t *testing.T) {
 	s, _ := newObsService()
 	tp := int64(1)
 	o, _ := s.Create(context.Background(), inspector(), SourceTask, &tp, "loc")
-	if _, err := s.AddImage(context.Background(), inspector(), o.ID, "image/png", pngBytes(), ImageRoleOverview); err != nil {
+	if _, err := s.AddImage(context.Background(), inspector(), o.ID, "image/png", pngBytes(), ImageRoleOverview, ""); err != nil {
 		t.Fatalf("add overview: %v", err)
 	}
-	if _, err := s.AddImage(context.Background(), inspector(), o.ID, "image/png", pngBytes(), ImageRoleDetail); err != nil {
+	if _, err := s.AddImage(context.Background(), inspector(), o.ID, "image/png", pngBytes(), ImageRoleDetail, ""); err != nil {
 		t.Fatalf("add detail: %v", err)
 	}
 
@@ -495,6 +496,36 @@ func TestListImages(t *testing.T) {
 	// 404：不存在记录。
 	if _, err := s.ListImages(context.Background(), reviewer(), 99999); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("expected not found, got %v", err)
+	}
+}
+
+func TestAddImageIdempotency(t *testing.T) {
+	s, repo := newObsService()
+	tp := int64(1)
+	o, _ := s.Create(context.Background(), inspector(), SourceTask, &tp, "loc")
+
+	// 同键重放返回首次结果，不产生重复图片。
+	img1, err := s.AddImage(context.Background(), inspector(), o.ID, "image/png", pngBytes(), ImageRoleOverview, "idem-key-1")
+	if err != nil {
+		t.Fatalf("first upload: %v", err)
+	}
+	img2, err := s.AddImage(context.Background(), inspector(), o.ID, "image/png", pngBytes(), ImageRoleOverview, "idem-key-1")
+	if err != nil {
+		t.Fatalf("replay: %v", err)
+	}
+	if img1.ID != img2.ID {
+		t.Fatalf("idempotency broken: id1=%d id2=%d", img1.ID, img2.ID)
+	}
+	// 不同键正常产生新图片。
+	img3, err := s.AddImage(context.Background(), inspector(), o.ID, "image/png", pngBytes(), ImageRoleOverview, "idem-key-2")
+	if err != nil {
+		t.Fatalf("second key: %v", err)
+	}
+	if img3.ID == img1.ID {
+		t.Fatalf("different key must create new image")
+	}
+	if len(repo.images) != 2 {
+		t.Fatalf("images = %d, want 2", len(repo.images))
 	}
 }
 

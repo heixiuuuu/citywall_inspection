@@ -123,7 +123,7 @@ func (f *fakeObs) Create(_ context.Context, _ *middleware.Actor, source string, 
 func (f *fakeObs) Update(_ context.Context, _ *middleware.Actor, id, _ int64, _ observation.PatchInput) (*observation.Observation, error) {
 	return &observation.Observation{ID: id, Status: observation.ObsDraft, Revision: 2}, nil
 }
-func (f *fakeObs) AddImage(_ context.Context, _ *middleware.Actor, _ int64, mediaType string, _ []byte, _ string) (*observation.Image, error) {
+func (f *fakeObs) AddImage(_ context.Context, _ *middleware.Actor, _ int64, mediaType string, _ []byte, _ string, _ string) (*observation.Image, error) {
 	return &observation.Image{ID: 60, MediaType: mediaType, ByteSize: 10}, nil
 }
 func (f *fakeObs) GetImageContent(_ context.Context, _ *middleware.Actor, _ int64) (*observation.Image, io.ReadCloser, error) {
@@ -166,7 +166,7 @@ func newTestServer(failTask, failObs error) (*httptest.Server, *authn.TokenManag
 		Identity:    api.NewIdentityHandler(fakeIdentity{}),
 		Site:        api.NewSiteHandler(fakeSite{}),
 		Task:        api.NewTaskHandler(&fakeTask{failWith: failTask}),
-		Observation: api.NewObservationHandler(&fakeObs{failWith: failObs}),
+		Observation: api.NewObservationHandler(&fakeObs{failWith: failObs}, "Idempotency-Key"),
 	}
 	engine := router.Router(h, tm, "X-Request-ID")
 	srv := httptest.NewServer(engine)

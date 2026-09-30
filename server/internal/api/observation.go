@@ -12,12 +12,14 @@ import (
 
 // ObservationHandler 现场记录相关接口。
 type ObservationHandler struct {
-	service observation.Service
+	service        observation.Service
+	idemHeaderName string
 }
 
 // NewObservationHandler 构造现场记录 Handler。
-func NewObservationHandler(svc observation.Service) *ObservationHandler {
-	return &ObservationHandler{service: svc}
+// idempotencyKeyHeader 为上传幂等键请求头名（可为空：不启用幂等）。
+func NewObservationHandler(svc observation.Service, idempotencyKeyHeader string) *ObservationHandler {
+	return &ObservationHandler{service: svc, idemHeaderName: idempotencyKeyHeader}
 }
 
 type createObservationRequest struct {
@@ -108,7 +110,11 @@ func (h *ObservationHandler) AddImage(c *gin.Context) {
 		return
 	}
 	mediaType := detectMediaType(fileHeader.Header.Get("Content-Type"))
-	img, err := h.service.AddImage(context.Background(), actor, id, mediaType, buf, role)
+	var idemKey string
+	if h.idemHeaderName != "" {
+		idemKey = c.GetHeader(h.idemHeaderName)
+	}
+	img, err := h.service.AddImage(context.Background(), actor, id, mediaType, buf, role, idemKey)
 	if err != nil {
 		writeErr(c, err)
 		return

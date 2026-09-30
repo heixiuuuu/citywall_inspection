@@ -478,9 +478,10 @@ paths:
           $ref: '#/components/responses/NotFound'
     post:
       tags: [observation]
-      summary: 上传现场图片（multipart/form-data）
+      summary: 上传现场图片（multipart/form-data；支持 Idempotency-Key 幂等重放）
       parameters:
         - { name: id, in: path, required: true, schema: { type: integer } }
+        - { name: Idempotency-Key, in: header, required: false, description: 同键重放返回首次结果，不产生重复图片, schema: { type: string } }
       requestBody:
         required: true
         content:
