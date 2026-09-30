@@ -62,19 +62,24 @@ func (h *TaskHandler) Dispatch(c *gin.Context) {
 	writeData(c, http.StatusOK, gin.H{"task": t})
 }
 
-// List 任务列表（按权限过滤）。
+// List 任务列表（按权限过滤，支持 status/page/page_size）。
 func (h *TaskHandler) List(c *gin.Context) {
 	actor, ok := middleware.GetActor(c)
 	if !ok {
 		writeError(c, http.StatusUnauthorized, "UNAUTHORIZED", "not authenticated")
 		return
 	}
-	tasks, err := h.service.List(context.Background(), actor)
+	in := task.ListInput{
+		Status:   c.Query("status"),
+		Page:     queryInt(c, "page", 1),
+		PageSize: queryInt(c, "page_size", 20),
+	}
+	res, err := h.service.List(context.Background(), actor, in)
 	if err != nil {
 		writeErr(c, err)
 		return
 	}
-	writeData(c, http.StatusOK, gin.H{"tasks": tasks})
+	writeData(c, http.StatusOK, gin.H{"tasks": res.Tasks, "total": res.Total, "page": in.Page, "page_size": in.PageSize})
 }
 
 // Get 任务详情与任务点。
@@ -165,4 +170,17 @@ func idAndRevision(c *gin.Context) (int64, int64, bool) {
 
 func pathID(c *gin.Context) (int64, error) {
 	return strconv.ParseInt(c.Param("id"), 10, 64)
+}
+
+// queryInt 读取查询参数整数，缺失或非法时返回默认值。
+func queryInt(c *gin.Context, key string, def int) int {
+	raw := c.Query(key)
+	if raw == "" {
+		return def
+	}
+	v, err := strconv.Atoi(raw)
+	if err != nil || v < 1 {
+		return def
+	}
+	return v
 }

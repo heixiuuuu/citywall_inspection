@@ -96,8 +96,8 @@ func (f *fakeTask) Dispatch(_ context.Context, _ *middleware.Actor, id, _ int64)
 	}
 	return &task.Task{ID: id, Status: task.StatusAssigned, Revision: 2}, nil
 }
-func (f *fakeTask) List(_ context.Context, _ *middleware.Actor) ([]task.Task, error) {
-	return []task.Task{{ID: 10, Title: "t1", Status: task.StatusAssigned}}, nil
+func (f *fakeTask) List(_ context.Context, _ *middleware.Actor, _ task.ListInput) (*task.ListResult, error) {
+	return &task.ListResult{Tasks: []task.Task{{ID: 10, Title: "t1", Status: task.StatusAssigned}}, Total: 1}, nil
 }
 func (f *fakeTask) Get(_ context.Context, _ *middleware.Actor, id int64) (*task.Task, []task.TaskPoint, error) {
 	return &task.Task{ID: id, Title: "t1", Status: task.StatusAssigned}, []task.TaskPoint{{ID: 1, TaskID: id, PointID: 100}}, nil

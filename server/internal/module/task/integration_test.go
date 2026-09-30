@@ -175,6 +175,38 @@ func TestGORMListByActorFilter(t *testing.T) {
 	}
 }
 
+func TestGORMListPageAndCount(t *testing.T) {
+	db := integrationDB(t)
+	repo := newTxRepo(t, db)
+	ctx := context.Background()
+
+	for i := 0; i < 5; i++ {
+		st := StatusDraft
+		if i%2 == 1 {
+			st = StatusAssigned
+		}
+		_ = repo.InsertTask(ctx, &Task{Title: "pg", AssigneeID: 3, Status: st, Revision: 1})
+	}
+	// 分页第 2 页（page=2, size=2 → offset=2, limit=2）。
+	page2, err := repo.ListPage(ctx, 3, true, "", 2, 2)
+	if err != nil || len(page2) != 2 {
+		t.Fatalf("page2: len=%d err=%v", len(page2), err)
+	}
+	// 状态过滤：ASSIGNED 共 2 条。
+	assigned, err := repo.ListPage(ctx, 3, true, StatusAssigned, 0, 0)
+	if err != nil || len(assigned) != 2 {
+		t.Fatalf("assigned: len=%d err=%v", len(assigned), err)
+	}
+	total, err := repo.CountTasks(ctx, 3, true, StatusAssigned)
+	if err != nil || total != 2 {
+		t.Fatalf("count assigned: %d err=%v", total, err)
+	}
+	totalAll, err := repo.CountTasks(ctx, 3, true, "")
+	if err != nil || totalAll != 5 {
+		t.Fatalf("count all: %d err=%v", totalAll, err)
+	}
+}
+
 func TestGORMMarkInProgressOnlyWhenAssigned(t *testing.T) {
 	db := integrationDB(t)
 	repo := newTxRepo(t, db)

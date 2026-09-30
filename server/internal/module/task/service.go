@@ -53,6 +53,8 @@ type Repository interface {
 	InsertTaskPoints(ctx context.Context, taskID int64, pointIDs []int64) error
 	GetByID(ctx context.Context, id int64) (*Task, error)
 	ListByActor(ctx context.Context, actorID int64, isAdmin bool) ([]Task, error)
+	ListPage(ctx context.Context, actorID int64, isAdmin bool, status string, limit, offset int) ([]Task, error)
+	CountTasks(ctx context.Context, actorID int64, isAdmin bool, status string) (int64, error)
 	UpdateStatus(ctx context.Context, id int64, fromRevision int64, status string) (int64, error)
 	ListPoints(ctx context.Context, taskID int64) ([]TaskPoint, error)
 	FillPointSnapshots(ctx context.Context, taskID int64, snaps []PointSnapshot) error
@@ -69,14 +71,27 @@ type PointSnapshot struct {
 	Hint      string
 }
 
+// ListInput 列表查询条件。
+type ListInput struct {
+	Status   string
+	Page     int
+	PageSize int
+}
+
+// ListResult 分页列表结果。
+type ListResult struct {
+	Tasks []Task
+	Total int64
+}
+
 // Service 任务业务规则。
 type Service interface {
 	// Create 创建草稿任务（管理员）。
 	Create(ctx context.Context, actor *middleware.Actor, in CreateInput) (*Task, error)
 	// Dispatch 派发任务：DRAFT → ASSIGNED，写点位快照（管理员）。
 	Dispatch(ctx context.Context, actor *middleware.Actor, taskID, revision int64) (*Task, error)
-	// List 按权限返回任务列表。
-	List(ctx context.Context, actor *middleware.Actor) ([]Task, error)
+	// List 按权限返回任务列表（支持状态过滤 + 分页）。
+	List(ctx context.Context, actor *middleware.Actor, in ListInput) (*ListResult, error)
 	// Get 返回任务与任务点。
 	Get(ctx context.Context, actor *middleware.Actor, id int64) (*Task, []TaskPoint, error)
 	// SubmitTask 提交整任务：ASSIGNED/IN_PROGRESS → PENDING_REVIEW（负责人）。
@@ -193,8 +208,28 @@ func (s *service) Dispatch(ctx context.Context, actor *middleware.Actor, taskID,
 	return t, nil
 }
 
-func (s *service) List(ctx context.Context, actor *middleware.Actor) ([]Task, error) {
-	return s.repo.ListByActor(ctx, actor.UserID, hasRole(actor, "ADMIN") || hasRole(actor, "REVIEWER"))
+func (s *service) List(ctx context.Context, actor *middleware.Actor, in ListInput) (*ListResult, error) {
+	isAdmin := hasRole(actor, "ADMIN") || hasRole(actor, "REVIEWER")
+	page, pageSize := in.Page, in.PageSize
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 {
+		pageSize = 20
+	}
+	if pageSize > 100 {
+		pageSize = 100
+	}
+	limit, offset := pageSize, (page-1)*pageSize
+	tasks, err := s.repo.ListPage(ctx, actor.UserID, isAdmin, in.Status, limit, offset)
+	if err != nil {
+		return nil, err
+	}
+	total, err := s.repo.CountTasks(ctx, actor.UserID, isAdmin, in.Status)
+	if err != nil {
+		return nil, err
+	}
+	return &ListResult{Tasks: tasks, Total: total}, nil
 }
 
 func (s *service) Get(ctx context.Context, actor *middleware.Actor, id int64) (*Task, []TaskPoint, error) {

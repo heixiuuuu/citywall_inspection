@@ -68,6 +68,43 @@ func (f *fakeRepo) ListByActor(_ context.Context, actorID int64, isAdmin bool) (
 	return out, nil
 }
 
+func (f *fakeRepo) ListPage(_ context.Context, actorID int64, isAdmin bool, status string, limit, offset int) ([]Task, error) {
+	var out []Task
+	for _, t := range f.tasks {
+		if !(isAdmin || t.AssigneeID == actorID) {
+			continue
+		}
+		if status != "" && t.Status != status {
+			continue
+		}
+		out = append(out, *t)
+	}
+	if limit <= 0 {
+		return out, nil
+	}
+	if offset > len(out) {
+		return nil, nil
+	}
+	if offset+limit > len(out) {
+		limit = len(out) - offset
+	}
+	return out[offset : offset+limit], nil
+}
+
+func (f *fakeRepo) CountTasks(_ context.Context, actorID int64, isAdmin bool, status string) (int64, error) {
+	var n int64
+	for _, t := range f.tasks {
+		if !(isAdmin || t.AssigneeID == actorID) {
+			continue
+		}
+		if status != "" && t.Status != status {
+			continue
+		}
+		n++
+	}
+	return n, nil
+}
+
 func (f *fakeRepo) UpdateStatus(_ context.Context, id int64, fromRevision int64, status string) (int64, error) {
 	t, ok := f.tasks[id]
 	if !ok || t.Revision != fromRevision {

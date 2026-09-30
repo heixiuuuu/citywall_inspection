@@ -53,6 +53,38 @@ func (r *GORMRepository) ListByActor(ctx context.Context, actorID int64, isAdmin
 	return tasks, q.Find(&tasks).Error
 }
 
+// ListPage 分页 + 状态过滤查询（offset/limit 为 0 时不分页）。
+func (r *GORMRepository) ListPage(ctx context.Context, actorID int64, isAdmin bool, status string, limit, offset int) ([]Task, error) {
+	var tasks []Task
+	q := r.db.WithContext(ctx).Order("created_at DESC")
+	if !isAdmin {
+		q = q.Where("assignee_id = ?", actorID)
+	}
+	if status != "" {
+		q = q.Where("status = ?", status)
+	}
+	if limit > 0 {
+		q = q.Limit(limit)
+		if offset > 0 {
+			q = q.Offset(offset)
+		}
+	}
+	return tasks, q.Find(&tasks).Error
+}
+
+// CountTasks 统计任务数（与 ListPage 同一过滤条件）。
+func (r *GORMRepository) CountTasks(ctx context.Context, actorID int64, isAdmin bool, status string) (int64, error) {
+	var total int64
+	q := r.db.WithContext(ctx).Model(&Task{})
+	if !isAdmin {
+		q = q.Where("assignee_id = ?", actorID)
+	}
+	if status != "" {
+		q = q.Where("status = ?", status)
+	}
+	return total, q.Count(&total).Error
+}
+
 func (r *GORMRepository) UpdateStatus(ctx context.Context, id int64, fromRevision int64, status string) (int64, error) {
 	res := r.db.WithContext(ctx).
 		Model(&Task{}).
