@@ -63,7 +63,7 @@ func New(cfg *config.Config) (*App, error) {
 	// Service 装配（依赖方向：task → 记录状态接口；observation → 任务点/生命周期接口；site → 点位快照读取）。
 	// 审计记录器：MySQL 就绪时落库，否则 no-op（dev 降级，审计失败不阻断业务）。
 	recorder := audit.NewRecorder(db)
-	identitySvc := identity.NewService(identityRepo, tm)
+	identitySvc := identity.NewService(identityRepo, tm, recorder)
 	siteSvc := site.NewService(siteRepo)
 	obsSvc := observation.NewService(obsRepo, st, rc, taskRepo, taskRepo, taskRepo, recorder)
 	taskSvc := task.NewService(taskRepo, obsSvc, func(ctx context.Context, pointID int64) (task.PointSnapshot, error) {

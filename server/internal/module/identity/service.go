@@ -10,6 +10,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 
 	"citywall/server/internal/authn"
+	"citywall/server/internal/module/audit"
 )
 
 // 角色常量（01 文档：巡检员/管理员/审核员）。
@@ -87,11 +88,15 @@ type Service interface {
 type service struct {
 	repo Repository
 	tm   *authn.TokenManager
+	aud  audit.Recorder
 }
 
 // NewService 构造身份服务。
-func NewService(repo Repository, tm *authn.TokenManager) Service {
-	return &service{repo: repo, tm: tm}
+func NewService(repo Repository, tm *authn.TokenManager, aud audit.Recorder) Service {
+	if aud == nil {
+		aud = audit.NewRecorder(nil)
+	}
+	return &service{repo: repo, tm: tm, aud: aud}
 }
 
 func (s *service) Login(ctx context.Context, username, password string) (*Session, error) {
@@ -105,6 +110,13 @@ func (s *service) Login(ctx context.Context, username, password string) (*Sessio
 	if bcrypt.CompareHashAndPassword([]byte(u.PasswordHash), []byte(password)) != nil {
 		return nil, ErrInvalidCredentials
 	}
+	s.aud.Record(ctx, &audit.Event{
+		EntityType: "user",
+		EntityID:   u.ID,
+		Action:     "login",
+		ActorID:    u.ID,
+		Reason:     username,
+	})
 	return s.buildSession(ctx, u)
 }
 
@@ -125,6 +137,13 @@ func (s *service) WechatLogin(ctx context.Context, code string) (*Session, error
 	if u.Status != "ACTIVE" {
 		return nil, ErrUserDisabled
 	}
+	s.aud.Record(ctx, &audit.Event{
+		EntityType: "user",
+		EntityID:   u.ID,
+		Action:     "wechat_login",
+		ActorID:    u.ID,
+		Reason:     openid,
+	})
 	return s.buildSession(ctx, u)
 }
 
