@@ -1,15 +1,17 @@
 """固定响应检测器：用于验证契约，不接真实模型。
 
 对应 03 文档“先用固定响应验证契约，再接真实 YOLO”的首条原型策略。
+现在会解析图片并返回真实尺寸（EXIF 方向已归一），detections 保持可控。
 """
 from __future__ import annotations
 
 from .protocol import DetectOutput, Detector
 from ..schemas import Detection
+from ..images import inspect_image
 
 
 class FixedDetector:
-    """返回空候选的固定检测器。
+    """固定检测器：返回配置的候选（默认空），尺寸取真实图片解析值。
 
     detections=[] 表示模型未检出，不替人员填写“正常”。
     联调时可构造带候选的实例验证框坐标与人工确认链路。
@@ -17,19 +19,15 @@ class FixedDetector:
 
     def __init__(
         self,
-        image_width: int = 1600,
-        image_height: int = 1200,
         detections: list[Detection] | None = None,
     ) -> None:
-        self._width = image_width
-        self._height = image_height
         self._detections = detections or []
 
     def detect(self, image_bytes: bytes) -> DetectOutput:
-        # TODO(init): 真实实现校验格式与尺寸；当前不解析图片。
+        info = inspect_image(image_bytes, allowed_formats=[])
         return DetectOutput(
-            image_width=self._width,
-            image_height=self._height,
+            image_width=info.width,
+            image_height=info.height,
             detections=self._detections,
         )
 

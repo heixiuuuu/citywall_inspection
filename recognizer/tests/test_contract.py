@@ -12,18 +12,21 @@ from __future__ import annotations
 import io
 
 from fastapi.testclient import TestClient
+from PIL import Image
 
 from app.api.routes import settings as routes_settings
 from app.main import app
 
 client = TestClient(app)
 
-PNG_BYTES = (
-    b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR"
-    b"\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15\xc4\x89"
-    b"\x00\x00\x00\rIDAT\x08\xd7c\xf8\xff\xff?\x00\x05\xfe\x02\xfe\xdc\xcc"
-    b"\x59\xe7\x00\x00\x00\x00IEND\xaeB`\x82"
-)
+
+def _png_bytes(width: int = 2, height: int = 2) -> bytes:
+    buf = io.BytesIO()
+    Image.new("RGB", (width, height), (200, 120, 80)).save(buf, "PNG")
+    return buf.getvalue()
+
+
+PNG_BYTES = _png_bytes()
 
 
 def _post(**kwargs):

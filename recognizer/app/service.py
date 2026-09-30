@@ -1,12 +1,13 @@
 """识别编排服务。
 
 调用方向：FastAPI route → recognition service → Detector adapter。
-当前骨架按 03 文档约定“先用固定响应验证契约”，未接真实模型。
+当前按 03 文档约定“先用固定响应验证契约”，未接真实模型。
 """
 from __future__ import annotations
 
 import time
 
+from .images import inspect_image
 from .models.protocol import DetectOutput, Detector
 from .schemas import RecognitionResponse
 
@@ -16,7 +17,12 @@ class RecognitionService:
         self._detector = detector
         self._model_version = model_version
 
-    def recognize(self, attempt_id: str, image_bytes: bytes) -> RecognitionResponse:
+    def recognize(
+        self,
+        attempt_id: str,
+        image_bytes: bytes,
+        allowed_formats: list[str] | None = None,
+    ) -> RecognitionResponse:
         """对单张图片执行检测，返回原图坐标系中的候选。
 
         真实实现流程（03 文档）：
@@ -26,6 +32,8 @@ class RecognitionService:
           4. 失败时抛 RecognitionError（MODEL_UNAVAILABLE / INFERENCE_FAILED）。
         """
         started = time.monotonic()
+        # 前置图像校验：格式白名单 + 内容可解析 + EXIF 方向归一。
+        inspect_image(image_bytes, allowed_formats or [])
         out: DetectOutput = self._detector.detect(image_bytes)
         latency_ms = int((time.monotonic() - started) * 1000)
         return RecognitionResponse(

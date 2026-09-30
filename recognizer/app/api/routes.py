@@ -18,13 +18,12 @@ from ..config import settings
 from ..schemas import RecognitionError, RecognitionResponse
 from ..service import RecognitionService
 from ..models.fixed import FixedDetector
+from ..images import ImageValidationError
 
 router = APIRouter(prefix="/internal/v1", tags=["internal"])
 
 _service = RecognitionService(
-    detector=FixedDetector(
-        image_width=1600, image_height=1200, detections=[]
-    ),
+    detector=FixedDetector(detections=[]),
     model_version=settings.recognition.model_version,
 )
 
@@ -61,7 +60,13 @@ async def create_recognition(
         return _error(422, "INVALID_IMAGE", "empty image", request_id)
 
     try:
-        return _service.recognize(attempt_id, data)
+        return _service.recognize(
+            attempt_id,
+            data,
+            allowed_formats=settings.recognition.allowed_formats,
+        )
+    except ImageValidationError as e:
+        return _error(422, "INVALID_IMAGE", e.message, request_id)
     except Exception:
         return _error(500, "INFERENCE_FAILED", "recognition failed", request_id)
 
