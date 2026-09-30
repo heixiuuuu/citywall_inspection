@@ -1,0 +1,75 @@
+# 古城墙病害巡检系统 · 本地容器化编排（dev）
+#
+# 前置：Docker Desktop（或任意 Docker daemon）已启动。
+# 用法：docker compose up -d --build
+#   - mysql     :3306  库 city_wall / 用户 city_wall / 密码 city_wall_dev
+#   - server    :8080  Go 业务服务（自动执行迁移 + seed）
+#   - recognizer:8000  Python 识别服务
+#   - web       :5173  PC 管理端（nginx 托管 + /api 反代 server）
+#
+# 数据卷：mysql-data（库数据）、server-data（受控存储 data/storage）
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: citywall-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: root_dev
+      MYSQL_DATABASE: city_wall
+      MYSQL_USER: city_wall
+      MYSQL_PASSWORD: city_wall_dev
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-proot_dev"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  server:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    container_name: citywall-server
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      CITY_WALL_CONFIG: /app/conf/server.json
+    ports:
+      - "8080:8080"
+    volumes:
+      - server-data:/app/data/storage
+      - ./conf:/app/conf:ro
+    command: ["sh", "-c", "/app/bin/migrate -config /app/conf/server.json -dir /app/migrations && /app/bin/seed -config /app/conf/server.json && /app/bin/citywall-server"]
+
+  recognizer:
+    build:
+      context: ./recognizer
+      dockerfile: Dockerfile
+    container_name: citywall-recognizer
+    environment:
+      RECOGNIZER_CONFIG: /app/conf/recognizer.json
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./conf:/app/conf:ro
+
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    container_name: citywall-web
+    depends_on:
+      - server
+    ports:
+      - "5173:80"
+
+volumes:
+  mysql-data:
+  server-data:

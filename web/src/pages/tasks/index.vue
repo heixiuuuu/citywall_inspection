@@ -235,8 +235,17 @@ async function dispatch(row: any) {
 
 async function complete(row: any) {
   try {
-    await ElMessageBox.confirm(`确认完成「${row.title}」？将写入完成记录。`, '完成确认', { type: 'warning' })
-    const t = await completeTask(row.id, row.revision)
+    const { value } = await ElMessageBox.prompt(
+      '填写完成说明（将写入任务记录，供审计追溯）',
+      `确认完成「${row.title}」？`,
+      {
+        type: 'warning',
+        inputType: 'textarea',
+        inputPlaceholder: '如：全部点位已巡检，3 处疑似病害已提交审核',
+        inputValidator: (v) => (v ? true : '完成说明必填'),
+      },
+    )
+    const t = await completeTask(row.id, row.revision, value)
     ElMessage.success(`任务已完成（版本 ${t.revision}）`)
     load()
   } catch (e: any) {
