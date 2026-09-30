@@ -162,6 +162,41 @@ func (f *fakeObsRepo) ListByStatuses(_ context.Context, statuses []string) ([]Ob
 	}
 	return out, nil
 }
+func (f *fakeObsRepo) ListPage(_ context.Context, reporterID int64, isAdmin bool, status string, limit, offset int) ([]Observation, error) {
+	var out []Observation
+	for _, o := range f.obs {
+		if !(isAdmin || o.ReporterID == reporterID) {
+			continue
+		}
+		if status != "" && o.Status != status {
+			continue
+		}
+		out = append(out, *o)
+	}
+	if limit <= 0 {
+		return out, nil
+	}
+	if offset > len(out) {
+		return nil, nil
+	}
+	if offset+limit > len(out) {
+		limit = len(out) - offset
+	}
+	return out[offset : offset+limit], nil
+}
+func (f *fakeObsRepo) CountObservations(_ context.Context, reporterID int64, isAdmin bool, status string) (int64, error) {
+	var n int64
+	for _, o := range f.obs {
+		if !(isAdmin || o.ReporterID == reporterID) {
+			continue
+		}
+		if status != "" && o.Status != status {
+			continue
+		}
+		n++
+	}
+	return n, nil
+}
 func (f *fakeObsRepo) StatusByTaskPoints(_ context.Context, ids []int64) (map[int64]string, error) {
 	m := map[int64]string{}
 	for _, o := range f.obs {
@@ -235,6 +270,7 @@ func itoa(n int) string { return string(rune('0' + n)) }
 
 func inspector() *middleware.Actor { return &middleware.Actor{UserID: 3, Roles: []string{"INSPECTOR"}} }
 func reviewer() *middleware.Actor  { return &middleware.Actor{UserID: 2, Roles: []string{"REVIEWER"}} }
+func admin() *middleware.Actor     { return &middleware.Actor{UserID: 1, Roles: []string{"ADMIN"}} }
 
 func newObsService() (*service, *fakeObsRepo) {
 	repo := newFakeObsRepo()
@@ -459,5 +495,47 @@ func TestListImages(t *testing.T) {
 	// 404：不存在记录。
 	if _, err := s.ListImages(context.Background(), reviewer(), 99999); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("expected not found, got %v", err)
+	}
+}
+
+func TestListPagination(t *testing.T) {
+	s, _ := newObsService()
+	// 巡检员 3 上报两条，巡检员 4 上报一条。
+	ctx := context.Background()
+	o1, err := s.Create(ctx, inspector(), SourceVoluntary, nil, "l1")
+	if err != nil {
+		t.Fatalf("create o1: %v", err)
+	}
+	o2, err := s.Create(ctx, inspector(), SourceVoluntary, nil, "l2")
+	if err != nil {
+		t.Fatalf("create o2: %v", err)
+	}
+	other := &middleware.Actor{UserID: 4, Roles: []string{"INSPECTOR"}}
+	o3, err := s.Create(ctx, other, SourceVoluntary, nil, "l3")
+	if err != nil {
+		t.Fatalf("create o3: %v", err)
+	}
+	_ = o1
+	_ = o2
+	_ = o3
+
+	// 巡检员看自己的（2 条）。
+	res, err := s.List(ctx, inspector(), ListInput{Page: 1, PageSize: 10})
+	if err != nil || res.Total != 2 || len(res.Items) != 2 {
+		t.Fatalf("inspector list: total=%d items=%d err=%v", res.Total, len(res.Items), err)
+	}
+	// 管理员看全部（3 条）。
+	res, err = s.List(ctx, admin(), ListInput{Page: 1, PageSize: 2})
+	if err != nil || res.Total != 3 || len(res.Items) != 2 {
+		t.Fatalf("admin page1: total=%d items=%d err=%v", res.Total, len(res.Items), err)
+	}
+	res, err = s.List(ctx, admin(), ListInput{Page: 2, PageSize: 2})
+	if err != nil || res.Total != 3 || len(res.Items) != 1 {
+		t.Fatalf("admin page2: total=%d items=%d err=%v", res.Total, len(res.Items), err)
+	}
+	// 状态过滤：全 DRAFT。
+	res, err = s.List(ctx, admin(), ListInput{Status: ObsDraft})
+	if err != nil || res.Total != 3 {
+		t.Fatalf("filter draft: total=%d err=%v", res.Total, err)
 	}
 }

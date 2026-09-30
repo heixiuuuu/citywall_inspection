@@ -55,6 +55,7 @@ func Router(h Handlers, tm *authn.TokenManager, reqIDHeader string) *gin.Engine 
 		// 现场记录与图片。
 		obsGroup := v1.Group("/observations", authed)
 		obsGroup.POST("", h.Observation.Create)
+		obsGroup.GET("", h.Observation.List)
 		obsGroup.PATCH("/:id", h.Observation.Update)
 		obsGroup.POST("/:id/images", h.Observation.AddImage)
 		obsGroup.GET("/:id/images", h.Observation.ListImages)

@@ -36,6 +36,8 @@ type Repository interface {
 	InsertReviewDecision(ctx context.Context, d *ReviewDecision) error
 
 	ListByStatuses(ctx context.Context, statuses []string) ([]Observation, error)
+	ListPage(ctx context.Context, reporterID int64, isAdmin bool, status string, limit, offset int) ([]Observation, error)
+	CountObservations(ctx context.Context, reporterID int64, isAdmin bool, status string) (int64, error)
 	StatusByTaskPoints(ctx context.Context, taskPointIDs []int64) (map[int64]string, error)
 	ObservationByImage(ctx context.Context, imageID int64) (*Observation, error)
 }
@@ -223,6 +225,38 @@ func (r *GORMRepository) ListByStatuses(ctx context.Context, statuses []string) 
 		Where("status IN ?", statuses).
 		Order("updated_at DESC").
 		Find(&obs).Error
+}
+
+// ListPage 分页 + 状态过滤查询（管理员/审核员看全部，巡检员只看自己的上报）。
+func (r *GORMRepository) ListPage(ctx context.Context, reporterID int64, isAdmin bool, status string, limit, offset int) ([]Observation, error) {
+	var obs []Observation
+	q := r.db.WithContext(ctx).Order("updated_at DESC")
+	if !isAdmin {
+		q = q.Where("reporter_id = ?", reporterID)
+	}
+	if status != "" {
+		q = q.Where("status = ?", status)
+	}
+	if limit > 0 {
+		q = q.Limit(limit)
+		if offset > 0 {
+			q = q.Offset(offset)
+		}
+	}
+	return obs, q.Find(&obs).Error
+}
+
+// CountObservations 统计记录数（与 ListPage 同一过滤条件）。
+func (r *GORMRepository) CountObservations(ctx context.Context, reporterID int64, isAdmin bool, status string) (int64, error) {
+	var total int64
+	q := r.db.WithContext(ctx).Model(&Observation{})
+	if !isAdmin {
+		q = q.Where("reporter_id = ?", reporterID)
+	}
+	if status != "" {
+		q = q.Where("status = ?", status)
+	}
+	return total, q.Count(&total).Error
 }
 
 func (r *GORMRepository) StatusByTaskPoints(ctx context.Context, taskPointIDs []int64) (map[int64]string, error) {

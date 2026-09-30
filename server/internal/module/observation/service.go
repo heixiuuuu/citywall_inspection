@@ -124,6 +124,7 @@ type Service interface {
 	Review(ctx context.Context, actor *middleware.Actor, obsID, revision int64, in ReviewInput) (*Observation, error)
 	ListPendingReview(ctx context.Context, actor *middleware.Actor) ([]Observation, error)
 	ListImages(ctx context.Context, actor *middleware.Actor, obsID int64) ([]ImageMeta, error)
+	List(ctx context.Context, actor *middleware.Actor, in ListInput) (*ListResult, error)
 
 	// TaskPointStatuses 实现 task.ObservationStatusProvider。
 	TaskPointStatuses(ctx context.Context, taskID int64) (map[int64]string, error)
@@ -588,6 +589,44 @@ func (s *service) ListPendingReview(ctx context.Context, actor *middleware.Actor
 		return nil, ErrForbidden
 	}
 	return s.repo.ListByStatuses(ctx, []string{ObsSubmitted})
+}
+
+// ListInput 记录列表查询条件。
+type ListInput struct {
+	Status   string
+	Page     int
+	PageSize int
+}
+
+// ListResult 分页列表结果。
+type ListResult struct {
+	Items []Observation
+	Total int64
+}
+
+// List 记录列表：管理员/审核员看全部，巡检员只看自己上报；支持状态过滤 + 分页。
+func (s *service) List(ctx context.Context, actor *middleware.Actor, in ListInput) (*ListResult, error) {
+	isAdmin := isAdminOrReviewer(actor)
+	page, pageSize := in.Page, in.PageSize
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 {
+		pageSize = 20
+	}
+	if pageSize > 100 {
+		pageSize = 100
+	}
+	limit, offset := pageSize, (page-1)*pageSize
+	items, err := s.repo.ListPage(ctx, actor.UserID, isAdmin, in.Status, limit, offset)
+	if err != nil {
+		return nil, err
+	}
+	total, err := s.repo.CountObservations(ctx, actor.UserID, isAdmin, in.Status)
+	if err != nil {
+		return nil, err
+	}
+	return &ListResult{Items: items, Total: total}, nil
 }
 
 // ImageMeta 图片元数据 + 受控访问 URL（不暴露存储路径）。

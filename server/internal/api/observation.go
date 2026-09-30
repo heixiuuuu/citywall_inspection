@@ -273,6 +273,26 @@ func (h *ObservationHandler) ListImages(c *gin.Context) {
 	writeData(c, http.StatusOK, gin.H{"images": imgs})
 }
 
+// List 记录列表（管理员/审核员全部，巡检员自己的；支持 status/page/page_size）。
+func (h *ObservationHandler) List(c *gin.Context) {
+	actor, ok := middleware.GetActor(c)
+	if !ok {
+		writeError(c, http.StatusUnauthorized, "UNAUTHORIZED", "not authenticated")
+		return
+	}
+	in := observation.ListInput{
+		Status:   c.Query("status"),
+		Page:     queryInt(c, "page", 1),
+		PageSize: queryInt(c, "page_size", 20),
+	}
+	res, err := h.service.List(context.Background(), actor, in)
+	if err != nil {
+		writeErr(c, err)
+		return
+	}
+	writeData(c, http.StatusOK, gin.H{"items": res.Items, "total": res.Total, "page": in.Page, "page_size": in.PageSize})
+}
+
 // detectMediaType 依据 Content-Type 归一化图片类型。
 func detectMediaType(contentType string) string {
 	switch contentType {
