@@ -18,6 +18,7 @@ type Handlers struct {
 	Site        *api.SiteHandler
 	Task        *api.TaskHandler
 	Observation *api.ObservationHandler
+	Audit       *api.AuditHandler
 }
 
 // Router 构建 gin 引擎：全局中间件 + 健康检查 + /api/v1 分组。
@@ -70,6 +71,10 @@ func Router(h Handlers, tm *authn.TokenManager, reqIDHeader string) *gin.Engine 
 
 		// 审核队列。
 		v1.GET("/reviews", authed, h.Observation.ListPendingReview)
+
+		// 审计事件（只读，仅管理员）。
+		auditGroup := v1.Group("/audit", authed)
+		auditGroup.GET("/events", h.Audit.ListEvents)
 	}
 	return engine
 }

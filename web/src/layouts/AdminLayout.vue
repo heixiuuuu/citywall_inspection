@@ -12,6 +12,9 @@
         <el-menu-item v-if="isAdmin" index="/points">
           <span>点位管理</span>
         </el-menu-item>
+        <el-menu-item v-if="isAdmin" index="/audit">
+          <span>审计日志</span>
+        </el-menu-item>
       </el-menu>
     </el-aside>
     <el-container>

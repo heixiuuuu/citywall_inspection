@@ -27,6 +27,15 @@ func (Event) TableName() string { return "audit_events" }
 // Repository 审计数据访问。
 type Repository interface {
 	Insert(ctx context.Context, e *Event) error
+	// ListEvents 按过滤条件分页查询（id 倒序）。total 为过滤后总数。
+	ListEvents(ctx context.Context, f EventFilter, limit, offset int) ([]Event, int64, error)
+}
+
+// EventFilter 审计查询过滤条件。
+type EventFilter struct {
+	EntityType string
+	EntityID   *int64
+	ActorID    *int64
 }
 
 // Recorder 无数据库时（dev 降级）的空实现。

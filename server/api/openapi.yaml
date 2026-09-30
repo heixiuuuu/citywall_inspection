@@ -668,6 +668,37 @@ paths:
                       items:
                         type: array
                         items: { $ref: '#/components/schemas/Observation' }
+  /api/v1/audit/events:
+    get:
+      tags: [audit]
+      summary: 审计事件分页查询（仅管理员）
+      parameters:
+        - { name: entity_type, in: query, schema: { type: string }, description: 实体类型 task/observation }
+        - { name: entity_id, in: query, schema: { type: integer, format: int64 } }
+        - { name: actor_id, in: query, schema: { type: integer, format: int64 } }
+        - { name: page, in: query, schema: { type: integer, default: 1 } }
+        - { name: page_size, in: query, schema: { type: integer, default: 50, maximum: 200 } }
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      events:
+                        type: array
+                        items: { $ref: '#/components/schemas/AuditEvent' }
+                      total: { type: integer, format: int64 }
+                      page: { type: integer }
+                      page_size: { type: integer }
+        '403':
+          description: 非管理员无权限（code=FORBIDDEN）
+        '503':
+          description: 数据库未就绪（code=DB_UNAVAILABLE）
 
 components:
   securitySchemes:
@@ -861,3 +892,16 @@ components:
         description: { type: string }
         priority_code: { type: [string, 'null'] }
         author_id: { type: integer }
+    AuditEvent:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        entity_type: { type: string, example: task }
+        entity_id: { type: integer, format: int64 }
+        action: { type: string, example: dispatch }
+        actor_id: { type: integer, format: int64 }
+        old_status: { type: [string, 'null'] }
+        new_status: { type: [string, 'null'] }
+        revision: { type: [integer, 'null'] }
+        reason: { type: [string, 'null'] }
+        created_at: { type: string, format: date-time }

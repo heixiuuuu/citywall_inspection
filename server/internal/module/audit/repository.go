@@ -21,6 +21,28 @@ func (r *GORMRepository) Insert(ctx context.Context, e *Event) error {
 	return r.db.WithContext(ctx).Create(e).Error
 }
 
+func (r *GORMRepository) ListEvents(ctx context.Context, f EventFilter, limit, offset int) ([]Event, int64, error) {
+	q := r.db.WithContext(ctx).Model(&Event{})
+	if f.EntityType != "" {
+		q = q.Where("entity_type = ?", f.EntityType)
+	}
+	if f.EntityID != nil {
+		q = q.Where("entity_id = ?", *f.EntityID)
+	}
+	if f.ActorID != nil {
+		q = q.Where("actor_id = ?", *f.ActorID)
+	}
+	var total int64
+	if err := q.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	var items []Event
+	if err := q.Order("id DESC").Limit(limit).Offset(offset).Find(&items).Error; err != nil {
+		return nil, 0, err
+	}
+	return items, total, nil
+}
+
 // noopRecorder 数据库未就绪（dev 降级）时的空实现，不阻断业务。
 type noopRecorder struct{}
 

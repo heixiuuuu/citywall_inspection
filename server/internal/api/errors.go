@@ -7,6 +7,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"citywall/server/internal/middleware"
+	"citywall/server/internal/module/audit"
 	"citywall/server/internal/module/observation"
 	"citywall/server/internal/module/task"
 )
@@ -34,8 +35,10 @@ func writeErr(c *gin.Context, err error) {
 		return
 	case errors.Is(err, task.ErrNotFound), errors.Is(err, observation.ErrNotFound):
 		writeError(c, http.StatusNotFound, "NOT_FOUND", err.Error())
-	case errors.Is(err, task.ErrForbidden), errors.Is(err, observation.ErrForbidden):
+	case errors.Is(err, task.ErrForbidden), errors.Is(err, observation.ErrForbidden), errors.Is(err, audit.ErrForbidden):
 		writeError(c, http.StatusForbidden, "FORBIDDEN", err.Error())
+	case errors.Is(err, audit.ErrDBUnavailable):
+		writeError(c, http.StatusServiceUnavailable, "DB_UNAVAILABLE", err.Error())
 	case errors.Is(err, task.ErrStatusConflict), errors.Is(err, observation.ErrStatusConflict),
 		errors.Is(err, task.ErrInvalidState), errors.Is(err, observation.ErrInvalidState),
 		errors.Is(err, task.ErrDuplicatePoint), errors.Is(err, task.ErrNoPoints),

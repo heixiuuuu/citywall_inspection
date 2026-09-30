@@ -88,6 +88,12 @@ func New(cfg *config.Config) (*App, error) {
 		Task:        api.NewTaskHandler(taskSvc),
 		Observation: api.NewObservationHandler(obsSvc, cfg.Upload.IdempotencyKeyHeader),
 	}
+	// 审计查询：仅数据库就绪时可用（否则返回 DB_UNAVAILABLE）。
+	if app.dbReady {
+		h.Audit = api.NewAuditHandler(audit.NewQueryService(audit.NewGORMRepository(db)))
+	} else {
+		h.Audit = api.NewAuditHandler(audit.NewQueryService(nil))
+	}
 	app.engine = router.Router(h, tm, cfg.Upload.RequestIDHeader)
 	registerReadyz(app)
 	return app, nil

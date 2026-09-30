@@ -17,7 +17,10 @@ $LogDir = Join-Path $Root "logs"
 New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
 
 function Test-Port([int]$Port) {
-    return [bool](Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue)
+    $tcp = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue
+    if ($tcp) { return $true }
+    # 兜底：Get-NetTCPConnection 可能漏报 IPv6 监听（如 vite 绑 ::1）。
+    return [bool](netstat -ano | Select-String (":$Port " + 'LISTENING'))
 }
 
 function Ensure-MySQL {
@@ -140,6 +143,8 @@ switch ($Action.ToLower()) {
         Start-Recognizer
         Start-Server
         Start-Web
+        # 等待 vite 完成端口监听，避免状态误报 DOWN。
+        Start-Sleep -Seconds 3
         Show-Status
         Write-Host "`n演示账号: admin/Admin123, reviewer/Review123, inspector/Insp123"
         Write-Host "PC 管理端: http://localhost:5173"

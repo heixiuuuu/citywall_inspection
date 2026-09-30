@@ -12,6 +12,7 @@ export default defineConfig({
     },
   },
   server: {
+    host: '127.0.0.1', // 固定 IPv4，与 dev.ps1 端口检测/curl 一致（默认 localhost 会解析到 ::1）
     port: 5173,
     proxy: {
       '/api': {
