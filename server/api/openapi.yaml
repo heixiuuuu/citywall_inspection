@@ -390,6 +390,38 @@ paths:
         '409':
           $ref: '#/components/responses/Conflict'
   /api/v1/observations/{id}/images:
+    get:
+      tags: [observation]
+      summary: 记录图片列表（负责人本人或管理员/审核员）
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        '200':
+          description: 图片元数据（含受控访问 URL，不含存储路径）
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      images:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            id: { type: integer }
+                            role: { type: string, enum: [OVERVIEW, DETAIL] }
+                            media_type: { type: string }
+                            byte_size: { type: integer }
+                            width: { type: integer }
+                            height: { type: integer }
+                            url: { type: string, description: 受控图片内容接口路径（GET /api/v1/images/{id}/content） }
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
     post:
       tags: [observation]
       summary: 上传现场图片（multipart/form-data）

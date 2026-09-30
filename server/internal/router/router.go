@@ -57,6 +57,7 @@ func Router(h Handlers, tm *authn.TokenManager, reqIDHeader string) *gin.Engine 
 		obsGroup.POST("", h.Observation.Create)
 		obsGroup.PATCH("/:id", h.Observation.Update)
 		obsGroup.POST("/:id/images", h.Observation.AddImage)
+		obsGroup.GET("/:id/images", h.Observation.ListImages)
 		obsGroup.PUT("/:id/conclusion", h.Observation.SaveConclusion)
 		obsGroup.POST("/:id/submit", h.Observation.Submit)
 		obsGroup.POST("/:id/review", h.Observation.Review)

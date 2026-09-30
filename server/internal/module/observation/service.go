@@ -123,6 +123,7 @@ type Service interface {
 	Submit(ctx context.Context, actor *middleware.Actor, obsID, revision int64) (*Observation, error)
 	Review(ctx context.Context, actor *middleware.Actor, obsID, revision int64, in ReviewInput) (*Observation, error)
 	ListPendingReview(ctx context.Context, actor *middleware.Actor) ([]Observation, error)
+	ListImages(ctx context.Context, actor *middleware.Actor, obsID int64) ([]ImageMeta, error)
 
 	// TaskPointStatuses 实现 task.ObservationStatusProvider。
 	TaskPointStatuses(ctx context.Context, taskID int64) (map[int64]string, error)
@@ -587,6 +588,49 @@ func (s *service) ListPendingReview(ctx context.Context, actor *middleware.Actor
 		return nil, ErrForbidden
 	}
 	return s.repo.ListByStatuses(ctx, []string{ObsSubmitted})
+}
+
+// ImageMeta 图片元数据 + 受控访问 URL（不暴露存储路径）。
+type ImageMeta struct {
+	ID        int64  `json:"id"`
+	Role      string `json:"role"`
+	MediaType string `json:"media_type"`
+	ByteSize  int64  `json:"byte_size"`
+	Width     int    `json:"width"`
+	Height    int    `json:"height"`
+	URL       string `json:"url"`
+}
+
+// ListImages 返回记录关联图片元数据（负责人本人或管理员/审核员；越权 → ErrForbidden）。
+func (s *service) ListImages(ctx context.Context, actor *middleware.Actor, obsID int64) ([]ImageMeta, error) {
+	o, err := s.repo.GetByID(ctx, obsID)
+	if err != nil {
+		return nil, ErrNotFound
+	}
+	if o.ReporterID != actor.UserID && !isAdminOrReviewer(actor) {
+		return nil, ErrForbidden
+	}
+	links, err := s.repo.ListImages(ctx, obsID)
+	if err != nil {
+		return nil, err
+	}
+	metas := make([]ImageMeta, 0, len(links))
+	for _, l := range links {
+		img, err := s.repo.GetImage(ctx, l.ImageID)
+		if err != nil {
+			continue // 图片记录缺失时跳过，不阻断列表
+		}
+		metas = append(metas, ImageMeta{
+			ID:        img.ID,
+			Role:      l.ImageRole,
+			MediaType: img.MediaType,
+			ByteSize:  img.ByteSize,
+			Width:     img.Width,
+			Height:    img.Height,
+			URL:       fmt.Sprintf("/api/v1/images/%d/content", img.ID),
+		})
+	}
+	return metas, nil
 }
 
 // TaskPointStatuses 实现 task.ObservationStatusProvider。

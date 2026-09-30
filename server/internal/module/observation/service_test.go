@@ -417,3 +417,47 @@ func TestGetImageContentForbiddenForOthers(t *testing.T) {
 		rc.Close()
 	}
 }
+
+func TestListImages(t *testing.T) {
+	s, _ := newObsService()
+	tp := int64(1)
+	o, _ := s.Create(context.Background(), inspector(), SourceTask, &tp, "loc")
+	if _, err := s.AddImage(context.Background(), inspector(), o.ID, "image/png", pngBytes(), ImageRoleOverview); err != nil {
+		t.Fatalf("add overview: %v", err)
+	}
+	if _, err := s.AddImage(context.Background(), inspector(), o.ID, "image/png", pngBytes(), ImageRoleDetail); err != nil {
+		t.Fatalf("add detail: %v", err)
+	}
+
+	imgs, err := s.ListImages(context.Background(), inspector(), o.ID)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(imgs) != 2 {
+		t.Fatalf("len = %d, want 2", len(imgs))
+	}
+	roles := map[string]int{}
+	for _, m := range imgs {
+		roles[m.Role]++
+		if m.ID == 0 || m.URL == "" {
+			t.Fatalf("meta missing id/url: %+v", m)
+		}
+	}
+	if roles[ImageRoleOverview] != 1 || roles[ImageRoleDetail] != 1 {
+		t.Fatalf("roles = %v", roles)
+	}
+
+	// 越权：其他巡检员 403。
+	other := &middleware.Actor{UserID: 99, Roles: []string{"INSPECTOR"}}
+	if _, err := s.ListImages(context.Background(), other, o.ID); !errors.Is(err, ErrForbidden) {
+		t.Fatalf("expected forbidden for other, got %v", err)
+	}
+	// 审核员可看。
+	if _, err := s.ListImages(context.Background(), reviewer(), o.ID); err != nil {
+		t.Fatalf("reviewer list: %v", err)
+	}
+	// 404：不存在记录。
+	if _, err := s.ListImages(context.Background(), reviewer(), 99999); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected not found, got %v", err)
+	}
+}

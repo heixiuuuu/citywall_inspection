@@ -40,15 +40,19 @@
           <el-descriptions-item label="上报人ID">{{ current.reporter_id }}</el-descriptions-item>
           <el-descriptions-item label="版本">{{ current.revision }}</el-descriptions-item>
         </el-descriptions>
-        <div class="img-block" v-if="images.length">
-          <h4 class="subtitle">现场图片（{{ images.length }} 张）</h4>
+        <div class="img-block" v-if="overviewImages.length || detailImages.length">
+          <h4 class="subtitle">现场图片（概览 {{ overviewImages.length }} 张 / 细节 {{ detailImages.length }} 张）</h4>
           <div class="img-grid">
-            <div v-for="img in images" :key="img" class="img-cell">
-              <el-image :src="img" fit="cover" :preview-src-list="images" preview-teleported />
+            <div v-for="img in overviewImages" :key="img" class="img-cell">
+              <el-image :src="img" fit="cover" :preview-src-list="overviewImages" preview-teleported />
+            </div>
+            <div v-for="img in detailImages" :key="img" class="img-cell">
+              <el-image :src="img" fit="cover" :preview-src-list="detailImages" preview-teleported />
             </div>
           </div>
         </div>
-        <div v-else class="hint">正在加载图片…</div>
+        <div v-else-if="imagesLoading" class="hint">正在加载图片…</div>
+        <div v-else class="hint">该记录暂无现场图片</div>
       </div>
       <template #footer>
         <el-select v-model="decision" style="width: 120px; margin-right: 8px">
@@ -71,13 +75,15 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { fetchPendingReviews, reviewObservation, loadImageBlob, type ReviewDecision } from '@/shared/api/observation'
+import { fetchPendingReviews, reviewObservation, fetchObservationImages, loadImageBlob, type ReviewDecision } from '@/shared/api/observation'
 
 const reviews = ref<any[]>([])
 const loading = ref(false)
 const reviewVisible = ref(false)
 const current = ref<any>(null)
-const images = ref<string[]>([])
+const overviewImages = ref<string[]>([])
+const detailImages = ref<string[]>([])
+const imagesLoading = ref(false)
 const decision = ref<ReviewDecision>('ACCEPT')
 const reason = ref('')
 const submitting = ref(false)
@@ -108,31 +114,29 @@ function outcomeText(o: string | null) {
 
 async function openReview(row: any) {
   current.value = row
-  images.value = []
+  overviewImages.value = []
+  detailImages.value = []
   decision.value = 'ACCEPT'
   reason.value = ''
   reviewVisible.value = true
-  // MVP：加载该记录的全部图片（从最新提交快照的图片 ID 集合）。
-  // 简化实现：记录关联图片数量由服务端最新提交快照给出，这里先尝试加载最近上传的图片。
+  // 图片列表接口（GET /observations/{id}/images）：按 role 分组加载受控图片内容。
+  imagesLoading.value = true
   try {
-    const imgs = await fetchObservationImages(row.id)
-    const urls: string[] = []
-    for (const id of imgs) {
+    const metas = await fetchObservationImages(row.id)
+    for (const m of metas) {
       try {
-        urls.push(await loadImageBlob(id))
+        const blob = await loadImageBlob(m.id)
+        if (m.role === 'DETAIL') detailImages.value.push(blob)
+        else overviewImages.value.push(blob)
       } catch {
         /* 跳过加载失败的图片 */
       }
     }
-    images.value = urls
   } catch {
-    /* 无快照或加载失败 */
+    /* 无记录或加载失败 */
+  } finally {
+    imagesLoading.value = false
   }
-}
-
-/** MVP 简化：无专用图片列表接口时返回空（接入后按提交快照加载）。 */
-async function fetchObservationImages(_id: number): Promise<number[]> {
-  return []
 }
 
 async function submitReview() {

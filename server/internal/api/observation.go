@@ -253,6 +253,26 @@ func (h *ObservationHandler) ListPendingReview(c *gin.Context) {
 	writeData(c, http.StatusOK, gin.H{"items": items})
 }
 
+// ListImages 记录图片列表（负责人本人或管理员/审核员）。
+func (h *ObservationHandler) ListImages(c *gin.Context) {
+	actor, ok := middleware.GetActor(c)
+	if !ok {
+		writeError(c, http.StatusUnauthorized, "UNAUTHORIZED", "not authenticated")
+		return
+	}
+	id, err := pathID(c)
+	if err != nil {
+		writeError(c, http.StatusBadRequest, "VALIDATION_ERROR", "invalid id")
+		return
+	}
+	imgs, err := h.service.ListImages(context.Background(), actor, id)
+	if err != nil {
+		writeErr(c, err)
+		return
+	}
+	writeData(c, http.StatusOK, gin.H{"images": imgs})
+}
+
 // detectMediaType 依据 Content-Type 归一化图片类型。
 func detectMediaType(contentType string) string {
 	switch contentType {

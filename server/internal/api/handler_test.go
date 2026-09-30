@@ -144,6 +144,9 @@ func (f *fakeObs) Review(_ context.Context, _ *middleware.Actor, id, _ int64, in
 func (f *fakeObs) ListPendingReview(_ context.Context, _ *middleware.Actor) ([]observation.Observation, error) {
 	return []observation.Observation{{ID: 50, Status: observation.ObsSubmitted}}, nil
 }
+func (f *fakeObs) ListImages(_ context.Context, _ *middleware.Actor, obsID int64) ([]observation.ImageMeta, error) {
+	return []observation.ImageMeta{{ID: 60, Role: observation.ImageRoleOverview, URL: "/api/v1/images/60/content"}}, nil
+}
 func (f *fakeObs) TaskPointStatuses(_ context.Context, _ int64) (map[int64]string, error) {
 	return map[int64]string{1: observation.ObsAccepted}, nil
 }

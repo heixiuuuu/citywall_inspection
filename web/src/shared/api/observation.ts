@@ -41,10 +41,27 @@ export interface ReviewPayload {
   disposition?: string
 }
 
+/** 记录图片元数据（GET /observations/{id}/images）。 */
+export interface ObservationImageMeta {
+  id: number
+  role: 'OVERVIEW' | 'DETAIL'
+  media_type: string
+  byte_size: number
+  width: number
+  height: number
+  url: string
+}
+
 /** GET /reviews 待审核记录列表。 */
 export async function fetchPendingReviews(): Promise<Observation[]> {
   const data = await request<{ items: Observation[] }>('/reviews')
   return data.items
+}
+
+/** GET /observations/{id}/images 记录图片元数据列表。 */
+export async function fetchObservationImages(id: number): Promise<ObservationImageMeta[]> {
+  const data = await request<{ images: ObservationImageMeta[] }>(`/observations/${id}/images`)
+  return data.images
 }
 
 /** POST /observations/{id}/review 审核记录。 */
