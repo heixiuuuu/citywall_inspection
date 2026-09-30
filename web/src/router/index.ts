@@ -1,21 +1,61 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
 
-// 路由表按模块拆分（taskRoutes / reviewRoutes / …），入口显式合并并按需加载。
-// 菜单基于登录用户权限生成；前端守卫只隐藏不可操作页面，不能代替 Go 的授权。
-const taskRoutes: RouteRecordRaw[] = [
-  {
-    path: '/tasks',
-    name: 'tasks',
-    component: () => import('@/pages/tasks/index.vue'),
-    meta: { title: '任务管理' },
-  },
-]
+/** 角色元数据。 */
+export interface RouteMeta {
+  title?: string
+  roles?: string[]
+}
+
+// 登录页（无需鉴权）。
+const loginRoute: RouteRecordRaw = {
+  path: '/login',
+  name: 'login',
+  component: () => import('@/pages/login/index.vue'),
+  meta: { title: '登录' },
+}
+
+// 管理端布局 + 各功能页。
+const adminRoutes: RouteRecordRaw = {
+  path: '/',
+  component: () => import('@/layouts/AdminLayout.vue'),
+  redirect: '/tasks',
+  children: [
+    {
+      path: 'tasks',
+      name: 'tasks',
+      component: () => import('@/pages/tasks/index.vue'),
+      meta: { title: '任务管理', roles: ['ADMIN', 'REVIEWER', 'INSPECTOR'] },
+    },
+    {
+      path: 'reviews',
+      name: 'reviews',
+      component: () => import('@/pages/reviews/index.vue'),
+      meta: { title: '审核管理', roles: ['REVIEWER', 'ADMIN'] },
+    },
+    {
+      path: 'points',
+      name: 'points',
+      component: () => import('@/pages/points/index.vue'),
+      meta: { title: '点位管理', roles: ['ADMIN'] },
+    },
+  ],
+}
 
 export const router = createRouter({
   history: createWebHistory(),
-  routes: [
-    { path: '/', redirect: '/tasks' },
-    ...taskRoutes,
-    { path: '/:pathMatch(.*)*', redirect: '/tasks' },
-  ],
+  routes: [loginRoute, adminRoutes, { path: '/:pathMatch(.*)*', redirect: '/tasks' }],
+})
+
+/** 路由守卫：登录态 + 角色；前端守卫只隐藏不可操作页面，不能代替 Go 的授权。 */
+router.beforeEach((to) => {
+  const token = localStorage.getItem('city_wall_token')
+  const roles: string[] = JSON.parse(localStorage.getItem('city_wall_roles') ?? '[]')
+  if (!token) {
+    return to.name === 'login' ? true : { name: 'login', query: { redirect: to.fullPath } }
+  }
+  const meta = to.meta as RouteMeta
+  if (meta.roles && !meta.roles.some((r) => roles.includes(r))) {
+    return { name: 'tasks' }
+  }
+  return true
 })
