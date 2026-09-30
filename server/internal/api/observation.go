@@ -6,6 +6,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"citywall/server/internal/middleware"
 	"citywall/server/internal/module/observation"
 )
 
@@ -27,16 +28,239 @@ type createObservationRequest struct {
 
 // Create 创建现场记录草稿（小程序）。source=TASK 必须带 task_point_id。
 func (h *ObservationHandler) Create(c *gin.Context) {
+	actor, ok := middleware.GetActor(c)
+	if !ok {
+		writeError(c, http.StatusUnauthorized, "UNAUTHORIZED", "not authenticated")
+		return
+	}
 	var req createObservationRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		writeError(c, http.StatusBadRequest, "VALIDATION_ERROR", err.Error())
 		return
 	}
-
-	o, err := h.service.Create(context.Background(), 0, req.Source, req.TaskPointID, req.LocationText)
+	o, err := h.service.Create(context.Background(), actor, req.Source, req.TaskPointID, req.LocationText)
 	if err != nil {
-		writeError(c, http.StatusNotImplemented, "NOT_IMPLEMENTED", err.Error())
+		writeErr(c, err)
 		return
 	}
 	writeData(c, http.StatusCreated, gin.H{"observation": o})
+}
+
+// Update 更新草稿位置/现场判断（DRAFT/RETURNED）。
+func (h *ObservationHandler) Update(c *gin.Context) {
+	actor, ok := middleware.GetActor(c)
+	if !ok {
+		writeError(c, http.StatusUnauthorized, "UNAUTHORIZED", "not authenticated")
+		return
+	}
+	id, err := pathID(c)
+	if err != nil {
+		writeError(c, http.StatusBadRequest, "VALIDATION_ERROR", err.Error())
+		return
+	}
+	var body struct {
+		Revision int64 `json:"revision" binding:"required"`
+		observation.PatchInput
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		writeError(c, http.StatusBadRequest, "VALIDATION_ERROR", err.Error())
+		return
+	}
+	o, err := h.service.Update(context.Background(), actor, id, body.Revision, body.PatchInput)
+	if err != nil {
+		writeErr(c, err)
+		return
+	}
+	writeData(c, http.StatusOK, gin.H{"observation": o})
+}
+
+// AddImage 上传图片（multipart/form-data：image + image_role）。
+func (h *ObservationHandler) AddImage(c *gin.Context) {
+	actor, ok := middleware.GetActor(c)
+	if !ok {
+		writeError(c, http.StatusUnauthorized, "UNAUTHORIZED", "not authenticated")
+		return
+	}
+	id, err := pathID(c)
+	if err != nil {
+		writeError(c, http.StatusBadRequest, "VALIDATION_ERROR", err.Error())
+		return
+	}
+	role := c.PostForm("image_role")
+	if role == "" {
+		role = observation.ImageRoleOverview
+	}
+	fileHeader, err := c.FormFile("image")
+	if err != nil {
+		writeError(c, http.StatusBadRequest, "VALIDATION_ERROR", "image file required")
+		return
+	}
+	f, err := fileHeader.Open()
+	if err != nil {
+		writeErr(c, err)
+		return
+	}
+	defer f.Close()
+
+	buf := make([]byte, fileHeader.Size)
+	if _, err := f.Read(buf); err != nil {
+		writeErr(c, err)
+		return
+	}
+	mediaType := detectMediaType(fileHeader.Header.Get("Content-Type"))
+	img, err := h.service.AddImage(context.Background(), actor, id, mediaType, buf, role)
+	if err != nil {
+		writeErr(c, err)
+		return
+	}
+	writeData(c, http.StatusCreated, gin.H{"image": img})
+}
+
+// GetImageContent 受控图片流（鉴权后返回）。
+func (h *ObservationHandler) GetImageContent(c *gin.Context) {
+	actor, ok := middleware.GetActor(c)
+	if !ok {
+		writeError(c, http.StatusUnauthorized, "UNAUTHORIZED", "not authenticated")
+		return
+	}
+	id, err := pathID(c)
+	if err != nil {
+		writeError(c, http.StatusBadRequest, "VALIDATION_ERROR", err.Error())
+		return
+	}
+	img, rc, err := h.service.GetImageContent(context.Background(), actor, id)
+	if err != nil {
+		writeErr(c, err)
+		return
+	}
+	defer rc.Close()
+	c.DataFromReader(http.StatusOK, img.ByteSize, img.MediaType, rc, nil)
+}
+
+type recognizeRequest struct {
+	RequestID string `json:"request_id"`
+}
+
+// Recognize 触发一次识别尝试（重试新建 attempt，不覆盖旧结果）。
+func (h *ObservationHandler) Recognize(c *gin.Context) {
+	actor, ok := middleware.GetActor(c)
+	if !ok {
+		writeError(c, http.StatusUnauthorized, "UNAUTHORIZED", "not authenticated")
+		return
+	}
+	id, err := pathID(c)
+	if err != nil {
+		writeError(c, http.StatusBadRequest, "VALIDATION_ERROR", err.Error())
+		return
+	}
+	var req recognizeRequest
+	_ = c.ShouldBindJSON(&req)
+	attempt, detections, err := h.service.Recognize(context.Background(), actor, id, req.RequestID)
+	if err != nil {
+		writeErr(c, err)
+		return
+	}
+	writeData(c, http.StatusOK, gin.H{"attempt": attempt, "detections": detections})
+}
+
+// SaveConclusion 保存人工结论（整体替换当前草稿结论版本）。
+func (h *ObservationHandler) SaveConclusion(c *gin.Context) {
+	actor, ok := middleware.GetActor(c)
+	if !ok {
+		writeError(c, http.StatusUnauthorized, "UNAUTHORIZED", "not authenticated")
+		return
+	}
+	id, err := pathID(c)
+	if err != nil {
+		writeError(c, http.StatusBadRequest, "VALIDATION_ERROR", err.Error())
+		return
+	}
+	var body struct {
+		Revision int64 `json:"revision" binding:"required"`
+		observation.ConclusionInput
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		writeError(c, http.StatusBadRequest, "VALIDATION_ERROR", err.Error())
+		return
+	}
+	rev, err := h.service.SaveConclusion(context.Background(), actor, id, body.Revision, body.ConclusionInput)
+	if err != nil {
+		writeErr(c, err)
+		return
+	}
+	writeData(c, http.StatusCreated, gin.H{"conclusion": rev})
+}
+
+// Submit 提交记录（DRAFT/RETURNED → SUBMITTED）。
+func (h *ObservationHandler) Submit(c *gin.Context) {
+	actor, ok := middleware.GetActor(c)
+	if !ok {
+		writeError(c, http.StatusUnauthorized, "UNAUTHORIZED", "not authenticated")
+		return
+	}
+	id, revision, ok := idAndRevision(c)
+	if !ok {
+		return
+	}
+	o, err := h.service.Submit(context.Background(), actor, id, revision)
+	if err != nil {
+		writeErr(c, err)
+		return
+	}
+	writeData(c, http.StatusOK, gin.H{"observation": o})
+}
+
+// Review 审核记录（通过/退回/驳回主动上报）。
+func (h *ObservationHandler) Review(c *gin.Context) {
+	actor, ok := middleware.GetActor(c)
+	if !ok {
+		writeError(c, http.StatusUnauthorized, "UNAUTHORIZED", "not authenticated")
+		return
+	}
+	id, err := pathID(c)
+	if err != nil {
+		writeError(c, http.StatusBadRequest, "VALIDATION_ERROR", err.Error())
+		return
+	}
+	var body struct {
+		Revision int64 `json:"revision" binding:"required"`
+		observation.ReviewInput
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		writeError(c, http.StatusBadRequest, "VALIDATION_ERROR", err.Error())
+		return
+	}
+	o, err := h.service.Review(context.Background(), actor, id, body.Revision, body.ReviewInput)
+	if err != nil {
+		writeErr(c, err)
+		return
+	}
+	writeData(c, http.StatusOK, gin.H{"observation": o})
+}
+
+// ListPendingReview 待审核记录列表（审核员）。
+func (h *ObservationHandler) ListPendingReview(c *gin.Context) {
+	actor, ok := middleware.GetActor(c)
+	if !ok {
+		writeError(c, http.StatusUnauthorized, "UNAUTHORIZED", "not authenticated")
+		return
+	}
+	items, err := h.service.ListPendingReview(context.Background(), actor)
+	if err != nil {
+		writeErr(c, err)
+		return
+	}
+	writeData(c, http.StatusOK, gin.H{"items": items})
+}
+
+// detectMediaType 依据 Content-Type 归一化图片类型。
+func detectMediaType(contentType string) string {
+	switch contentType {
+	case "image/png":
+		return "image/png"
+	case "image/webp":
+		return "image/webp"
+	default:
+		return "image/jpeg"
+	}
 }

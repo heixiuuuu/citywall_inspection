@@ -32,19 +32,20 @@ type Task struct {
 	UpdatedAt    time.Time  `gorm:"column:updated_at" json:"updated_at"`
 }
 
-// TaskPoint 任务点快照：派发时固化点位信息，后续修改基础点位不改旧任务。
+// TaskPoint 任务点：草稿阶段仅登记 point_id 与序号，派发时写入点位快照，
+// 后续修改基础点位不改旧任务。
 type TaskPoint struct {
-	ID                  int64   `gorm:"primaryKey;column:id" json:"id"`
-	TaskID              int64   `gorm:"column:task_id;index:idx_task_seq" json:"task_id"`
-	PointID             int64   `gorm:"column:point_id" json:"point_id"`
-	SequenceNo          int     `gorm:"column:sequence_no;index:idx_task_seq" json:"sequence_no"`
-	SnapshotName        string  `gorm:"column:snapshot_name" json:"snapshot_name"`
-	SnapshotSegmentID   int64   `gorm:"column:snapshot_segment_id" json:"snapshot_segment_id"`
-	SnapshotLatitude    float64 `gorm:"column:snapshot_latitude" json:"snapshot_latitude"`
-	SnapshotLongitude   float64 `gorm:"column:snapshot_longitude" json:"snapshot_longitude"`
-	SnapshotRadiusM     float64 `gorm:"column:snapshot_radius_m" json:"snapshot_radius_m"`
-	SnapshotLocationHint string `gorm:"column:snapshot_location_hint" json:"snapshot_location_hint"`
-	CreatedAt           time.Time `gorm:"column:created_at" json:"created_at"`
+	ID                   int64     `gorm:"primaryKey;column:id" json:"id"`
+	TaskID               int64     `gorm:"column:task_id;index:idx_task_seq" json:"task_id"`
+	PointID              int64     `gorm:"column:point_id" json:"point_id"`
+	SequenceNo           int       `gorm:"column:sequence_no;index:idx_task_seq" json:"sequence_no"`
+	SnapshotName         *string   `gorm:"column:snapshot_name" json:"snapshot_name"`
+	SnapshotSegmentID    *int64    `gorm:"column:snapshot_segment_id" json:"snapshot_segment_id"`
+	SnapshotLatitude     *float64  `gorm:"column:snapshot_latitude" json:"snapshot_latitude"`
+	SnapshotLongitude    *float64  `gorm:"column:snapshot_longitude" json:"snapshot_longitude"`
+	SnapshotRadiusM      *float64  `gorm:"column:snapshot_radius_m" json:"snapshot_radius_m"`
+	SnapshotLocationHint *string   `gorm:"column:snapshot_location_hint" json:"snapshot_location_hint"`
+	CreatedAt            time.Time `gorm:"column:created_at" json:"created_at"`
 }
 
 // TableName 显式表名。

@@ -3,6 +3,8 @@
 package storage
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"os"
 	"path/filepath"
@@ -44,10 +46,9 @@ func New(cfg config.StorageConfig) (*LocalStorage, error) {
 	return s, nil
 }
 
-// SaveImage 落盘并返回相对 key（如 images/2026/09/xxx.jpg）。
-// 初始化阶段提供最小实现；后续按 04 文档补 sha256、尺寸元数据与孤儿文件清理。
+// SaveImage 落盘并返回相对 key（如 3f2a...c1.jpg）。
+// 初始化阶段提供最小实现；后续按 04 文档补 EXIF 方向、孤儿文件清理等。
 func (s *LocalStorage) SaveImage(data []byte, mediaType string) (string, error) {
-	// TODO(init): 校验 mediaType 在 AllowedMediaTypes 内、字节数上限、EXIF 方向与尺寸探测。
 	if !s.allowed(mediaType) {
 		return "", ErrUnsupportedMediaType
 	}
@@ -55,7 +56,7 @@ func (s *LocalStorage) SaveImage(data []byte, mediaType string) (string, error) 
 		return "", ErrImageTooLarge
 	}
 
-	rel := "images/" + randKey(mediaType)
+	rel := randKey(mediaType)
 	if err := os.WriteFile(filepath.Join(s.cfg.ImageDir, rel), data, 0o640); err != nil {
 		return "", err
 	}
@@ -89,7 +90,7 @@ func hasPrefix(s, prefix string) bool {
 	return len(s) >= len(prefix) && s[:len(prefix)] == prefix
 }
 
-// randKey 生成随机的存储文件名（初始化阶段可用时间戳 + 随机段替代）。
+// randKey 生成随机存储文件名（crypto/rand 16 字节，不可枚举）。
 func randKey(mediaType string) string {
 	ext := map[string]string{
 		"image/jpeg": "jpg",
@@ -99,6 +100,9 @@ func randKey(mediaType string) string {
 	if ext == "" {
 		ext = "bin"
 	}
-	// TODO(init): 接入 crypto/rand 生成不可枚举文件名，当前占位便于联调。
-	return "tmp-" + ext
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		return "unknown-" + ext
+	}
+	return hex.EncodeToString(b) + "." + ext
 }

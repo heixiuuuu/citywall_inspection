@@ -5,6 +5,7 @@ package api
 import (
 	"context"
 	"net/http"
+	"strconv"
 
 	"github.com/gin-gonic/gin"
 
@@ -22,43 +23,146 @@ func NewTaskHandler(svc task.Service) *TaskHandler {
 	return &TaskHandler{service: svc}
 }
 
-type createTaskRequest struct {
-	Title        string  `json:"title" binding:"required"`
-	AssigneeID   int64   `json:"assignee_id" binding:"required"`
-	DueAt        string  `json:"due_at"` // ISO 8601，可选
-	Description  string  `json:"description"`
-	PointIDs     []int64 `json:"point_ids" binding:"required,min=1"`
-}
-
 // Create 创建任务草稿（管理员）。响应结构见 openapi.yaml。
 func (h *TaskHandler) Create(c *gin.Context) {
-	var req createTaskRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
+	actor, ok := middleware.GetActor(c)
+	if !ok {
+		writeError(c, http.StatusUnauthorized, "UNAUTHORIZED", "not authenticated")
+		return
+	}
+	var in task.CreateInput
+	if err := c.ShouldBindJSON(&in); err != nil {
 		writeError(c, http.StatusBadRequest, "VALIDATION_ERROR", err.Error())
 		return
 	}
-
-	// 初始化阶段身份模块未接入，先以 0 表示未知操作者；接入后从 middleware.GetActor 读取。
-	t, err := h.service.Create(context.Background(), 0, req.Title, req.AssigneeID, req.DueAt, req.Description, req.PointIDs)
+	t, err := h.service.Create(context.Background(), actor, in)
 	if err != nil {
-		// TODO(init): 按错误类型映射 404/409 等；ErrNotImplemented 先返回 501。
-		writeError(c, http.StatusNotImplemented, "NOT_IMPLEMENTED", err.Error())
+		writeErr(c, err)
 		return
 	}
 	writeData(c, http.StatusCreated, gin.H{"task": t})
 }
 
-// 统一响应封装。
-func writeData(c *gin.Context, status int, data gin.H) {
-	c.JSON(status, gin.H{"data": data, "request_id": middleware.GetRequestID(c)})
+// Dispatch 派发任务（管理员）。
+func (h *TaskHandler) Dispatch(c *gin.Context) {
+	actor, ok := middleware.GetActor(c)
+	if !ok {
+		writeError(c, http.StatusUnauthorized, "UNAUTHORIZED", "not authenticated")
+		return
+	}
+	id, revision, ok := idAndRevision(c)
+	if !ok {
+		return
+	}
+	t, err := h.service.Dispatch(context.Background(), actor, id, revision)
+	if err != nil {
+		writeErr(c, err)
+		return
+	}
+	writeData(c, http.StatusOK, gin.H{"task": t})
 }
 
-func writeError(c *gin.Context, status int, code, message string) {
-	c.JSON(status, gin.H{
-		"error": gin.H{
-			"code":    code,
-			"message": message,
-		},
-		"request_id": middleware.GetRequestID(c),
-	})
+// List 任务列表（按权限过滤）。
+func (h *TaskHandler) List(c *gin.Context) {
+	actor, ok := middleware.GetActor(c)
+	if !ok {
+		writeError(c, http.StatusUnauthorized, "UNAUTHORIZED", "not authenticated")
+		return
+	}
+	tasks, err := h.service.List(context.Background(), actor)
+	if err != nil {
+		writeErr(c, err)
+		return
+	}
+	writeData(c, http.StatusOK, gin.H{"tasks": tasks})
+}
+
+// Get 任务详情与任务点。
+func (h *TaskHandler) Get(c *gin.Context) {
+	actor, ok := middleware.GetActor(c)
+	if !ok {
+		writeError(c, http.StatusUnauthorized, "UNAUTHORIZED", "not authenticated")
+		return
+	}
+	id, err := pathID(c)
+	if err != nil {
+		writeError(c, http.StatusBadRequest, "VALIDATION_ERROR", err.Error())
+		return
+	}
+	t, points, err := h.service.Get(context.Background(), actor, id)
+	if err != nil {
+		writeErr(c, err)
+		return
+	}
+	writeData(c, http.StatusOK, gin.H{"task": t, "points": points})
+}
+
+// SubmitTask 提交整任务（负责人）。
+func (h *TaskHandler) SubmitTask(c *gin.Context) {
+	actor, ok := middleware.GetActor(c)
+	if !ok {
+		writeError(c, http.StatusUnauthorized, "UNAUTHORIZED", "not authenticated")
+		return
+	}
+	id, revision, ok := idAndRevision(c)
+	if !ok {
+		return
+	}
+	t, err := h.service.SubmitTask(context.Background(), actor, id, revision)
+	if err != nil {
+		writeErr(c, err)
+		return
+	}
+	writeData(c, http.StatusOK, gin.H{"task": t})
+}
+
+type completeTaskRequest struct {
+	Revision  int64  `json:"revision" binding:"required"`
+	FinalNote string `json:"final_note"`
+}
+
+// Complete 完成任务（审核员）。
+func (h *TaskHandler) Complete(c *gin.Context) {
+	actor, ok := middleware.GetActor(c)
+	if !ok {
+		writeError(c, http.StatusUnauthorized, "UNAUTHORIZED", "not authenticated")
+		return
+	}
+	id, err := pathID(c)
+	if err != nil {
+		writeError(c, http.StatusBadRequest, "VALIDATION_ERROR", err.Error())
+		return
+	}
+	var req completeTaskRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		writeError(c, http.StatusBadRequest, "VALIDATION_ERROR", err.Error())
+		return
+	}
+	t, err := h.service.Complete(context.Background(), actor, id, req.Revision, req.FinalNote)
+	if err != nil {
+		writeErr(c, err)
+		return
+	}
+	writeData(c, http.StatusOK, gin.H{"task": t})
+}
+
+// idAndRevision 解析路径 id 与请求体 revision。
+func idAndRevision(c *gin.Context) (int64, int64, bool) {
+	id, err := pathID(c)
+	if err != nil {
+		writeError(c, http.StatusBadRequest, "VALIDATION_ERROR", err.Error())
+		return 0, 0, false
+	}
+	var body struct {
+		Revision int64 `json:"revision" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		writeError(c, http.StatusBadRequest, "VALIDATION_ERROR", err.Error())
+		return 0, 0, false
+	}
+	return id, body.Revision, true
+}
+
+func pathID(c *gin.Context) (int64, error) {
+	return strconv.ParseInt(c.Param("id"), 10, 64)
 }

@@ -4,32 +4,189 @@ info:
   description: |
     Go 业务服务公开接口契约（/api/v1）。
     约定：成功响应 {"data": ..., "request_id": ...}；
-    失败响应 {"error": {"code": ..., "message": ..., "details": ...}, "request_id": ...}。
-    本文件与代码共同维护；初始化阶段仅覆盖首条纵向链路，随模块开发增量补充。
-  version: 0.1.0
+    失败响应 {"error": {"code": ..., "message": ...}, "request_id": ...}；
+    业务规则（状态机/权限）在 Service 层实现，错误码映射见 03 文档第 7 节。
+    本文件与代码共同维护；版本 0.2.0 覆盖 MVP 纵向链路全部端点。
+  version: 0.2.0
 servers:
   - url: http://localhost:8080
+security:
+  - bearerAuth: []
+tags:
+  - name: identity
+    description: 身份与登录
+  - name: site
+    description: 巡检范围（区段/点位）
+  - name: task
+    description: 巡检任务
+  - name: observation
+    description: 现场记录与图片
+  - name: review
+    description: 审核
 paths:
   /healthz:
     get:
+      tags: [system]
       summary: 存活检查
+      security: []
       responses:
         '200':
           description: ok
   /readyz:
     get:
+      tags: [system]
       summary: 就绪检查（依赖 MySQL）
+      security: []
       responses:
         '200':
           description: ready
         '503':
-          description: not ready
+          description: not ready（database.required=false 降级启动）
+
+  # ---------- 身份 ----------
+  /api/v1/auth/login:
+    post:
+      tags: [identity]
+      summary: PC 账号密码登录
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, password]
+              properties:
+                username: { type: string, example: admin }
+                password: { type: string, example: Admin123 }
+      responses:
+        '200':
+          description: 登录成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      token: { type: string }
+                      user: { $ref: '#/components/schemas/User' }
+                      roles:
+                        type: array
+                        items: { type: string, enum: [INSPECTOR, ADMIN, REVIEWER] }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: 用户被禁用
+  /api/v1/auth/wechat-login:
+    post:
+      tags: [identity]
+      summary: 小程序微信登录（MVP 测试身份映射）
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code]
+              properties:
+                code: { type: string, example: test-inspector, description: 'MVP 固定映射：test-inspector/test-reviewer/test-admin' }
+      responses:
+        '200':
+          description: 登录成功，响应结构同 /auth/login
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/v1/me:
+    get:
+      tags: [identity]
+      summary: 当前用户与角色
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      user: { $ref: '#/components/schemas/User' }
+                      roles:
+                        type: array
+                        items: { type: string }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  # ---------- 巡检范围 ----------
+  /api/v1/inspection-points:
+    get:
+      tags: [site]
+      summary: 点位列表（巡检端只读）
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/InspectionPoint' }
+    post:
+      tags: [site]
+      summary: 创建点位（管理员）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [segment_id, code, name, latitude, longitude]
+              properties:
+                segment_id: { type: integer }
+                code: { type: string, example: P-EAST-03 }
+                name: { type: string }
+                latitude: { type: number, format: double }
+                longitude: { type: number, format: double }
+                radius_m: { type: number, default: 50 }
+                location_hint: { type: string }
+      responses:
+        '201':
+          description: 创建成功
+        '403':
+          description: 仅管理员
+  /api/v1/wall-segments:
+    get:
+      tags: [site]
+      summary: 区段列表
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/WallSegment' }
+
+  # ---------- 任务 ----------
   /api/v1/tasks:
     post:
+      tags: [task]
       summary: 创建任务草稿（管理员）
       operationId: createTask
-      security:
-        - bearerAuth: []
       requestBody:
         required: true
         content:
@@ -39,23 +196,155 @@ paths:
               required: [title, assignee_id, point_ids]
               properties:
                 title: { type: string, example: '东城墙 2 号段巡检' }
-                assignee_id: { type: integer, example: 1001 }
+                assignee_id: { type: integer, example: 3 }
                 due_at: { type: string, format: date-time, example: '2026-10-15T00:00:00Z' }
                 description: { type: string }
-                point_ids: { type: array, items: { type: integer }, example: [3001, 3002] }
+                point_ids: { type: array, items: { type: integer }, example: [1, 2] }
       responses:
         '201':
-          description: 草稿创建成功
+          description: 草稿创建成功（status=DRAFT, revision=1）
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      task: { $ref: '#/components/schemas/Task' }
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+    get:
+      tags: [task]
+      summary: 任务列表（按权限过滤）
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      tasks:
+                        type: array
+                        items: { $ref: '#/components/schemas/Task' }
+  /api/v1/tasks/{id}:
+    get:
+      tags: [task]
+      summary: 任务详情与任务点
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      task: { $ref: '#/components/schemas/Task' }
+                      points:
+                        type: array
+                        items: { $ref: '#/components/schemas/TaskPoint' }
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/tasks/{id}/dispatch:
+    post:
+      tags: [task]
+      summary: 派发任务（管理员）：DRAFT → ASSIGNED，写点位快照
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [revision]
+              properties:
+                revision: { type: integer, example: 1 }
+      responses:
+        '200':
+          description: 派发成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      task: { $ref: '#/components/schemas/Task' }
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /api/v1/tasks/{id}/submit:
+    post:
+      tags: [task]
+      summary: 提交整任务（负责人）：ASSIGNED/IN_PROGRESS → PENDING_REVIEW
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [revision]
+              properties:
+                revision: { type: integer, example: 2 }
+      responses:
+        '200':
+          description: 提交成功
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /api/v1/tasks/{id}/complete:
+    post:
+      tags: [task]
+      summary: 完成任务（审核员/管理员）：PENDING_REVIEW → COMPLETED
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [revision]
+              properties:
+                revision: { type: integer, example: 3 }
+                final_note: { type: string }
+      responses:
+        '200':
+          description: 完成成功
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  # ---------- 现场记录 ----------
   /api/v1/observations:
     post:
-      summary: 创建现场记录草稿（小程序）
-      operationId: createObservation
-      security:
-        - bearerAuth: []
+      tags: [observation]
+      summary: 创建现场记录草稿
+      description: |
+        source=TASK 必须携带 task_point_id（同一任务点逻辑唯一）；
+        source=VOLUNTARY 不得携带 task_point_id，且必须提供位置描述。
       requestBody:
         required: true
         content:
@@ -64,17 +353,235 @@ paths:
               type: object
               required: [source, location_text]
               properties:
-                source:
-                  type: string
-                  enum: [TASK, VOLUNTARY]
-                  example: TASK
-                task_point_id: { type: integer, nullable: true, description: 'source=TASK 时必填' }
-                location_text: { type: string }
+                source: { type: string, enum: [TASK, VOLUNTARY] }
+                task_point_id: { type: integer, example: 1 }
+                location_text: { type: string, example: '瓮城外墙东北角' }
       responses:
         '201':
-          description: 草稿创建成功
+          description: 草稿创建成功（status=DRAFT, revision=1）
         '400':
           $ref: '#/components/responses/BadRequest'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /api/v1/observations/{id}:
+    patch:
+      tags: [observation]
+      summary: 更新草稿位置/现场判断（DRAFT/RETURNED）
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [revision]
+              properties:
+                revision: { type: integer }
+                location_text: { type: string }
+                latitude: { type: number, format: double }
+                longitude: { type: number, format: double }
+                accuracy_m: { type: number }
+                captured_at: { type: string, format: date-time }
+                inspection_outcome: { type: string, enum: [NORMAL, SUSPECTED, UNDETERMINED, UNREACHABLE] }
+      responses:
+        '200':
+          description: 更新成功
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /api/v1/observations/{id}/images:
+    post:
+      tags: [observation]
+      summary: 上传现场图片（multipart/form-data）
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [image]
+              properties:
+                image: { type: string, format: binary }
+                image_role: { type: string, enum: [OVERVIEW, DETAIL], default: OVERVIEW }
+      responses:
+        '201':
+          description: 图片登记成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      image: { $ref: '#/components/schemas/Image' }
+        '400':
+          description: 缺文件或类型不支持
+  /api/v1/observations/{id}/conclusion:
+    put:
+      tags: [observation]
+      summary: 保存人工结论（整体替换当前草稿结论版本）
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [revision, outcome]
+              properties:
+                revision: { type: integer }
+                outcome: { type: string, enum: [NORMAL, SUSPECTED, UNDETERMINED, UNREACHABLE] }
+                description: { type: string }
+                priority_code: { type: string }
+                items:
+                  type: array
+                  items:
+                    type: object
+                    required: [image_id, decision]
+                    properties:
+                      image_id: { type: integer }
+                      source_detection_id: { type: integer }
+                      decision: { type: string, enum: [CONFIRM, MODIFY, REJECT, ADD] }
+                      final_class_code: { type: string }
+                      final_box_json: { type: string }
+                      description: { type: string }
+      responses:
+        '201':
+          description: 结论版本已创建
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      conclusion: { $ref: '#/components/schemas/ConclusionRevision' }
+        '400':
+          description: 引用了非本记录图片
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /api/v1/observations/{id}/submit:
+    post:
+      tags: [observation]
+      summary: 提交记录：DRAFT/RETURNED → SUBMITTED（生成提交快照）
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [revision]
+              properties:
+                revision: { type: integer }
+      responses:
+        '200':
+          description: 提交成功（首次采集触发任务 ASSIGNED→IN_PROGRESS）
+        '400':
+          description: 缺概览图/人工结论/位置
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /api/v1/observations/{id}/review:
+    post:
+      tags: [review]
+      summary: 审核记录（审核员/管理员）
+      description: |
+        ACCEPT → ACCEPTED；RETURN（须理由）→ RETURNED；REJECT（仅 VOLUNTARY）→ REJECTED。
+        不得审核本人提交的记录。
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [revision, decision]
+              properties:
+                revision: { type: integer }
+                decision: { type: string, enum: [ACCEPT, RETURN, REJECT] }
+                reason: { type: string }
+                disposition: { type: string }
+      responses:
+        '200':
+          description: 审核完成
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  # ---------- 图片内容与识别 ----------
+  /api/v1/images/{id}/content:
+    get:
+      tags: [observation]
+      summary: 受控图片流（鉴权后返回，禁止公开 /uploads）
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        '200':
+          description: 图片二进制流
+          content:
+            image/*: {}
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/images/{id}/recognitions:
+    post:
+      tags: [observation]
+      summary: 触发一次识别尝试（每次重试新建 attempt，不覆盖历史）
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                request_id: { type: string, description: 幂等/追踪 ID }
+      responses:
+        '200':
+          description: 识别完成（成功或失败均返回 attempt 记录）
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      attempt: { $ref: '#/components/schemas/RecognitionAttempt' }
+                      detections:
+                        type: array
+                        items: { $ref: '#/components/schemas/Detection' }
+        '500':
+          description: 识别服务超时/不可用（attempt=FAILED + error_code）
+  /api/v1/reviews:
+    get:
+      tags: [review]
+      summary: 待审核记录列表（审核员/管理员）
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/Observation' }
+
 components:
   securitySchemes:
     bearerAuth:
@@ -87,23 +594,183 @@ components:
       content:
         application/json:
           schema:
-            $ref: '#/components/schemas/ErrorBody'
+            type: object
+            properties:
+              error:
+                type: object
+                properties:
+                  code: { type: string, example: VALIDATION_ERROR }
+                  message: { type: string }
+              request_id: { type: string }
     Unauthorized:
-      description: 未认证
+      description: 未认证或凭证无效
       content:
         application/json:
           schema:
-            $ref: '#/components/schemas/ErrorBody'
+            type: object
+            properties:
+              error:
+                type: object
+                properties:
+                  code: { type: string, example: UNAUTHORIZED }
+                  message: { type: string }
+              request_id: { type: string }
+    Forbidden:
+      description: 无权限
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error:
+                type: object
+                properties:
+                  code: { type: string, example: FORBIDDEN }
+                  message: { type: string }
+              request_id: { type: string }
+    NotFound:
+      description: 资源不存在
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error:
+                type: object
+                properties:
+                  code: { type: string, example: NOT_FOUND }
+                  message: { type: string }
+              request_id: { type: string }
+    Conflict:
+      description: 状态/版本冲突
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error:
+                type: object
+                properties:
+                  code: { type: string, example: CONFLICT }
+                  message: { type: string }
+              request_id: { type: string }
   schemas:
-    ErrorBody:
+    User:
       type: object
-      required: [error, request_id]
       properties:
-        error:
-          type: object
-          required: [code, message]
-          properties:
-            code: { type: string, example: VALIDATION_ERROR }
-            message: { type: string }
-            details: { type: object }
-        request_id: { type: string, example: req_abc123 }
+        id: { type: integer }
+        username: { type: [string, 'null'] }
+        wechat_openid: { type: [string, 'null'] }
+        display_name: { type: string }
+        status: { type: string, enum: [ACTIVE, DISABLED] }
+    WallSegment:
+      type: object
+      properties:
+        id: { type: integer }
+        code: { type: string }
+        name: { type: string }
+        description: { type: string }
+        active: { type: boolean }
+    InspectionPoint:
+      type: object
+      properties:
+        id: { type: integer }
+        segment_id: { type: integer }
+        code: { type: string }
+        name: { type: string }
+        latitude: { type: number }
+        longitude: { type: number }
+        radius_m: { type: number }
+        location_hint: { type: string }
+        active: { type: boolean }
+    Task:
+      type: object
+      properties:
+        id: { type: integer }
+        title: { type: string }
+        assignee_id: { type: integer }
+        due_at: { type: [string, 'null'], format: date-time }
+        description: { type: [string, 'null'] }
+        status:
+          type: string
+          enum: [DRAFT, ASSIGNED, IN_PROGRESS, PENDING_REVIEW, RETURNED, COMPLETED, CANCELLED]
+        revision: { type: integer }
+        dispatched_at: { type: [string, 'null'], format: date-time }
+        completed_at: { type: [string, 'null'], format: date-time }
+    TaskPoint:
+      type: object
+      properties:
+        id: { type: integer }
+        task_id: { type: integer }
+        point_id: { type: integer }
+        sequence_no: { type: integer }
+        snapshot_name: { type: [string, 'null'] }
+        snapshot_segment_id: { type: [integer, 'null'] }
+        snapshot_latitude: { type: [number, 'null'] }
+        snapshot_longitude: { type: [number, 'null'] }
+        snapshot_radius_m: { type: [number, 'null'] }
+        snapshot_location_hint: { type: [string, 'null'] }
+    Observation:
+      type: object
+      properties:
+        id: { type: integer }
+        source: { type: string, enum: [TASK, VOLUNTARY] }
+        task_point_id: { type: [integer, 'null'] }
+        reporter_id: { type: integer }
+        segment_id: { type: [integer, 'null'] }
+        point_id: { type: [integer, 'null'] }
+        location_text: { type: string }
+        latitude: { type: [number, 'null'] }
+        longitude: { type: [number, 'null'] }
+        accuracy_m: { type: [number, 'null'] }
+        distance_m: { type: [number, 'null'] }
+        captured_at: { type: [string, 'null'], format: date-time }
+        inspection_outcome: { type: [string, 'null'], enum: [NORMAL, SUSPECTED, UNDETERMINED, UNREACHABLE] }
+        status: { type: string, enum: [DRAFT, SUBMITTED, RETURNED, ACCEPTED, REJECTED] }
+        revision: { type: integer }
+        submitted_at: { type: [string, 'null'], format: date-time }
+        reviewed_at: { type: [string, 'null'], format: date-time }
+    Image:
+      type: object
+      properties:
+        id: { type: integer }
+        storage_key: { type: string, description: 服务端生成，不对外暴露目录 }
+        sha256: { type: string }
+        media_type: { type: string }
+        byte_size: { type: integer }
+        width: { type: integer }
+        height: { type: integer }
+        uploaded_by: { type: integer }
+    RecognitionAttempt:
+      type: object
+      properties:
+        id: { type: integer }
+        image_id: { type: integer }
+        attempt_no: { type: integer }
+        status: { type: string, enum: [PENDING, SUCCEEDED, FAILED] }
+        model_version: { type: [string, 'null'] }
+        schema_version: { type: [string, 'null'] }
+        latency_ms: { type: [integer, 'null'] }
+        error_code: { type: [string, 'null'] }
+    Detection:
+      type: object
+      properties:
+        id: { type: integer }
+        attempt_id: { type: integer }
+        detection_key: { type: string }
+        class_code: { type: string }
+        confidence: { type: number }
+        x1: { type: integer }
+        y1: { type: integer }
+        x2: { type: integer }
+        y2: { type: integer }
+    ConclusionRevision:
+      type: object
+      properties:
+        id: { type: integer }
+        observation_id: { type: integer }
+        revision_no: { type: integer }
+        outcome: { type: string, enum: [NORMAL, SUSPECTED, UNDETERMINED, UNREACHABLE] }
+        description: { type: string }
+        priority_code: { type: [string, 'null'] }
+        author_id: { type: integer }

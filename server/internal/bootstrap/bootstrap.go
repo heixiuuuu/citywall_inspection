@@ -2,28 +2,31 @@
 package bootstrap
 
 import (
+	"context"
 	"log"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
 
 	"citywall/server/internal/api"
+	"citywall/server/internal/authn"
 	"citywall/server/internal/config"
 	"citywall/server/internal/infrastructure/database"
 	"citywall/server/internal/infrastructure/recognizer"
 	"citywall/server/internal/infrastructure/storage"
+	"citywall/server/internal/module/identity"
 	"citywall/server/internal/module/observation"
+	"citywall/server/internal/module/site"
 	"citywall/server/internal/module/task"
 	"citywall/server/internal/router"
 )
 
 // App 是装配完成的运行时对象。
 type App struct {
-	cfg        *config.Config
-	dbReady    bool
-	engine     *gin.Engine
-	storage    storage.Storage
-	recognizer recognizer.Recognizer
+	cfg     *config.Config
+	dbReady bool
+	engine  *gin.Engine
+	storage storage.Storage
 }
 
 // New 按配置装配全部组件。
@@ -31,17 +34,12 @@ type App struct {
 func New(cfg *config.Config) (*App, error) {
 	app := &App{cfg: cfg}
 
-	// 受控存储目录。
 	st, err := storage.New(cfg.Storage)
 	if err != nil {
 		return nil, err
 	}
 	app.storage = st
 
-	// 识别服务客户端。
-	app.recognizer = recognizer.New(cfg.Recognizer)
-
-	// 数据库：required=true 时连接失败直接返回错误。
 	db, err := database.Open(cfg.Database)
 	if err != nil {
 		if cfg.Database.Required {
@@ -52,15 +50,42 @@ func New(cfg *config.Config) (*App, error) {
 		app.dbReady = true
 	}
 
-	// 业务 Service（数据库未就绪时也可装配，Handler 骨架阶段不实际访问库）。
-	taskSvc := task.NewService(task.NewGORMRepository(db))
-	obsSvc := observation.NewService(observation.NewGORMRepository(db))
+	tm := authn.NewTokenManager(cfg.Auth.JWTSecret, cfg.Auth.TokenTTL())
+	rc := recognizer.New(cfg.Recognizer)
+
+	// 仓储。
+	identityRepo := identity.NewGORMRepository(db)
+	siteRepo := site.NewGORMRepository(db)
+	taskRepo := task.NewGORMRepository(db)
+	obsRepo := observation.NewGORMRepository(db)
+
+	// Service 装配（依赖方向：task → 记录状态接口；observation → 任务点/生命周期接口；site → 点位快照读取）。
+	identitySvc := identity.NewService(identityRepo, tm)
+	siteSvc := site.NewService(siteRepo)
+	obsSvc := observation.NewService(obsRepo, st, rc, taskRepo, taskRepo, taskRepo)
+	taskSvc := task.NewService(taskRepo, obsSvc, func(ctx context.Context, pointID int64) (task.PointSnapshot, error) {
+		p, err := siteRepo.GetPoint(ctx, pointID)
+		if err != nil {
+			return task.PointSnapshot{}, err
+		}
+		return task.PointSnapshot{
+			PointID:   p.ID,
+			Name:      p.Name,
+			SegmentID: p.SegmentID,
+			Latitude:  p.Latitude,
+			Longitude: p.Longitude,
+			RadiusM:   p.RadiusM,
+			Hint:      p.LocationHint,
+		}, nil
+	})
 
 	h := router.Handlers{
+		Identity:    api.NewIdentityHandler(identitySvc),
+		Site:        api.NewSiteHandler(siteSvc),
 		Task:        api.NewTaskHandler(taskSvc),
 		Observation: api.NewObservationHandler(obsSvc),
 	}
-	app.engine = router.Router(h, cfg.Upload.RequestIDHeader)
+	app.engine = router.Router(h, tm, cfg.Upload.RequestIDHeader)
 	registerReadyz(app)
 	return app, nil
 }
@@ -68,7 +93,7 @@ func New(cfg *config.Config) (*App, error) {
 // Router 返回 HTTP Handler。
 func (a *App) Router() http.Handler { return a.engine }
 
-// Close 释放资源（后续接入连接池关闭等）。
+// Close 释放资源。
 func (a *App) Close() error { return nil }
 
 // DBReady 报告数据库就绪状态。

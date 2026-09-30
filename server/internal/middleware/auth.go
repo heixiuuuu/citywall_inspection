@@ -5,6 +5,8 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+
+	"citywall/server/internal/authn"
 )
 
 // UserIDKey 是 context 中当前用户 ID 的键。
@@ -16,57 +18,44 @@ type Actor struct {
 	Roles  []string `json:"roles"`
 }
 
-// Auth 中间件骨架：从 Authorization: Bearer <token> 提取 token，
-// 解析后将 Actor 放入 context。
+// Auth 中间件：解析 Authorization: Bearer <token>，
+// 校验 JWT 后把 Actor 放入 context；无效 token 返回 401。
 //
-// 说明（初始化阶段）：
-//   - 登录与 JWT 签发待 identity 模块实现，本中间件先完成 token 提取与占位校验；
-//   - 前端路由守卫只能隐藏不可操作页面，真正的授权校验必须由服务端完成。
-func Auth() gin.HandlerFunc {
+// 说明：前端路由守卫只能隐藏不可操作页面，真正的授权校验必须由服务端完成；
+// 角色级权限由各 Service 在业务方法中校验。
+func Auth(tm *authn.TokenManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		header := c.GetHeader("Authorization")
 		if header == "" {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
-				"error": gin.H{
-					"code":    "UNAUTHORIZED",
-					"message": "missing bearer token",
-				},
-				"request_id": GetRequestID(c),
-			})
+			abortUnauthorized(c, "missing bearer token")
 			return
 		}
 
 		const prefix = "Bearer "
 		if !strings.HasPrefix(header, prefix) {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
-				"error": gin.H{
-					"code":    "UNAUTHORIZED",
-					"message": "invalid authorization scheme",
-				},
-				"request_id": GetRequestID(c),
-			})
+			abortUnauthorized(c, "invalid authorization scheme")
 			return
 		}
 
-		token := strings.TrimPrefix(header, prefix)
-		if token == "" {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
-				"error": gin.H{
-					"code":    "UNAUTHORIZED",
-					"message": "empty bearer token",
-				},
-				"request_id": GetRequestID(c),
-			})
+		tokenStr := strings.TrimPrefix(header, prefix)
+		if tokenStr == "" {
+			abortUnauthorized(c, "empty bearer token")
 			return
 		}
 
-		// TODO(init): 解析 JWT（identity 模块完成后接入），把 Actor 写入 context。
-		c.Set("actor_token", token)
+		claims, err := tm.Parse(tokenStr)
+		if err != nil {
+			abortUnauthorized(c, "invalid or expired token")
+			return
+		}
+
+		c.Set("actor", &Actor{UserID: claims.UserID, Roles: claims.Roles})
+		c.Set(UserIDKey, claims.UserID)
 		c.Next()
 	}
 }
 
-// GetActor 读取当前用户上下文。
+// GetActor 读取当前用户上下文；未认证返回 nil,false。
 func GetActor(c *gin.Context) (*Actor, bool) {
 	v, ok := c.Get("actor")
 	if !ok {
@@ -74,4 +63,14 @@ func GetActor(c *gin.Context) (*Actor, bool) {
 	}
 	a, ok := v.(*Actor)
 	return a, ok
+}
+
+func abortUnauthorized(c *gin.Context, message string) {
+	c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+		"error": gin.H{
+			"code":    "UNAUTHORIZED",
+			"message": message,
+		},
+		"request_id": GetRequestID(c),
+	})
 }

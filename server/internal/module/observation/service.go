@@ -1,39 +1,609 @@
 package observation
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"image"
+	_ "image/jpeg"
+	_ "image/png"
+	"io"
+	"os"
+	"time"
+
+	"citywall/server/internal/infrastructure/recognizer"
+	"citywall/server/internal/middleware"
+	"citywall/server/internal/module/task"
 )
 
+// 领域错误。
 var (
-	// ErrNotImplemented 骨架阶段占位。
+	// ErrNotFound 记录/图片不存在（404）。
+	ErrNotFound = errors.New("observation: not found")
+	// ErrForbidden 无权限（403）。
+	ErrForbidden = errors.New("observation: forbidden")
+	// ErrInvalidState 状态不允许该操作（409）。
+	ErrInvalidState = errors.New("observation: invalid state for operation")
+	// ErrStatusConflict revision 冲突（409）。
+	ErrStatusConflict = errors.New("observation: status or revision conflict")
+	// ErrSourceConstraint 来源约束不满足（400）。
+	ErrSourceConstraint = errors.New("observation: source constraint violated")
+	// ErrDuplicateRecord 同一任务点已有逻辑记录。
+	ErrDuplicateRecord = errors.New("observation: task point already has a record")
+	// ErrMissingOverview 缺少现场概览照片。
+	ErrMissingOverview = errors.New("observation: at least one overview image required")
+	// ErrMissingConclusion 缺少人工结论。
+	ErrMissingConclusion = errors.New("observation: human conclusion required before submit")
+	// ErrMissingLocation 缺少位置信息。
+	ErrMissingLocation = errors.New("observation: location required")
+	// ErrSelfReview 不能审核本人提交的记录。
+	ErrSelfReview = errors.New("observation: cannot review own record")
+	// ErrReturnReasonRequired 退回/驳回必须填写理由。
+	ErrReturnReasonRequired = errors.New("observation: return reason required")
+	// ErrRejectOnlyVoluntary 驳回仅限主动上报。
+	ErrRejectOnlyVoluntary = errors.New("observation: reject only allowed for voluntary")
+	// ErrNotImplemented 占位。
 	ErrNotImplemented = errors.New("observation: not implemented yet")
 )
 
-// Repository 现场记录数据访问接口。
-type Repository interface {
-	// InsertDraft 创建草稿记录。
-	InsertDraft(ctx context.Context, o *Observation) error
-	// GetByID 按 ID 查询。
-	GetByID(ctx context.Context, id int64) (*Observation, error)
+// Storage 抽象图片落盘（由 infrastructure/storage 实现）。
+type Storage interface {
+	SaveImage(data []byte, mediaType string) (string, error)
+	Open(relKey string) (*os.File, error)
+}
+
+// RecognizerClient 抽象识别客户端。
+type RecognizerClient interface {
+	Recognize(ctx context.Context, attemptID, imageID, requestID string, image []byte) (*recognizer.Result, error)
+}
+
+// TaskPointRepository 由 task 模块仓储实现。
+type TaskPointRepository interface {
+	GetTaskPoint(ctx context.Context, id int64) (*task.TaskPoint, error)
+}
+
+// TaskLifecycle 由 task 模块仓储实现：任务首次采集时 ASSIGNED → IN_PROGRESS。
+type TaskLifecycle interface {
+	MarkInProgressIfAssigned(ctx context.Context, taskID int64) error
+}
+
+// TaskPointLister 按任务列出任务点（由 task 模块仓储实现）。
+type TaskPointLister interface {
+	ListPoints(ctx context.Context, taskID int64) ([]task.TaskPoint, error)
+}
+
+// PatchInput PATCH /observations/{id} 允许的修改字段。
+type PatchInput struct {
+	LocationText      string     `json:"location_text"`
+	Latitude          *float64   `json:"latitude"`
+	Longitude         *float64   `json:"longitude"`
+	AccuracyM         *float64   `json:"accuracy_m"`
+	CapturedAt        *time.Time `json:"captured_at"`
+	InspectionOutcome string     `json:"inspection_outcome"`
+}
+
+// ConclusionItemIn 人工结论项。
+type ConclusionItemIn struct {
+	ImageID           int64   `json:"image_id" binding:"required"`
+	SourceDetectionID *int64  `json:"source_detection_id"`
+	Decision          string  `json:"decision" binding:"required,oneof=CONFIRM MODIFY REJECT ADD"`
+	FinalClassCode    string  `json:"final_class_code"`
+	FinalBoxJSON      string  `json:"final_box_json"`
+	Description       string  `json:"description"`
+}
+
+// ConclusionInput PUT /observations/{id}/conclusion 入参。
+type ConclusionInput struct {
+	Outcome      string              `json:"outcome" binding:"required,oneof=NORMAL SUSPECTED UNDETERMINED UNREACHABLE"`
+	Description  string              `json:"description"`
+	PriorityCode string              `json:"priority_code"`
+	Items        []ConclusionItemIn  `json:"items"`
+}
+
+// ReviewInput POST /observations/{id}/review 入参。
+type ReviewInput struct {
+	Decision    string `json:"decision" binding:"required,oneof=ACCEPT RETURN REJECT"`
+	Reason      string `json:"reason"`
+	Disposition string `json:"disposition"`
 }
 
 // Service 现场记录业务规则。
 type Service interface {
-	// Create 创建草稿：source=TASK 必须带 task_point_id；source=VOLUNTARY 必须为空且带位置描述。
-	Create(ctx context.Context, actorID int64, source string, taskPointID *int64, locationText string) (*Observation, error)
+	Create(ctx context.Context, actor *middleware.Actor, source string, taskPointID *int64, locationText string) (*Observation, error)
+	Update(ctx context.Context, actor *middleware.Actor, id, revision int64, in PatchInput) (*Observation, error)
+	AddImage(ctx context.Context, actor *middleware.Actor, obsID int64, mediaType string, data []byte, role string) (*Image, error)
+	GetImageContent(ctx context.Context, actor *middleware.Actor, imageID int64) (*Image, io.ReadCloser, error)
+	Recognize(ctx context.Context, actor *middleware.Actor, imageID int64, requestID string) (*RecognitionAttempt, []Detection, error)
+	SaveConclusion(ctx context.Context, actor *middleware.Actor, obsID, revision int64, in ConclusionInput) (*ConclusionRevision, error)
+	Submit(ctx context.Context, actor *middleware.Actor, obsID, revision int64) (*Observation, error)
+	Review(ctx context.Context, actor *middleware.Actor, obsID, revision int64, in ReviewInput) (*Observation, error)
+	ListPendingReview(ctx context.Context, actor *middleware.Actor) ([]Observation, error)
+
+	// TaskPointStatuses 实现 task.ObservationStatusProvider。
+	TaskPointStatuses(ctx context.Context, taskID int64) (map[int64]string, error)
 }
 
 type service struct {
-	repo Repository
+	repo             Repository
+	storage          Storage
+	recognizer       RecognizerClient
+	taskPoints       TaskPointRepository
+	taskLife         TaskLifecycle
+	taskPointLister  TaskPointLister
 }
 
 // NewService 构造现场记录服务。
-func NewService(repo Repository) Service {
-	return &service{repo: repo}
+func NewService(repo Repository, st Storage, rc RecognizerClient, tp TaskPointRepository, tl TaskLifecycle, lister TaskPointLister) Service {
+	return &service{repo: repo, storage: st, recognizer: rc, taskPoints: tp, taskLife: tl, taskPointLister: lister}
 }
 
-func (s *service) Create(ctx context.Context, actorID int64, source string, taskPointID *int64, locationText string) (*Observation, error) {
-	// TODO(init): 校验来源约束；任务点只允许一条逻辑 Observation；创建 DRAFT。
-	return nil, ErrNotImplemented
+func (s *service) Create(ctx context.Context, actor *middleware.Actor, source string, taskPointID *int64, locationText string) (*Observation, error) {
+	o := &Observation{
+		Source:       source,
+		TaskPointID:  taskPointID,
+		ReporterID:   actor.UserID,
+		LocationText: locationText,
+		Status:       ObsDraft,
+		Revision:     1,
+	}
+	switch source {
+	case SourceTask:
+		if taskPointID == nil {
+			return nil, ErrSourceConstraint
+		}
+		if _, err := s.taskPoints.GetTaskPoint(ctx, *taskPointID); err != nil {
+			return nil, ErrNotFound
+		}
+		if existing, err := s.repo.GetByTaskPoint(ctx, *taskPointID); err == nil && existing != nil {
+			return nil, ErrDuplicateRecord
+		}
+	case SourceVoluntary:
+		if taskPointID != nil {
+			return nil, ErrSourceConstraint
+		}
+		if locationText == "" {
+			return nil, ErrMissingLocation
+		}
+	default:
+		return nil, ErrSourceConstraint
+	}
+	if err := s.repo.Insert(ctx, o); err != nil {
+		return nil, err
+	}
+	return o, nil
+}
+
+func (s *service) Update(ctx context.Context, actor *middleware.Actor, id, revision int64, in PatchInput) (*Observation, error) {
+	o, err := s.repo.GetByID(ctx, id)
+	if err != nil {
+		return nil, ErrNotFound
+	}
+	if o.ReporterID != actor.UserID && !isAdminOrReviewer(actor) {
+		return nil, ErrForbidden
+	}
+	if o.Status != ObsDraft && o.Status != ObsReturned {
+		return nil, ErrInvalidState
+	}
+	if o.Revision != revision {
+		return nil, ErrStatusConflict
+	}
+	if in.LocationText != "" {
+		o.LocationText = in.LocationText
+	}
+	if in.Latitude != nil {
+		o.Latitude = in.Latitude
+	}
+	if in.Longitude != nil {
+		o.Longitude = in.Longitude
+	}
+	if in.AccuracyM != nil {
+		o.AccuracyM = in.AccuracyM
+	}
+	if in.CapturedAt != nil {
+		o.CapturedAt = in.CapturedAt
+	}
+	if in.InspectionOutcome != "" {
+		o.InspectionOutcome = in.InspectionOutcome
+	}
+	if err := s.repo.Update(ctx, o); err != nil {
+		return nil, err
+	}
+	if _, err := s.repo.BumpRevision(ctx, id, revision); err != nil {
+		return nil, err
+	}
+	o.Revision++
+	return o, nil
+}
+
+func (s *service) AddImage(ctx context.Context, actor *middleware.Actor, obsID int64, mediaType string, data []byte, role string) (*Image, error) {
+	o, err := s.repo.GetByID(ctx, obsID)
+	if err != nil {
+		return nil, ErrNotFound
+	}
+	if o.ReporterID != actor.UserID && !isAdminOrReviewer(actor) {
+		return nil, ErrForbidden
+	}
+	if role != ImageRoleOverview && role != ImageRoleDetail {
+		return nil, ErrSourceConstraint
+	}
+
+	key, err := s.storage.SaveImage(data, mediaType)
+	if err != nil {
+		return nil, err
+	}
+	w, h := imageSize(data)
+	img := &Image{
+		StorageKey: key,
+		SHA256:     sha256Hex(data),
+		MediaType:  mediaType,
+		ByteSize:   int64(len(data)),
+		Width:      w,
+		Height:     h,
+		UploadedBy: actor.UserID,
+	}
+	if err := s.repo.InsertImage(ctx, img); err != nil {
+		return nil, err
+	}
+	if err := s.repo.LinkImage(ctx, obsID, img.ID, role); err != nil {
+		return nil, err
+	}
+	return img, nil
+}
+
+func (s *service) GetImageContent(ctx context.Context, actor *middleware.Actor, imageID int64) (*Image, io.ReadCloser, error) {
+	img, err := s.repo.GetImage(ctx, imageID)
+	if err != nil {
+		return nil, nil, ErrNotFound
+	}
+	o, err := s.repo.ObservationByImage(ctx, imageID)
+	if err != nil {
+		return nil, nil, ErrNotFound
+	}
+	if o.ReporterID != actor.UserID && !isAdminOrReviewer(actor) {
+		return nil, nil, ErrForbidden
+	}
+	f, err := s.storage.Open(img.StorageKey)
+	if err != nil {
+		return nil, nil, err
+	}
+	return img, f, nil
+}
+
+func (s *service) Recognize(ctx context.Context, actor *middleware.Actor, imageID int64, requestID string) (*RecognitionAttempt, []Detection, error) {
+	img, err := s.repo.GetImage(ctx, imageID)
+	if err != nil {
+		return nil, nil, ErrNotFound
+	}
+	o, err := s.repo.ObservationByImage(ctx, imageID)
+	if err != nil {
+		return nil, nil, ErrNotFound
+	}
+	if o.ReporterID != actor.UserID && !isAdminOrReviewer(actor) {
+		return nil, nil, ErrForbidden
+	}
+	f, err := s.storage.Open(img.StorageKey)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer f.Close()
+	data, err := io.ReadAll(f)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	attemptNo, err := s.repo.NextAttemptNo(ctx, imageID)
+	if err != nil {
+		return nil, nil, err
+	}
+	attempt := &RecognitionAttempt{
+		ImageID:   imageID,
+		AttemptNo: attemptNo,
+		Status:    AttemptPending,
+		StartedAt: time.Now().UTC(),
+	}
+	if err := s.repo.InsertAttempt(ctx, attempt); err != nil {
+		return nil, nil, err
+	}
+
+	attemptID := fmt.Sprintf("ra_%d", attempt.ID)
+	res, err := s.recognizer.Recognize(ctx, attemptID, fmt.Sprintf("img_%d", imageID), requestID, data)
+	now := time.Now().UTC()
+	attempt.FinishedAt = &now
+	if err != nil {
+		attempt.Status = AttemptFailed
+		attempt.ErrorCode = "RECOGNITION_FAILED"
+		if err == recognizer.ErrTimeout {
+			attempt.ErrorCode = "RECOGNITION_TIMEOUT"
+		}
+		_ = s.repo.UpdateAttempt(ctx, attempt)
+		return attempt, nil, err
+	}
+	attempt.Status = AttemptSucceeded
+	attempt.ModelVersion = res.ModelVersion
+	attempt.SchemaVersion = res.SchemaVersion
+	attempt.LatencyMs = res.LatencyMs
+	if err := s.repo.UpdateAttempt(ctx, attempt); err != nil {
+		return nil, nil, err
+	}
+
+	detections := make([]Detection, 0, len(res.Detections))
+	for _, d := range res.Detections {
+		detections = append(detections, Detection{
+			AttemptID:    attempt.ID,
+			DetectionKey: d.DetectionID,
+			ClassCode:    d.ClassCode,
+			Confidence:   d.Confidence,
+			X1:           d.BBox.X1,
+			Y1:           d.BBox.Y1,
+			X2:           d.BBox.X2,
+			Y2:           d.BBox.Y2,
+		})
+	}
+	if err := s.repo.InsertDetections(ctx, detections); err != nil {
+		return nil, nil, err
+	}
+	return attempt, detections, nil
+}
+
+func (s *service) SaveConclusion(ctx context.Context, actor *middleware.Actor, obsID, revision int64, in ConclusionInput) (*ConclusionRevision, error) {
+	o, err := s.repo.GetByID(ctx, obsID)
+	if err != nil {
+		return nil, ErrNotFound
+	}
+	if o.ReporterID != actor.UserID && !isAdminOrReviewer(actor) {
+		return nil, ErrForbidden
+	}
+	if o.Status != ObsDraft && o.Status != ObsReturned {
+		return nil, ErrInvalidState
+	}
+	if o.Revision != revision {
+		return nil, ErrStatusConflict
+	}
+
+	links, err := s.repo.ListImages(ctx, obsID)
+	if err != nil {
+		return nil, err
+	}
+	validImage := map[int64]bool{}
+	for _, l := range links {
+		validImage[l.ImageID] = true
+	}
+	items := make([]ConclusionItem, 0, len(in.Items))
+	for _, it := range in.Items {
+		if !validImage[it.ImageID] {
+			return nil, ErrForbidden
+		}
+		items = append(items, ConclusionItem{
+			ImageID:           it.ImageID,
+			SourceDetectionID: it.SourceDetectionID,
+			Decision:          it.Decision,
+			FinalClassCode:    it.FinalClassCode,
+			FinalBoxJSON:      it.FinalBoxJSON,
+			Description:       it.Description,
+		})
+	}
+	no, err := s.repo.NextConclusionNo(ctx, obsID)
+	if err != nil {
+		return nil, err
+	}
+	rev := &ConclusionRevision{
+		ObservationID: obsID,
+		RevisionNo:    no,
+		Outcome:       in.Outcome,
+		Description:   in.Description,
+		PriorityCode:  in.PriorityCode,
+		AuthorID:      actor.UserID,
+	}
+	if err := s.repo.InsertConclusion(ctx, rev, items); err != nil {
+		return nil, err
+	}
+	if _, err := s.repo.BumpRevision(ctx, obsID, revision); err != nil {
+		return nil, err
+	}
+	o.Revision++
+	return rev, nil
+}
+
+func (s *service) Submit(ctx context.Context, actor *middleware.Actor, obsID, revision int64) (*Observation, error) {
+	o, err := s.repo.GetByID(ctx, obsID)
+	if err != nil {
+		return nil, ErrNotFound
+	}
+	if o.ReporterID != actor.UserID && !isAdminOrReviewer(actor) {
+		return nil, ErrForbidden
+	}
+	if o.Status != ObsDraft && o.Status != ObsReturned {
+		return nil, ErrInvalidState
+	}
+	if o.Revision != revision {
+		return nil, ErrStatusConflict
+	}
+
+	links, err := s.repo.ListImages(ctx, obsID)
+	if err != nil {
+		return nil, err
+	}
+	hasOverview := false
+	imageIDs := make([]int64, 0, len(links))
+	for _, l := range links {
+		imageIDs = append(imageIDs, l.ImageID)
+		if l.ImageRole == ImageRoleOverview {
+			hasOverview = true
+		}
+	}
+	if !hasOverview {
+		return nil, ErrMissingOverview
+	}
+	conclusion, err := s.repo.LatestConclusion(ctx, obsID)
+	if err != nil {
+		return nil, ErrMissingConclusion
+	}
+	if o.Source == SourceVoluntary && (o.LocationText == "" || o.Latitude == nil) {
+		return nil, ErrMissingLocation
+	}
+	if o.Source == SourceTask && o.LocationText == "" {
+		return nil, ErrMissingLocation
+	}
+
+	locSnap, _ := json.Marshal(map[string]any{
+		"location_text": o.LocationText,
+		"latitude":      o.Latitude,
+		"longitude":     o.Longitude,
+		"accuracy_m":    o.AccuracyM,
+		"captured_at":   o.CapturedAt,
+		"distance_m":    o.DistanceM,
+	})
+	imgSnap, _ := json.Marshal(imageIDs)
+
+	subNo, err := s.repo.NextSubmissionNo(ctx, obsID)
+	if err != nil {
+		return nil, err
+	}
+	sub := &ObservationSubmission{
+		ObservationID:        obsID,
+		SubmissionNo:         subNo,
+		ObservationRevision:  revision,
+		ConclusionRevisionID: &conclusion.ID,
+		LocationSnapshotJSON: string(locSnap),
+		ImageIDsSnapshotJSON: string(imgSnap),
+		SubmittedAt:          time.Now().UTC(),
+	}
+	if err := s.repo.InsertSubmission(ctx, sub); err != nil {
+		return nil, err
+	}
+	now := time.Now().UTC()
+	n, err := s.repo.UpdateStatus(ctx, obsID, revision, ObsSubmitted)
+	if err != nil {
+		return nil, err
+	}
+	if n == 0 {
+		return nil, ErrStatusConflict
+	}
+	o.Status = ObsSubmitted
+	o.Revision++
+	o.SubmittedAt = &now
+
+	if o.Source == SourceTask && o.TaskPointID != nil {
+		if tp, err := s.taskPoints.GetTaskPoint(ctx, *o.TaskPointID); err == nil {
+			_ = s.taskLife.MarkInProgressIfAssigned(ctx, tp.TaskID)
+		}
+	}
+	return o, nil
+}
+
+func (s *service) Review(ctx context.Context, actor *middleware.Actor, obsID, revision int64, in ReviewInput) (*Observation, error) {
+	if !isAdminOrReviewer(actor) {
+		return nil, ErrForbidden
+	}
+	o, err := s.repo.GetByID(ctx, obsID)
+	if err != nil {
+		return nil, ErrNotFound
+	}
+	if o.ReporterID == actor.UserID {
+		return nil, ErrSelfReview
+	}
+	if o.Status != ObsSubmitted {
+		return nil, ErrInvalidState
+	}
+	if o.Revision != revision {
+		return nil, ErrStatusConflict
+	}
+	if in.Decision == ReviewReturn && in.Reason == "" {
+		return nil, ErrReturnReasonRequired
+	}
+	if in.Decision == ReviewReject && o.Source != SourceVoluntary {
+		return nil, ErrRejectOnlyVoluntary
+	}
+	if in.Decision == ReviewReject && in.Reason == "" {
+		return nil, ErrReturnReasonRequired
+	}
+
+	sub, err := s.repo.LatestSubmission(ctx, obsID)
+	if err != nil {
+		return nil, ErrNotFound
+	}
+	decision := &ReviewDecision{
+		SubmissionID: sub.ID,
+		ReviewerID:   actor.UserID,
+		Decision:     in.Decision,
+		Disposition:  in.Disposition,
+		Reason:       in.Reason,
+	}
+	if err := s.repo.InsertReviewDecision(ctx, decision); err != nil {
+		return nil, err
+	}
+
+	var newStatus string
+	switch in.Decision {
+	case ReviewAccept:
+		newStatus = ObsAccepted
+	case ReviewReturn:
+		newStatus = ObsReturned
+	case ReviewReject:
+		newStatus = ObsRejected
+	}
+	now := time.Now().UTC()
+	n, err := s.repo.UpdateStatus(ctx, obsID, revision, newStatus)
+	if err != nil {
+		return nil, err
+	}
+	if n == 0 {
+		return nil, ErrStatusConflict
+	}
+	o.Status = newStatus
+	o.Revision++
+	o.ReviewedAt = &now
+	return o, nil
+}
+
+func (s *service) ListPendingReview(ctx context.Context, actor *middleware.Actor) ([]Observation, error) {
+	if !isAdminOrReviewer(actor) {
+		return nil, ErrForbidden
+	}
+	return s.repo.ListByStatuses(ctx, []string{ObsSubmitted})
+}
+
+// TaskPointStatuses 实现 task.ObservationStatusProvider。
+func (s *service) TaskPointStatuses(ctx context.Context, taskID int64) (map[int64]string, error) {
+	if s.taskPointLister == nil {
+		return nil, ErrNotImplemented
+	}
+	points, err := s.taskPointLister.ListPoints(ctx, taskID)
+	if err != nil {
+		return nil, err
+	}
+	ids := make([]int64, 0, len(points))
+	for _, p := range points {
+		ids = append(ids, p.ID)
+	}
+	return s.repo.StatusByTaskPoints(ctx, ids)
+}
+
+func isAdminOrReviewer(actor *middleware.Actor) bool {
+	if actor == nil {
+		return false
+	}
+	for _, r := range actor.Roles {
+		if r == "ADMIN" || r == "REVIEWER" {
+			return true
+		}
+	}
+	return false
+}
+
+func sha256Hex(b []byte) string {
+	s := sha256.Sum256(b)
+	return hex.EncodeToString(s[:])
+}
+
+func imageSize(data []byte) (int, int) {
+	cfg, _, err := image.DecodeConfig(bytes.NewReader(data))
+	if err != nil {
+		return 0, 0 // TODO(init): webp 等格式尺寸探测后续补齐，不阻断上传。
+	}
+	return cfg.Width, cfg.Height
 }
