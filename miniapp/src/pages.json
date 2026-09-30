@@ -2,25 +2,53 @@
   "pages": [
     {
       "path": "pages/index/index",
-      "style": { "navigationBarTitleText": "古城墙巡检" }
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTitleText": "登录"
+      }
     },
     {
       "path": "pages/tasks/index",
-      "style": { "navigationBarTitleText": "我的任务" }
+      "style": {
+        "navigationBarTitleText": "我的任务",
+        "navigationBarBackgroundColor": "#25584F",
+        "navigationBarTextStyle": "white",
+        "backgroundColor": "#F5F1E8",
+        "enablePullDownRefresh": true
+      }
+    },
+    {
+      "path": "pages/tasks/detail",
+      "style": {
+        "navigationBarTitleText": "任务详情",
+        "navigationBarBackgroundColor": "#25584F",
+        "navigationBarTextStyle": "white",
+        "backgroundColor": "#F5F1E8"
+      }
+    },
+    {
+      "path": "pages/collect/index",
+      "style": {
+        "navigationBarTitleText": "现场采集",
+        "navigationBarBackgroundColor": "#25584F",
+        "navigationBarTextStyle": "white",
+        "backgroundColor": "#F5F1E8"
+      }
+    },
+    {
+      "path": "pages/report/index",
+      "style": {
+        "navigationBarTitleText": "主动上报",
+        "navigationBarBackgroundColor": "#25584F",
+        "navigationBarTextStyle": "white",
+        "backgroundColor": "#F5F1E8"
+      }
     }
   ],
   "globalStyle": {
     "navigationBarTextStyle": "black",
-    "navigationBarTitleText": "古城墙巡检",
-    "navigationBarBackgroundColor": "#F8F8F8",
-    "backgroundColor": "#F8F8F8"
-  },
-  "tabBar": {
-    "color": "#7A7E83",
-    "selectedColor": "#3CC51F",
-    "list": [
-      { "pagePath": "pages/index/index", "text": "首页" },
-      { "pagePath": "pages/tasks/index", "text": "任务" }
-    ]
+    "navigationBarTitleText": "古城墙病害巡检",
+    "navigationBarBackgroundColor": "#F5F1E8",
+    "backgroundColor": "#F5F1E8"
   }
 }

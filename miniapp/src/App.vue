@@ -1,16 +1,25 @@
 <script>
+import { isLoggedIn } from './shared/auth/auth'
+
 export default {
   onLaunch() {
-    // 登录态初始化：调用 shared/auth/auth.js 恢复或刷新 token。
-    // 服务端返回成功前不得显示“已提交”。
+    // 启动时校验登录态：无 token 一律回登录页（路由守卫在页面 onShow 内兜底）。
+    if (!isLoggedIn()) {
+      uni.reLaunch({ url: '/pages/index/index' })
+    }
   },
 }
 </script>
 
 <style>
+/* 全局设计 token（与 design/miniapp/ui-spec.md 对齐） */
 page {
-  background-color: #f8f8f8;
+  background-color: #f5f1e8;
   font-size: 28rpx;
-  color: #333;
+  color: #2b2b2b;
+  font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+button::after {
+  border: none;
 }
 </style>
