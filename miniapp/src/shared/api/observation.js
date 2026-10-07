@@ -44,6 +44,16 @@ export function submitObservation(observationId, revision) {
   return request(`/observations/${observationId}/submit`, { method: 'POST', data: { revision } })
 }
 
+/** GET /observations 记录列表（按任务/状态过滤，巡检员只看本人记录）。 */
+export function listObservations(params = {}) {
+  const qs = new URLSearchParams()
+  if (params.task_id) qs.set('task_id', String(params.task_id))
+  if (params.status) qs.set('status', params.status)
+  if (params.page_size) qs.set('page_size', String(params.page_size))
+  const q = qs.toString()
+  return request(`/observations${q ? `?${q}` : ''}`)
+}
+
 /** GET /inspection-points 点位列表（巡检端只读）。 */
 export function getInspectionPoints() {
   return request('/inspection-points')

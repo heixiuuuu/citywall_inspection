@@ -45,6 +45,7 @@
 <script setup>
 import { computed, onLoad, ref } from 'vue'
 import { getTask, submitTask } from '../../shared/api/task'
+import { listObservations } from '../../shared/api/observation'
 import { statusText, statusClass } from '../../shared/ui/status'
 import { getUser } from '../../shared/auth/auth'
 
@@ -65,9 +66,18 @@ async function load() {
     const res = await getTask(taskId.value)
     task.value = res.data.task
     points.value = res.data.points || []
-    // 点位 → 记录状态：MVP 由任务点序列推断（草稿/已提交等），
-    // 正式联调按 GET /observations 或任务点状态接口补充。
+    // 点位 → 记录状态：按 GET /observations?task_id= 拉取本人各任务点记录的真实审核状态。
     pointStatusMap.value = {}
+    try {
+      const ores = await listObservations({ task_id: taskId.value, page_size: 200 })
+      for (const o of ores.data.items || []) {
+        if (o.task_point_id != null) {
+          pointStatusMap.value[o.task_point_id] = o.status
+        }
+      }
+    } catch (e) {
+      // 状态加载失败不阻塞任务详情（仍可按点位采集）。
+    }
   } catch (e) {
     uni.showToast({ title: '加载任务失败', icon: 'none' })
   }

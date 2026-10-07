@@ -114,6 +114,7 @@ import {
   recognize,
   saveConclusion,
   submitObservation,
+  listObservations,
 } from '../../shared/api/observation'
 
 const outcomes = [
@@ -155,10 +156,33 @@ async function boot() {
     obs.value = res.data.observation
   } catch (e) {
     if (e && e.statusCode === 409) {
-      uni.showToast({ title: '该点位已有记录', icon: 'none' })
+      // 点位已有记录：加载已有草稿/退回记录，退回补正时允许继续提交。
+      await resumeExisting()
     } else {
       uni.showToast({ title: '创建记录失败', icon: 'none' })
     }
+  }
+}
+
+/** 加载该任务点已有记录（DRAFT 草稿 / RETURNED 退回补正）。 */
+async function resumeExisting() {
+  try {
+    const ores = await listObservations({ task_id: taskId.value, page_size: 200 })
+    const mine = (ores.data.items || []).find((o) => o.task_point_id === taskPointId.value)
+    if (!mine) {
+      uni.showToast({ title: '记录状态异常，请返回重试', icon: 'none' })
+      return
+    }
+    obs.value = mine
+    if (mine.status === 'RETURNED') {
+      uni.showToast({ title: '该点位已退回，请补正后重新提交', icon: 'none' })
+    } else if (mine.status === 'SUBMITTED' || mine.status === 'ACCEPTED') {
+      uni.showToast({ title: '该点位已提交，不可重复采集', icon: 'none' })
+    } else {
+      uni.showToast({ title: '继续编辑已有记录', icon: 'none' })
+    }
+  } catch (err) {
+    uni.showToast({ title: '加载已有记录失败', icon: 'none' })
   }
 }
 
