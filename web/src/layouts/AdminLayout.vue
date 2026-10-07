@@ -9,6 +9,15 @@
         <el-menu-item v-if="canReview" index="/reviews">
           <span>审核管理</span>
         </el-menu-item>
+        <el-menu-item index="/issues">
+          <span>问题台账</span>
+        </el-menu-item>
+        <el-menu-item v-if="canReview" index="/records">
+          <span>记录检索</span>
+        </el-menu-item>
+        <el-menu-item v-if="canReview" index="/reports">
+          <span>报告中心</span>
+        </el-menu-item>
         <el-menu-item v-if="isAdmin" index="/points">
           <span>点位管理</span>
         </el-menu-item>

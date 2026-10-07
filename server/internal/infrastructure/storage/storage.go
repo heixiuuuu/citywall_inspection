@@ -25,6 +25,10 @@ type Storage interface {
 	SaveImage(data []byte, mediaType string) (string, error)
 	// Open 读取受控目录下的文件（调用方负责鉴权）。
 	Open(relKey string) (*os.File, error)
+	// SaveReport 将报告字节写入受控报告目录，返回相对 key。
+	SaveReport(data []byte) (string, error)
+	// OpenReport 读取受控报告目录下的文件（调用方负责鉴权）。
+	OpenReport(relKey string) (*os.File, error)
 }
 
 // LocalStorage 基于本地目录的实现。
@@ -65,14 +69,32 @@ func (s *LocalStorage) SaveImage(data []byte, mediaType string) (string, error) 
 
 // Open 打开受控目录下的文件。路径穿越防护：仅允许 base 内的相对路径。
 func (s *LocalStorage) Open(relKey string) (*os.File, error) {
+	return openIn(s.cfg.ImageDir, relKey)
+}
+
+// SaveReport 落盘 PDF 报告（随机名，防枚举）。
+func (s *LocalStorage) SaveReport(data []byte) (string, error) {
+	rel := "report-" + randKey("application/pdf")
+	if err := os.WriteFile(filepath.Join(s.cfg.ReportDir, rel), data, 0o640); err != nil {
+		return "", err
+	}
+	return rel, nil
+}
+
+// OpenReport 打开受控报告目录下的 PDF。
+func (s *LocalStorage) OpenReport(relKey string) (*os.File, error) {
+	return openIn(s.cfg.ReportDir, relKey)
+}
+
+func openIn(baseDir, relKey string) (*os.File, error) {
 	if filepath.IsAbs(relKey) {
 		return nil, errors.New("storage: absolute path not allowed")
 	}
-	full := filepath.Join(s.cfg.ImageDir, relKey)
+	full := filepath.Join(baseDir, relKey)
 	abs := filepath.Clean(full)
-	base := filepath.Clean(s.cfg.ImageDir)
+	base := filepath.Clean(baseDir)
 	if abs != base && !hasPrefix(abs, base+string(os.PathSeparator)) {
-		return nil, errors.New("storage: path escapes image dir")
+		return nil, errors.New("storage: path escapes base dir")
 	}
 	return os.Open(abs)
 }

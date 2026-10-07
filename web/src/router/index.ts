@@ -33,6 +33,24 @@ const adminRoutes: RouteRecordRaw = {
       meta: { title: '审核管理', roles: ['REVIEWER', 'ADMIN'] },
     },
     {
+      path: 'issues',
+      name: 'issues',
+      component: () => import('@/pages/issues/index.vue'),
+      meta: { title: '问题台账', roles: ['ADMIN', 'REVIEWER', 'INSPECTOR'] },
+    },
+    {
+      path: 'records',
+      name: 'records',
+      component: () => import('@/pages/records/index.vue'),
+      meta: { title: '记录检索', roles: ['ADMIN', 'REVIEWER'] },
+    },
+    {
+      path: 'reports',
+      name: 'reports',
+      component: () => import('@/pages/reports/index.vue'),
+      meta: { title: '报告中心', roles: ['ADMIN', 'REVIEWER'] },
+    },
+    {
       path: 'points',
       name: 'points',
       component: () => import('@/pages/points/index.vue'),

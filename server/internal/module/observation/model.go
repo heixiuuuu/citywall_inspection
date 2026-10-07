@@ -173,6 +173,15 @@ type ConclusionItem struct {
 	Description         string `gorm:"column:description" json:"description"`
 }
 
+// AcceptedInfo 审核通过记录的受理信息（供 issue 模块受理时使用）。
+type AcceptedInfo struct {
+	Source           string // TASK / VOLUNTARY
+	SegmentID        *int64
+	PointID          *int64
+	LocationText     string
+	ReviewDecisionID int64
+}
+
 // TableName 显式表名。
 func (Image) TableName() string                { return "images" }
 func (Observation) TableName() string          { return "observations" }

@@ -48,3 +48,7 @@ data/storage/
 Thumbs.db
 server.pid
 server/data/
+
+# ===== 测试产物 =====
+server/internal/module/report/render_test.pdf
+

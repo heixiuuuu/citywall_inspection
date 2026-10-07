@@ -94,7 +94,8 @@ type UploadConfig struct {
 
 // ReportConfig PDF 报告生成参数。
 type ReportConfig struct {
-	GenerationTimeoutS int `json:"generation_timeout_s"`
+	GenerationTimeoutS int    `json:"generation_timeout_s"`
+	FontPath           string `json:"font_path"` // 中文字体 TTF 路径；空时自动探测系统字体
 }
 
 // LogConfig 日志参数。

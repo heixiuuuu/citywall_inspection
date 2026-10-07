@@ -2,6 +2,7 @@ package observation
 
 import (
 	"context"
+	"time"
 
 	"gorm.io/gorm"
 )
@@ -34,10 +35,11 @@ type Repository interface {
 	InsertSubmission(ctx context.Context, s *ObservationSubmission) error
 	LatestSubmission(ctx context.Context, obsID int64) (*ObservationSubmission, error)
 	InsertReviewDecision(ctx context.Context, d *ReviewDecision) error
+	LatestReviewDecision(ctx context.Context, obsID int64) (*ReviewDecision, error)
 
 	ListByStatuses(ctx context.Context, statuses []string) ([]Observation, error)
-	ListPage(ctx context.Context, reporterID int64, isAdmin bool, status string, limit, offset int) ([]Observation, error)
-	CountObservations(ctx context.Context, reporterID int64, isAdmin bool, status string) (int64, error)
+	ListPage(ctx context.Context, q ListQuery) ([]Observation, error)
+	CountObservations(ctx context.Context, q ListQuery) (int64, error)
 	StatusByTaskPoints(ctx context.Context, taskPointIDs []int64) (map[int64]string, error)
 	ObservationByImage(ctx context.Context, imageID int64) (*Observation, error)
 }
@@ -219,6 +221,22 @@ func (r *GORMRepository) InsertReviewDecision(ctx context.Context, d *ReviewDeci
 	return r.db.WithContext(ctx).Create(d).Error
 }
 
+// LatestReviewDecision 返回记录最近一次提交的审核决定。
+func (r *GORMRepository) LatestReviewDecision(ctx context.Context, obsID int64) (*ReviewDecision, error) {
+	var sub ObservationSubmission
+	if err := r.db.WithContext(ctx).
+		Where("observation_id = ?", obsID).
+		Order("submission_no DESC").
+		First(&sub).Error; err != nil {
+		return nil, err
+	}
+	var d ReviewDecision
+	if err := r.db.WithContext(ctx).Where("submission_id = ?", sub.ID).First(&d).Error; err != nil {
+		return nil, err
+	}
+	return &d, nil
+}
+
 func (r *GORMRepository) ListByStatuses(ctx context.Context, statuses []string) ([]Observation, error) {
 	var obs []Observation
 	return obs, r.db.WithContext(ctx).
@@ -227,36 +245,67 @@ func (r *GORMRepository) ListByStatuses(ctx context.Context, statuses []string) 
 		Find(&obs).Error
 }
 
-// ListPage 分页 + 状态过滤查询（管理员/审核员看全部，巡检员只看自己的上报）。
-func (r *GORMRepository) ListPage(ctx context.Context, reporterID int64, isAdmin bool, status string, limit, offset int) ([]Observation, error) {
+// ListQuery 记录列表过滤条件（按任务/点位/来源/时间/审核状态）。
+type ListQuery struct {
+	ReporterID int64
+	IsAdmin    bool
+	Status     string
+	TaskID     int64
+	Source     string
+	PointID    int64
+	DateFrom   *time.Time
+	DateTo     *time.Time
+	Limit      int
+	Offset     int
+}
+
+// ListPage 分页查询（管理员/审核员看全部，巡检员只看自己的上报）。
+func (r *GORMRepository) ListPage(ctx context.Context, q ListQuery) ([]Observation, error) {
 	var obs []Observation
-	q := r.db.WithContext(ctx).Order("updated_at DESC")
-	if !isAdmin {
-		q = q.Where("reporter_id = ?", reporterID)
-	}
-	if status != "" {
-		q = q.Where("status = ?", status)
-	}
-	if limit > 0 {
-		q = q.Limit(limit)
-		if offset > 0 {
-			q = q.Offset(offset)
+	base := r.db.WithContext(ctx).Order("updated_at DESC")
+	base = applyObservationFilter(base, q)
+	if q.Limit > 0 {
+		base = base.Limit(q.Limit)
+		if q.Offset > 0 {
+			base = base.Offset(q.Offset)
 		}
 	}
-	return obs, q.Find(&obs).Error
+	return obs, base.Find(&obs).Error
 }
 
 // CountObservations 统计记录数（与 ListPage 同一过滤条件）。
-func (r *GORMRepository) CountObservations(ctx context.Context, reporterID int64, isAdmin bool, status string) (int64, error) {
+func (r *GORMRepository) CountObservations(ctx context.Context, q ListQuery) (int64, error) {
 	var total int64
-	q := r.db.WithContext(ctx).Model(&Observation{})
-	if !isAdmin {
-		q = q.Where("reporter_id = ?", reporterID)
+	base := applyObservationFilter(r.db.WithContext(ctx).Model(&Observation{}), q)
+	return total, base.Count(&total).Error
+}
+
+// applyObservationFilter 组装过滤条件。
+func applyObservationFilter(db *gorm.DB, q ListQuery) *gorm.DB {
+	if !q.IsAdmin {
+		db = db.Where("reporter_id = ?", q.ReporterID)
 	}
-	if status != "" {
-		q = q.Where("status = ?", status)
+	if q.Status != "" {
+		db = db.Where("status = ?", q.Status)
 	}
-	return total, q.Count(&total).Error
+	if q.Source != "" {
+		db = db.Where("source = ?", q.Source)
+	}
+	if q.PointID > 0 {
+		db = db.Where("point_id = ?", q.PointID)
+	}
+	if q.TaskID > 0 {
+		// 任务过滤：observations.task_point_id → task_points.id，且 task_points.task_id = ?
+		db = db.Joins("JOIN task_points ON task_points.id = observations.task_point_id").
+			Where("task_points.task_id = ?", q.TaskID)
+	}
+	if q.DateFrom != nil {
+		db = db.Where("created_at >= ?", *q.DateFrom)
+	}
+	if q.DateTo != nil {
+		db = db.Where("created_at <= ?", *q.DateTo)
+	}
+	return db
 }
 
 func (r *GORMRepository) StatusByTaskPoints(ctx context.Context, taskPointIDs []int64) (map[int64]string, error) {

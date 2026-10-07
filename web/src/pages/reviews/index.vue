@@ -69,6 +69,53 @@
         <el-button type="primary" :loading="submitting" @click="submitReview">提交审核</el-button>
       </template>
     </el-dialog>
+
+    <!-- 受理：审核通过后对记录新建/关联问题或记录不立项原因 -->
+    <el-dialog v-model="admitVisible" title="受理问题" width="560">
+      <el-form label-width="100px">
+        <el-form-item label="受理方式" required>
+          <el-radio-group v-model="admitMode">
+            <el-radio value="NEW">新建问题</el-radio>
+            <el-radio value="LINK">关联已有问题</el-radio>
+            <el-radio value="NONE">不立项</el-radio>
+          </el-radio-group>
+        </el-form-item>
+        <template v-if="admitMode === 'NEW'">
+          <el-form-item label="标题" required>
+            <el-input v-model="admitForm.title" placeholder="如：南门段墙体裂缝" />
+          </el-form-item>
+          <el-form-item label="优先级" required>
+            <el-select v-model="admitForm.priority_code" style="width: 160px">
+              <el-option label="关注" value="WATCH" />
+              <el-option label="需处理" value="PROCESS" />
+              <el-option label="尽快核实" value="URGENT" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="描述">
+            <el-input v-model="admitForm.description" type="textarea" :rows="2" placeholder="问题描述与初步判断" />
+          </el-form-item>
+          <el-form-item label="优先级依据">
+            <el-input v-model="admitForm.priority_reason" placeholder="如：裂缝延伸至女儿墙，建议尽快核实" />
+          </el-form-item>
+        </template>
+        <template v-else-if="admitMode === 'LINK'">
+          <el-form-item label="关联问题" required>
+            <el-select v-model="admitForm.link_issue_ids" multiple filterable style="width: 100%" placeholder="选择开放中的问题">
+              <el-option v-for="i in openIssues" :key="i.id" :label="`#${i.id} ${i.title}`" :value="i.id" />
+            </el-select>
+          </el-form-item>
+        </template>
+        <template v-else>
+          <el-form-item label="不立项原因" required>
+            <el-input v-model="admitForm.no_issue_reason" type="textarea" :rows="2" placeholder="如：经核实现场无明显病害，判定为误检" />
+          </el-form-item>
+        </template>
+      </el-form>
+      <template #footer>
+        <el-button @click="admitVisible = false">取消</el-button>
+        <el-button type="primary" :loading="admitting" @click="submitAdmit">提交受理</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -76,6 +123,7 @@
 import { onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { fetchPendingReviews, reviewObservation, fetchObservationImages, loadImageBlob, type ReviewDecision } from '@/shared/api/observation'
+import { fetchIssues, admitObservation, type Issue } from '@/shared/api/issue'
 
 const reviews = ref<any[]>([])
 const loading = ref(false)
@@ -87,6 +135,21 @@ const imagesLoading = ref(false)
 const decision = ref<ReviewDecision>('ACCEPT')
 const reason = ref('')
 const submitting = ref(false)
+
+// ---- 受理（审核通过后） ----
+const admitVisible = ref(false)
+const admitting = ref(false)
+const admitMode = ref<'NEW' | 'LINK' | 'NONE'>('NEW')
+const admitRecordId = ref(0)
+const openIssues = ref<Issue[]>([])
+const admitForm = ref<{
+  title: string
+  priority_code: 'WATCH' | 'PROCESS' | 'URGENT'
+  description: string
+  priority_reason: string
+  link_issue_ids: number[]
+  no_issue_reason: string
+}>({ title: '', priority_code: 'WATCH', description: '', priority_reason: '', link_issue_ids: [], no_issue_reason: '' })
 
 onMounted(load)
 
@@ -154,11 +217,61 @@ async function submitReview() {
     const updated = await reviewObservation(current.value.id, payload)
     ElMessage.success(`已${decision.value === 'ACCEPT' ? '通过' : decision.value === 'RETURN' ? '退回' : '驳回'}（状态 ${updated.status}）`)
     reviewVisible.value = false
+    if (decision.value === 'ACCEPT') {
+      openAdmit(current.value.id)
+    }
     load()
   } catch (e: any) {
     ElMessage.error(e?.message || '审核失败')
   } finally {
     submitting.value = false
+  }
+}
+
+async function openAdmit(obsId: number) {
+  admitRecordId.value = obsId
+  admitMode.value = 'NEW'
+  admitForm.value = { title: '', priority_code: 'WATCH', description: '', priority_reason: '', link_issue_ids: [], no_issue_reason: '' }
+  // 拉取开放问题供关联选择（待分配/已分配/处理中/观察中）。
+  try {
+    const res = await fetchIssues({ page_size: 100 })
+    openIssues.value = res.items.filter((i) => !['CLOSED', 'PENDING_VERIFICATION'].includes(i.status))
+  } catch {
+    openIssues.value = []
+  }
+  admitVisible.value = true
+}
+
+async function submitAdmit() {
+  if (admitMode.value === 'NEW' && !admitForm.value.title.trim()) {
+    ElMessage.warning('请填写问题标题')
+    return
+  }
+  if (admitMode.value === 'LINK' && !admitForm.value.link_issue_ids.length) {
+    ElMessage.warning('请选择要关联的问题')
+    return
+  }
+  if (admitMode.value === 'NONE' && !admitForm.value.no_issue_reason.trim()) {
+    ElMessage.warning('请填写不立项原因')
+    return
+  }
+  admitting.value = true
+  try {
+    const payload =
+      admitMode.value === 'NEW'
+        ? { new_issues: [{ title: admitForm.value.title, priority_code: admitForm.value.priority_code, description: admitForm.value.description || undefined, priority_reason: admitForm.value.priority_reason || undefined }] }
+        : admitMode.value === 'LINK'
+          ? { link_issue_ids: admitForm.value.link_issue_ids }
+          : { no_issue_reason: admitForm.value.no_issue_reason }
+    const res = await admitObservation(admitRecordId.value, payload)
+    const a = res.admit
+    if (a.already_admitted) ElMessage.info('该记录已受理（返回已有关联）')
+    else ElMessage.success(`受理完成：新建 ${a.created_issue_ids.length} 个，关联 ${a.linked_issue_ids.length} 个`)
+    admitVisible.value = false
+  } catch (e: any) {
+    ElMessage.error(e?.message || '受理失败')
+  } finally {
+    admitting.value = false
   }
 }
 </script>

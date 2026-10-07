@@ -151,6 +151,18 @@ func (f *fakeObsRepo) InsertReviewDecision(_ context.Context, d *ReviewDecision)
 	f.decisions = append(f.decisions, *d)
 	return nil
 }
+func (f *fakeObsRepo) LatestReviewDecision(_ context.Context, obsID int64) (*ReviewDecision, error) {
+	sub, err := f.LatestSubmission(context.Background(), obsID)
+	if err != nil {
+		return nil, err
+	}
+	for i := len(f.decisions) - 1; i >= 0; i-- {
+		if f.decisions[i].SubmissionID == sub.ID {
+			return &f.decisions[i], nil
+		}
+	}
+	return nil, errors.New("not found")
+}
 func (f *fakeObsRepo) ListByStatuses(_ context.Context, statuses []string) ([]Observation, error) {
 	var out []Observation
 	for _, o := range f.obs {
@@ -162,35 +174,47 @@ func (f *fakeObsRepo) ListByStatuses(_ context.Context, statuses []string) ([]Ob
 	}
 	return out, nil
 }
-func (f *fakeObsRepo) ListPage(_ context.Context, reporterID int64, isAdmin bool, status string, limit, offset int) ([]Observation, error) {
+func (f *fakeObsRepo) ListPage(_ context.Context, q ListQuery) ([]Observation, error) {
 	var out []Observation
 	for _, o := range f.obs {
-		if !(isAdmin || o.ReporterID == reporterID) {
+		if !(q.IsAdmin || o.ReporterID == q.ReporterID) {
 			continue
 		}
-		if status != "" && o.Status != status {
+		if q.Status != "" && o.Status != q.Status {
+			continue
+		}
+		if q.Source != "" && o.Source != q.Source {
+			continue
+		}
+		if q.PointID > 0 && (o.PointID == nil || *o.PointID != q.PointID) {
 			continue
 		}
 		out = append(out, *o)
 	}
-	if limit <= 0 {
+	if q.Limit <= 0 {
 		return out, nil
 	}
-	if offset > len(out) {
+	if q.Offset > len(out) {
 		return nil, nil
 	}
-	if offset+limit > len(out) {
-		limit = len(out) - offset
+	if q.Offset+q.Limit > len(out) {
+		q.Limit = len(out) - q.Offset
 	}
-	return out[offset : offset+limit], nil
+	return out[q.Offset : q.Offset+q.Limit], nil
 }
-func (f *fakeObsRepo) CountObservations(_ context.Context, reporterID int64, isAdmin bool, status string) (int64, error) {
+func (f *fakeObsRepo) CountObservations(_ context.Context, q ListQuery) (int64, error) {
 	var n int64
 	for _, o := range f.obs {
-		if !(isAdmin || o.ReporterID == reporterID) {
+		if !(q.IsAdmin || o.ReporterID == q.ReporterID) {
 			continue
 		}
-		if status != "" && o.Status != status {
+		if q.Status != "" && o.Status != q.Status {
+			continue
+		}
+		if q.Source != "" && o.Source != q.Source {
+			continue
+		}
+		if q.PointID > 0 && (o.PointID == nil || *o.PointID != q.PointID) {
 			continue
 		}
 		n++

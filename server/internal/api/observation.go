@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -116,6 +117,11 @@ func (h *ObservationHandler) AddImage(c *gin.Context) {
 	}
 	img, err := h.service.AddImage(context.Background(), actor, id, mediaType, buf, role, idemKey)
 	if err != nil {
+		if errors.Is(err, observation.ErrIdempotentReplay) {
+			// 同幂等键重放：返回 200，无副作用。
+			writeData(c, http.StatusOK, gin.H{"idempotent": true, "replayed": true})
+			return
+		}
 		writeErr(c, err)
 		return
 	}
@@ -288,6 +294,11 @@ func (h *ObservationHandler) List(c *gin.Context) {
 	}
 	in := observation.ListInput{
 		Status:   c.Query("status"),
+		TaskID:   int64(queryInt(c, "task_id", 0)),
+		Source:   c.Query("source"),
+		PointID:  int64(queryInt(c, "point_id", 0)),
+		DateFrom: c.Query("date_from"),
+		DateTo:   c.Query("date_to"),
 		Page:     queryInt(c, "page", 1),
 		PageSize: queryInt(c, "page_size", 20),
 	}

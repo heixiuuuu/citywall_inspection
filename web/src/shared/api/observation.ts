@@ -15,11 +15,14 @@ export interface Observation {
   location_text: string
   latitude: number | null
   longitude: number | null
+  accuracy_m: number | null
+  captured_at: string | null
   inspection_outcome: string | null
   status: ObservationStatus
   revision: number
   submitted_at: string | null
   reviewed_at: string | null
+  created_at: string
 }
 
 export interface ConclusionRevision {
@@ -82,6 +85,39 @@ export async function loadImageBlob(imageId: number): Promise<string> {
   if (!resp.ok) throw new Error(`load image ${resp.status}`)
   const blob = await resp.blob()
   return URL.createObjectURL(blob)
+}
+
+/** 现场记录检索（按任务/时间/点位/来源/审核状态过滤）。 */
+export interface ObservationListParams {
+  status?: string
+  source?: string
+  task_id?: number
+  point_id?: number
+  date_from?: string
+  date_to?: string
+  page?: number
+  page_size?: number
+}
+
+export interface ObservationListResult {
+  items: Observation[]
+  total: number
+  page: number
+  page_size: number
+}
+
+export async function fetchObservations(params: ObservationListParams = {}): Promise<ObservationListResult> {
+  const qs = new URLSearchParams()
+  if (params.status) qs.set('status', params.status)
+  if (params.source) qs.set('source', params.source)
+  if (params.task_id) qs.set('task_id', String(params.task_id))
+  if (params.point_id) qs.set('point_id', String(params.point_id))
+  if (params.date_from) qs.set('date_from', params.date_from)
+  if (params.date_to) qs.set('date_to', params.date_to)
+  qs.set('page', String(params.page ?? 1))
+  qs.set('page_size', String(params.page_size ?? 20))
+  const data = await request<ObservationListResult>(`/observations?${qs.toString()}`)
+  return data
 }
 
 export type { Task, TaskPoint, CreateTaskPayload }

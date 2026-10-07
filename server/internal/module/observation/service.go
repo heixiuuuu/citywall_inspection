@@ -48,6 +48,8 @@ var (
 	ErrReturnReasonRequired = errors.New("observation: return reason required")
 	// ErrRejectOnlyVoluntary 驳回仅限主动上报。
 	ErrRejectOnlyVoluntary = errors.New("observation: reject only allowed for voluntary")
+	// ErrIdempotentReplay 同幂等键重放，不产生副作用。
+	ErrIdempotentReplay = errors.New("observation: idempotent replay, no side effects")
 	// ErrNotImplemented 占位。
 	ErrNotImplemented = errors.New("observation: not implemented yet")
 )
@@ -129,6 +131,9 @@ type Service interface {
 
 	// TaskPointStatuses 实现 task.ObservationStatusProvider。
 	TaskPointStatuses(ctx context.Context, taskID int64) (map[int64]string, error)
+
+	// AcceptedAdmissionInfo 返回已通过审核记录的受理信息（供 issue 模块受理时使用）。
+	AcceptedAdmissionInfo(ctx context.Context, obsID int64) (*AcceptedInfo, error)
 }
 
 type service struct {
@@ -141,6 +146,20 @@ type service struct {
 	audit            audit.Recorder
 	idemMu           sync.Mutex
 	idemResults      map[string]idemResult
+	idemStore        IdempotencyStore
+}
+
+// IdempotencyStore 落库幂等记录（由 idempotency 模块实现；nil 时回退内存）。
+type IdempotencyStore interface {
+	// CheckIdempotent 同键已有成功记录返回 true（不重复执行）。
+	CheckIdempotent(ctx context.Context, actorID int64, operation, key string) (bool, error)
+	// RecordIdempotent 执行成功后补写记录（并发冲突忽略）。
+	RecordIdempotent(ctx context.Context, actorID int64, operation, key, reqHash string) error
+}
+
+// SetIdempotencyStore 注入落库幂等存储（bootstrap 装配；测试可跳过）。
+func (s *service) SetIdempotencyStore(st IdempotencyStore) {
+	s.idemStore = st
 }
 
 // idemResult 幂等键对应的首次执行结果（图片或错误）。
@@ -235,14 +254,22 @@ func (s *service) Update(ctx context.Context, actor *middleware.Actor, id, revis
 }
 
 func (s *service) AddImage(ctx context.Context, actor *middleware.Actor, obsID int64, mediaType string, data []byte, role string, idempotencyKey string) (*Image, error) {
-	// 幂等键：同键重放直接返回首次结果（含首次错误），不产生重复图片/记录。
+	// 幂等键：同键已成功执行过 → 直接返回重放标记，不重复落图。
+	// 首次执行：先查（不写记录），成功后补写；执行失败不写，允许同键重试。
 	if idempotencyKey != "" {
-		s.idemMu.Lock()
-		if cached, ok := s.idemResults[idempotencyKey]; ok {
+		if s.idemStore != nil {
+			done, err := s.idemStore.CheckIdempotent(ctx, actor.UserID, "upload_image", idempotencyKey)
+			if err == nil && done {
+				return nil, ErrIdempotentReplay
+			}
+		} else {
+			s.idemMu.Lock()
+			if cached, ok := s.idemResults[idempotencyKey]; ok {
+				s.idemMu.Unlock()
+				return cached.img, cached.err
+			}
 			s.idemMu.Unlock()
-			return cached.img, cached.err
 		}
-		s.idemMu.Unlock()
 	}
 	o, err := s.repo.GetByID(ctx, obsID)
 	if err != nil {
@@ -276,9 +303,13 @@ func (s *service) AddImage(ctx context.Context, actor *middleware.Actor, obsID i
 		return nil, err
 	}
 	if idempotencyKey != "" {
-		s.idemMu.Lock()
-		s.idemResults[idempotencyKey] = idemResult{img: img}
-		s.idemMu.Unlock()
+		if s.idemStore != nil {
+			_ = s.idemStore.RecordIdempotent(ctx, actor.UserID, "upload_image", idempotencyKey, sha256Hex(data))
+		} else {
+			s.idemMu.Lock()
+			s.idemResults[idempotencyKey] = idemResult{img: img}
+			s.idemMu.Unlock()
+		}
 	}
 	return img, nil
 }
@@ -618,6 +649,11 @@ func (s *service) ListPendingReview(ctx context.Context, actor *middleware.Actor
 // ListInput 记录列表查询条件。
 type ListInput struct {
 	Status   string
+	TaskID   int64
+	Source   string
+	PointID  int64
+	DateFrom string
+	DateTo   string
 	Page     int
 	PageSize int
 }
@@ -628,7 +664,7 @@ type ListResult struct {
 	Total int64
 }
 
-// List 记录列表：管理员/审核员看全部，巡检员只看自己上报；支持状态过滤 + 分页。
+// List 记录列表：管理员/审核员看全部，巡检员只看自己上报；支持多条件过滤 + 分页。
 func (s *service) List(ctx context.Context, actor *middleware.Actor, in ListInput) (*ListResult, error) {
 	isAdmin := isAdminOrReviewer(actor)
 	page, pageSize := in.Page, in.PageSize
@@ -642,11 +678,31 @@ func (s *service) List(ctx context.Context, actor *middleware.Actor, in ListInpu
 		pageSize = 100
 	}
 	limit, offset := pageSize, (page-1)*pageSize
-	items, err := s.repo.ListPage(ctx, actor.UserID, isAdmin, in.Status, limit, offset)
+	q := ListQuery{
+		ReporterID: actor.UserID,
+		IsAdmin:    isAdmin,
+		Status:     in.Status,
+		TaskID:     in.TaskID,
+		Source:     in.Source,
+		PointID:    in.PointID,
+		Limit:      limit,
+		Offset:     offset,
+	}
+	if in.DateFrom != "" {
+		if t, err := time.Parse(time.RFC3339, in.DateFrom); err == nil {
+			q.DateFrom = &t
+		}
+	}
+	if in.DateTo != "" {
+		if t, err := time.Parse(time.RFC3339, in.DateTo); err == nil {
+			q.DateTo = &t
+		}
+	}
+	items, err := s.repo.ListPage(ctx, q)
 	if err != nil {
 		return nil, err
 	}
-	total, err := s.repo.CountObservations(ctx, actor.UserID, isAdmin, in.Status)
+	total, err := s.repo.CountObservations(ctx, q)
 	if err != nil {
 		return nil, err
 	}
@@ -710,6 +766,28 @@ func (s *service) TaskPointStatuses(ctx context.Context, taskID int64) (map[int6
 		ids = append(ids, p.ID)
 	}
 	return s.repo.StatusByTaskPoints(ctx, ids)
+}
+
+// AcceptedAdmissionInfo 仅 ACCEPTED 记录可受理；返回最近审核决定 ID 与位置快照。
+func (s *service) AcceptedAdmissionInfo(ctx context.Context, obsID int64) (*AcceptedInfo, error) {
+	o, err := s.repo.GetByID(ctx, obsID)
+	if err != nil {
+		return nil, ErrNotFound
+	}
+	if o.Status != ObsAccepted {
+		return nil, ErrInvalidState
+	}
+	dec, err := s.repo.LatestReviewDecision(ctx, obsID)
+	if err != nil {
+		return nil, err
+	}
+	return &AcceptedInfo{
+		Source:           o.Source,
+		SegmentID:        o.SegmentID,
+		PointID:          o.PointID,
+		LocationText:     o.LocationText,
+		ReviewDecisionID: dec.ID,
+	}, nil
 }
 
 func isAdminOrReviewer(actor *middleware.Actor) bool {

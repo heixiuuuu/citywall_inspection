@@ -156,6 +156,9 @@ func (f *fakeObs) List(_ context.Context, _ *middleware.Actor, _ observation.Lis
 func (f *fakeObs) TaskPointStatuses(_ context.Context, _ int64) (map[int64]string, error) {
 	return map[int64]string{1: observation.ObsAccepted}, nil
 }
+func (f *fakeObs) AcceptedAdmissionInfo(_ context.Context, _ int64) (*observation.AcceptedInfo, error) {
+	return &observation.AcceptedInfo{Source: observation.SourceTask, ReviewDecisionID: 9}, nil
+}
 
 // ---- helpers ----
 
@@ -168,7 +171,7 @@ func newTestServer(failTask, failObs error) (*httptest.Server, *authn.TokenManag
 		Task:        api.NewTaskHandler(&fakeTask{failWith: failTask}),
 		Observation: api.NewObservationHandler(&fakeObs{failWith: failObs}, "Idempotency-Key"),
 	}
-	engine := router.Router(h, tm, "X-Request-ID")
+	engine := router.Router(h, tm, "X-Request-ID", nil, "")
 	srv := httptest.NewServer(engine)
 	return srv, tm
 }

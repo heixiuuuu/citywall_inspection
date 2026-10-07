@@ -8,7 +8,9 @@ import (
 
 	"citywall/server/internal/middleware"
 	"citywall/server/internal/module/audit"
+	"citywall/server/internal/module/issue"
 	"citywall/server/internal/module/observation"
+	"citywall/server/internal/module/report"
 	"citywall/server/internal/module/task"
 )
 
@@ -33,22 +35,30 @@ func writeErr(c *gin.Context, err error) {
 	switch {
 	case err == nil:
 		return
-	case errors.Is(err, task.ErrNotFound), errors.Is(err, observation.ErrNotFound):
+	case errors.Is(err, task.ErrNotFound), errors.Is(err, observation.ErrNotFound), errors.Is(err, issue.ErrNotFound),
+		errors.Is(err, report.ErrNotFound):
 		writeError(c, http.StatusNotFound, "NOT_FOUND", err.Error())
-	case errors.Is(err, task.ErrForbidden), errors.Is(err, observation.ErrForbidden), errors.Is(err, audit.ErrForbidden):
+	case errors.Is(err, task.ErrForbidden), errors.Is(err, observation.ErrForbidden), errors.Is(err, audit.ErrForbidden),
+		errors.Is(err, issue.ErrForbidden), errors.Is(err, report.ErrForbidden):
 		writeError(c, http.StatusForbidden, "FORBIDDEN", err.Error())
 	case errors.Is(err, audit.ErrDBUnavailable):
 		writeError(c, http.StatusServiceUnavailable, "DB_UNAVAILABLE", err.Error())
+	case errors.Is(err, report.ErrNotReady):
+		writeError(c, http.StatusConflict, "NOT_READY", err.Error())
 	case errors.Is(err, task.ErrStatusConflict), errors.Is(err, observation.ErrStatusConflict),
 		errors.Is(err, task.ErrInvalidState), errors.Is(err, observation.ErrInvalidState),
 		errors.Is(err, task.ErrDuplicatePoint), errors.Is(err, task.ErrNoPoints),
 		errors.Is(err, task.ErrUnfinishedPoints), errors.Is(err, observation.ErrDuplicateRecord),
-		errors.Is(err, observation.ErrSelfReview):
+		errors.Is(err, observation.ErrSelfReview), errors.Is(err, issue.ErrInvalidState),
+		errors.Is(err, issue.ErrStatusConflict), errors.Is(err, issue.ErrSelfVerify),
+		errors.Is(err, report.ErrBadState):
 		writeError(c, http.StatusConflict, "CONFLICT", err.Error())
 	case errors.Is(err, task.ErrPointNotFound), errors.Is(err, observation.ErrSourceConstraint),
 		errors.Is(err, observation.ErrMissingOverview), errors.Is(err, observation.ErrMissingConclusion),
 		errors.Is(err, observation.ErrMissingLocation), errors.Is(err, observation.ErrReturnReasonRequired),
-		errors.Is(err, observation.ErrRejectOnlyVoluntary):
+		errors.Is(err, observation.ErrRejectOnlyVoluntary), errors.Is(err, issue.ErrReasonRequired),
+		errors.Is(err, issue.ErrAdmitEmpty), errors.Is(err, issue.ErrAdmitNotAccepted),
+		errors.Is(err, issue.ErrActionImageMiss), errors.Is(err, report.ErrInvalidScope):
 		writeError(c, http.StatusBadRequest, "VALIDATION_ERROR", err.Error())
 	default:
 		writeError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "internal server error")

@@ -3,6 +3,8 @@ package bootstrap
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"log"
 	"net/http"
 
@@ -15,8 +17,11 @@ import (
 	"citywall/server/internal/infrastructure/recognizer"
 	"citywall/server/internal/infrastructure/storage"
 	"citywall/server/internal/module/audit"
+	"citywall/server/internal/module/idempotency"
 	"citywall/server/internal/module/identity"
+	"citywall/server/internal/module/issue"
 	"citywall/server/internal/module/observation"
+	"citywall/server/internal/module/report"
 	"citywall/server/internal/module/site"
 	"citywall/server/internal/module/task"
 	"citywall/server/internal/router"
@@ -59,6 +64,7 @@ func New(cfg *config.Config) (*App, error) {
 	siteRepo := site.NewGORMRepository(db)
 	taskRepo := task.NewGORMRepository(db)
 	obsRepo := observation.NewGORMRepository(db)
+	issueRepo := issue.NewGORMRepository(db)
 
 	// Service 装配（依赖方向：task → 记录状态接口；observation → 任务点/生命周期接口；site → 点位快照读取）。
 	// 审计记录器：MySQL 就绪时落库，否则 no-op（dev 降级，审计失败不阻断业务）。
@@ -81,6 +87,29 @@ func New(cfg *config.Config) (*App, error) {
 			Hint:      p.LocationHint,
 		}, nil
 	}, recorder)
+	// 问题模块：受理数据访问使用 observation 服务（obsSvc 实现 issue.ObservationAccess）。
+	var issueSvc issue.Service
+	// 落库幂等（派发/提交/审核/关闭/上传等重复操作去重；DB 就绪时装配）。
+	var idemSvc idempotency.Service
+	var idemStore observation.IdempotencyStore
+	if app.dbReady {
+		issueSvc = issue.NewService(issueRepo, obsSvc, &issueImageStore{obsRepo: obsRepo, st: st}, recorder)
+		idemSvc = idempotency.NewService(idempotency.NewRepository(db))
+		idemStore, _ = idemSvc.(observation.IdempotencyStore)
+	}
+	// 图片上传幂等：observation 服务支持落库幂等存储时注入（接口可选）。
+	if s, ok := obsSvc.(interface {
+		SetIdempotencyStore(st observation.IdempotencyStore)
+	}); ok {
+		s.SetIdempotencyStore(idemStore)
+	}
+	// 报告模块：快照查询 + PDF 生成 + 受控存储。
+	var reportSvc report.Service
+	if app.dbReady {
+		reportRepo := report.NewRepository(db)
+		reportSrc := report.NewSnapshotSource(db)
+		reportSvc = report.NewService(reportRepo, reportSrc, st, cfg.Report, cfg.Storage.TempDir, recorder)
+	}
 
 	h := router.Handlers{
 		Identity:    api.NewIdentityHandler(identitySvc),
@@ -88,13 +117,17 @@ func New(cfg *config.Config) (*App, error) {
 		Task:        api.NewTaskHandler(taskSvc),
 		Observation: api.NewObservationHandler(obsSvc, cfg.Upload.IdempotencyKeyHeader),
 	}
+	if app.dbReady {
+		h.Issue = api.NewIssueHandler(issueSvc)
+		h.Report = api.NewReportHandler(reportSvc)
+	}
 	// 审计查询：仅数据库就绪时可用（否则返回 DB_UNAVAILABLE）。
 	if app.dbReady {
 		h.Audit = api.NewAuditHandler(audit.NewQueryService(audit.NewGORMRepository(db)))
 	} else {
 		h.Audit = api.NewAuditHandler(audit.NewQueryService(nil))
 	}
-	app.engine = router.Router(h, tm, cfg.Upload.RequestIDHeader)
+	app.engine = router.Router(h, tm, cfg.Upload.RequestIDHeader, idemSvc, cfg.Upload.IdempotencyKeyHeader)
 	registerReadyz(app)
 	return app, nil
 }
@@ -107,6 +140,37 @@ func (a *App) Close() error { return nil }
 
 // DBReady 报告数据库就绪状态。
 func (a *App) DBReady() bool { return a.dbReady }
+
+// issueImageStore 适配 issue.ImageStore：落盘经 storage，元数据登记到 images 表。
+type issueImageStore struct {
+	obsRepo observation.Repository
+	st      storage.Storage
+}
+
+func (a *issueImageStore) Save(data []byte, mediaType string) (string, string, error) {
+	key, err := a.st.SaveImage(data, mediaType)
+	if err != nil {
+		return "", "", err
+	}
+	sum := sha256.Sum256(data)
+	return key, hex.EncodeToString(sum[:]), nil
+}
+
+func (a *issueImageStore) Register(ctx context.Context, key, sha, mediaType string, byteSize int64, width, height int, uploadedBy int64) (int64, error) {
+	img := &observation.Image{
+		StorageKey: key,
+		SHA256:     sha,
+		MediaType:  mediaType,
+		ByteSize:   byteSize,
+		Width:      width,
+		Height:     height,
+		UploadedBy: uploadedBy,
+	}
+	if err := a.obsRepo.InsertImage(ctx, img); err != nil {
+		return 0, err
+	}
+	return img.ID, nil
+}
 
 func registerReadyz(a *App) {
 	a.engine.GET("/readyz", func(c *gin.Context) {
