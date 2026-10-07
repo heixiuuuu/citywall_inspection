@@ -23,6 +23,7 @@ _DEFAULT_CANDIDATES = (
 @dataclass
 class RecognitionConfig:
     model_version: str = "yolo_baseline_001"
+    detector_mode: str = "dev"  # dev=固定响应（仅首轮联调）| yolo=真实推理
     weights_path: str = "models/yolo_baseline_001.pt"
     confidence_threshold: float = 0.35
     max_image_bytes: int = 10 * 1024 * 1024

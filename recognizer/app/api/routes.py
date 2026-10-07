@@ -18,12 +18,27 @@ from ..config import settings
 from ..schemas import RecognitionError, RecognitionResponse
 from ..service import RecognitionService
 from ..models.fixed import FixedDetector
+from ..models.yolo import DetectorError, YOLODetector
 from ..images import ImageValidationError
 
 router = APIRouter(prefix="/internal/v1", tags=["internal"])
 
+
+def _build_detector():
+    """按配置装配检测器：yolo=真实推理；dev=固定响应（仅首轮联调）。
+
+    固定响应与真实识别在配置层明确隔离，绝不会以固定响应冒充模型结果。
+    """
+    if settings.recognition.detector_mode == "yolo":
+        return YOLODetector(
+            weights_path=settings.recognition.weights_path,
+            confidence_threshold=settings.recognition.confidence_threshold,
+        )
+    return FixedDetector(detections=[])
+
+
 _service = RecognitionService(
-    detector=FixedDetector(detections=[]),
+    detector=_build_detector(),
     model_version=settings.recognition.model_version,
 )
 
@@ -67,6 +82,8 @@ async def create_recognition(
         )
     except ImageValidationError as e:
         return _error(422, "INVALID_IMAGE", e.message, request_id)
+    except DetectorError as e:
+        return _error(503, e.code, e.message, request_id)
     except Exception:
         return _error(500, "INFERENCE_FAILED", "recognition failed", request_id)
 
