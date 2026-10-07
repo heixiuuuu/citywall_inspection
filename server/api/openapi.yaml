@@ -471,7 +471,9 @@ paths:
                             byte_size: { type: integer }
                             width: { type: integer }
                             height: { type: integer }
-                            url: { type: string, description: 受控图片内容接口路径（GET /api/v1/images/{id}/content） }
+                            url:
+                              type: string
+                              description: 受控图片内容接口路径（GET /api/v1/images/{id}/content）
         '403':
           $ref: '#/components/responses/Forbidden'
         '404':
