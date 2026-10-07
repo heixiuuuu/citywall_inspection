@@ -700,6 +700,304 @@ paths:
         '503':
           description: 数据库未就绪（code=DB_UNAVAILABLE）
 
+  # ===== 问题模块（004 迁移）=====
+  /api/v1/issues:
+    get:
+      tags: [issue]
+      summary: 问题台账（按状态/优先级/负责人/时间检索）
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: status, in: query, schema: { type: string } }
+        - { name: priority_code, in: query, schema: { type: string } }
+        - { name: assignee_id, in: query, schema: { type: integer, format: int64 } }
+        - { name: page, in: query, schema: { type: integer, default: 1 } }
+        - { name: page_size, in: query, schema: { type: integer, default: 20 } }
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/Issue' }
+                      total: { type: integer, format: int64 }
+  /api/v1/issues/{id}:
+    get:
+      tags: [issue]
+      summary: 问题详情（含关联现场记录与处置动作）
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      issue: { $ref: '#/components/schemas/Issue' }
+                      observations:
+                        type: array
+                        items: { $ref: '#/components/schemas/Observation' }
+                      actions:
+                        type: array
+                        items: { $ref: '#/components/schemas/IssueAction' }
+        '404':
+          description: 问题不存在（code=NOT_FOUND）
+  /api/v1/issues/{id}/assign:
+    post:
+      tags: [issue]
+      summary: 指派问题（管理员/审核员，Idempotency-Key 幂等）
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                revision: { type: integer, format: int64 }
+                assignee_id: { type: integer, format: int64 }
+                reason: { type: string }
+      responses:
+        '200': { description: ok }
+        '409': { description: revision 冲突（code=CONFLICT） }
+  /api/v1/issues/{id}/actions:
+    post:
+      tags: [issue]
+      summary: 提交处理进展/观察安排（责任人，Idempotency-Key 幂等）
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                revision: { type: integer, format: int64 }
+                action_type: { type: string, enum: [PROGRESS, OBSERVE] }
+                content: { type: string }
+                planned_follow_up_at: { type: [string, 'null'] }
+      responses:
+        '200': { description: ok }
+        '409': { description: revision 冲突（code=CONFLICT） }
+  /api/v1/issues/{id}/request-verification:
+    post:
+      tags: [issue]
+      summary: 申请核验（责任人，Idempotency-Key 幂等）
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                revision: { type: integer, format: int64 }
+                content: { type: string }
+      responses:
+        '200': { description: ok }
+        '409': { description: revision 冲突（code=CONFLICT） }
+  /api/v1/issues/{id}/verify:
+    post:
+      tags: [issue]
+      summary: 核验问题（审核员/管理员，不能核验自己，Idempotency-Key 幂等）
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                revision: { type: integer, format: int64 }
+                decision: { type: string, enum: [PASS, RETURN] }
+                reason: { type: string }
+      responses:
+        '200': { description: ok }
+        '409': { description: revision 冲突（code=CONFLICT） }
+  /api/v1/issues/{id}/reopen:
+    post:
+      tags: [issue]
+      summary: 重开问题（管理员，Idempotency-Key 幂等）
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                revision: { type: integer, format: int64 }
+                reason: { type: string }
+      responses:
+        '200': { description: ok }
+        '409': { description: revision 冲突（code=CONFLICT） }
+  /api/v1/observations/{id}/admit:
+    post:
+      tags: [issue]
+      summary: 现场记录受理（新建问题/关联已有问题/无问题说明，管理员/审核员，幂等）
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                new_issues:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      title: { type: string }
+                      priority_code: { type: string }
+                      description: { type: string }
+                link_issue_ids:
+                  type: array
+                  items: { type: integer, format: int64 }
+                no_issue_reason: { type: string }
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      admit:
+                        type: object
+                        properties:
+                          created_issue_ids: { type: array, items: { type: integer, format: int64 } }
+                          linked_issue_ids: { type: array, items: { type: integer, format: int64 } }
+                          no_issue_reason: { type: string }
+                          already_admitted: { type: boolean }
+
+  # ===== 报告模块（004 迁移）=====
+  /api/v1/reports:
+    get:
+      tags: [report]
+      summary: 报告台账（管理员/审核员）
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: scope_type, in: query, schema: { type: string, enum: [TASK, DATE_RANGE] } }
+        - { name: task_id, in: query, schema: { type: integer, format: int64 } }
+        - { name: page, in: query, schema: { type: integer, default: 1 } }
+        - { name: page_size, in: query, schema: { type: integer, default: 20 } }
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/Report' }
+                      total: { type: integer, format: int64 }
+        '403': { description: 非审核权限（code=FORBIDDEN） }
+  /api/v1/reports/task/{task_id}:
+    post:
+      tags: [report]
+      summary: 生成任务报告（数据快照，生成失败可重试且不回滚任务状态）
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: task_id, in: path, required: true, schema: { type: integer, format: int64 } }
+      responses:
+        '201':
+          description: created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      report: { $ref: '#/components/schemas/Report' }
+  /api/v1/reports/range:
+    post:
+      tags: [report]
+      summary: 生成时间范围报告（起止时间 RFC3339）
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [start, end]
+              properties:
+                start: { type: string, format: date-time }
+                end: { type: string, format: date-time }
+      responses:
+        '201':
+          description: created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      report: { $ref: '#/components/schemas/Report' }
+  /api/v1/reports/{id}:
+    get:
+      tags: [report]
+      summary: 报告详情（含快照元信息）
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      responses:
+        '200': { description: ok }
+        '404': { description: 报告不存在（code=NOT_FOUND） }
+  /api/v1/reports/{id}/retry:
+    post:
+      tags: [report]
+      summary: 重试失败报告（仅 FAILED 可重试）
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      responses:
+        '200': { description: ok }
+        '409': { description: 非 FAILED 状态（code=CONFLICT） }
+  /api/v1/reports/{id}/file:
+    get:
+      tags: [report]
+      summary: 下载报告 PDF（鉴权读取，客户端不可直连存储目录）
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      responses:
+        '200':
+          description: application/pdf
+          content:
+            application/pdf:
+              schema: { type: string, format: binary }
+
 components:
   securitySchemes:
     bearerAuth:
@@ -905,3 +1203,44 @@ components:
         revision: { type: [integer, 'null'] }
         reason: { type: [string, 'null'] }
         created_at: { type: string, format: date-time }
+    Issue:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        issue_no: { type: string, example: IS-2026-0001 }
+        title: { type: string }
+        segment_id: { type: [integer, 'null'] }
+        point_id: { type: [integer, 'null'] }
+        location_text: { type: string }
+        description: { type: string }
+        priority_code: { type: string, enum: [URGENT, WATCH, NORMAL] }
+        assignee_id: { type: [integer, 'null'] }
+        status: { type: string, enum: [UNASSIGNED, ASSIGNED, IN_PROGRESS, PENDING_VERIFY, CLOSED] }
+        revision: { type: integer, format: int64 }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    IssueAction:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        issue_id: { type: integer, format: int64 }
+        actor_id: { type: integer, format: int64 }
+        action_type: { type: string, enum: [ASSIGN, SUGGEST, PROGRESS, OBSERVE, VERIFY, REOPEN] }
+        content: { type: string }
+        planned_follow_up_at: { type: [string, 'null'] }
+        created_at: { type: string, format: date-time }
+    Report:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        scope_type: { type: string, enum: [TASK, DATE_RANGE] }
+        task_id: { type: [integer, 'null'] }
+        range_start: { type: [string, 'null'] }
+        range_end: { type: [string, 'null'] }
+        status: { type: string, enum: [GENERATING, READY, FAILED] }
+        error_code: { type: string }
+        generated_by: { type: integer, format: int64 }
+        snapshot_at: { type: string, format: date-time }
+        created_at: { type: string, format: date-time }
+        finished_at: { type: [string, 'null'] }
+        download_url: { type: [string, 'null'] }
