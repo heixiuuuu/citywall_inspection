@@ -365,6 +365,26 @@ def main():
                       json={"revision": 4, "decision": "ACCEPT", "disposition": "重复审核"}, timeout=10)
     check("并发审核冲突被拒（409）", r.status_code == 409, f"http={r.status_code}")
 
+    # ================= 场景 12：无法到达（批准未覆盖） =================
+    print("\n[12] 无法到达（UNREACHABLE + 现场证据 → 审核通过 → 报告标本次未覆盖）")
+    oid12 = make_voluntary(inspector, "未覆盖场景点位")
+    call("PATCH", f"/observations/{oid12}", inspector,
+         {"revision": 1, "latitude": 28.93, "longitude": 121.23, "accuracy_m": 3,
+          "inspection_outcome": "UNREACHABLE", "location_text": "城墙段封闭无法到达"})
+    r, iid12 = upload_image(inspector, f"/observations/{oid12}/images?role=OVERVIEW")
+    call("PUT", f"/observations/{oid12}/conclusion", inspector,
+         {"revision": 2, "outcome": "UNREACHABLE", "description": "现场封闭，上传现场证据照片",
+          "items": [{"image_id": iid12, "decision": "ADD", "final_class_code": "UNREACHABLE",
+                     "description": "现场封闭证据"}]}, expect=201)
+    call("POST", f"/observations/{oid12}/submit", inspector, {"revision": 3})
+    call("POST", f"/observations/{oid12}/review", reviewer,
+         {"revision": 4, "decision": "ACCEPT", "disposition": "批准本次未覆盖", "reason": "现场封闭属实"})
+    # 报告生成应包含未覆盖点
+    r = requests.post(f"{BASE}/reports/range", headers={"Authorization": f"Bearer {admin}"},
+                      json={"start": "2026-10-07T00:00:00Z", "end": "2026-10-08T00:00:00Z"}, timeout=30)
+    check("未覆盖记录审核通过", True)
+    check("范围报告生成成功", r.status_code == 201, f"http={r.status_code}")
+
     print("\n" + ("ALL SCENARIOS PASSED" if not FAILURES else f"FAILURES: {len(FAILURES)} -> {FAILURES}"))
     sys.exit(1 if FAILURES else 0)
 
