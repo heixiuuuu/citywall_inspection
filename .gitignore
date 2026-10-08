@@ -51,4 +51,7 @@ server/data/
 
 # ===== 测试产物 =====
 server/internal/module/report/render_test.pdf
+report_test.pdf
+.preview/
+scripts/*_out.txt
 
