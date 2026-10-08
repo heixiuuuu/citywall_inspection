@@ -43,7 +43,8 @@
 </template>
 
 <script setup>
-import { computed, onLoad, ref } from 'vue'
+import { computed, ref } from 'vue'
+import { onLoad } from '@dcloudio/uni-app'
 import { getTask, submitTask } from '../../shared/api/task'
 import { listObservations } from '../../shared/api/observation'
 import { statusText, statusClass } from '../../shared/ui/status'

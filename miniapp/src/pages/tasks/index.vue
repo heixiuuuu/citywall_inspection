@@ -41,7 +41,8 @@
 </template>
 
 <script setup>
-import { computed, onShow, ref } from 'vue'
+import { computed, ref } from 'vue'
+import { onShow } from '@dcloudio/uni-app'
 import { getTasks } from '../../shared/api/task'
 import { getToken, clearToken, getUser } from '../../shared/auth/auth'
 import { statusText, statusClass } from '../../shared/ui/status'

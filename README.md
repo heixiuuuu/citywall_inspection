@@ -33,7 +33,8 @@ city_wall/
 │   │   ├── service.py       # 识别编排（dev 固定响应 ↔ 真实 YOLO 隔离）
 │   │   └── models/          # Detector 协议 + YOLO 适配（ultralytics）
 │   └── tests/               # 契约 + 图像校验测试
-├── miniapp/                 # 微信小程序（uni-app + Vue3，巡检员现场端）
+├── miniapp/                 # 巡检员现场端（uni-app + Vue3，Android App 与微信小程序双端）
+│   ├── package.json 等      # npm CLI 构建（build:app / build:mp-weixin）
 │   └── src/pages/           # 登录/我的任务/任务详情/现场采集/主动上报
 ├── web/                     # PC 管理端（Vue3 + TS + Vite + Element Plus）
 │   └── src/pages/           # 登录/任务/审核/问题台账/记录检索/报告中心/点位/审计
@@ -113,11 +114,33 @@ npm run dev                   # http://localhost:5173（/api 代理到 8080）
 # 演示账号：admin/Admin123（管理员+审核）、reviewer/Review123（审核员）、inspector/Insp123（巡检员）
 ```
 
-### 4) 微信小程序
+### 4) 巡检员现场端（Android App 优先 + 微信小程序兼容）
 
-用 HBuilderX 打开 `miniapp/`（uni-app Vue3 工程），运行到微信开发者工具；
-开发模式登录用固定开发身份映射（conf/server.json `auth.dev_identities`），
-**仅限开发环境**；正式微信登录需配置 `auth.wechat_app_id / wechat_app_secret`，未配置时正式通道不会静默绕过登录。
+uni-app（Vue3）双模式工程：`miniapp/` 既能被 HBuilderX 直接导入，也支持 npm CLI 构建。
+
+```powershell
+cd miniapp
+npm install                       # 首次
+npm run build:app                 # 构建 Android App 资源 → dist/build/app/（APK 前置资源）
+npm run build:mp-weixin           # 构建微信小程序包 → dist/build/mp-weixin/
+```
+
+**APK 打包**（App 资源构建通过后任选其一）：
+- **HBuilderX 云打包（推荐）**：HBuilderX 导入 `miniapp/` → 登录 DCloud 账号 → manifest 可视化界面
+  自动申请 uni-app AppID（`__UNI__xxx`）→ 运行 → 原生App-云打包 → Android 云端打包 → 下载 APK
+  装到手机。包名/权限/图标/版本已在 `src/manifest.json` 配好（`com.citywall.inspector`、相机/定位/存储、
+  `src/static/app-icon.png`、0.2.0/200）。**联调期在云打包界面取消勾选「使用安全网络」**（Android 9+
+  默认禁明文 http），正式发布改为 https 并勾选。
+- **离线打包**：Android Studio + DCloud 离线 SDK，将 `dist/build/app/` 放入
+  `assets/apps/__UNI__<AppID>/www/`，Manifest 加 `usesCleartextTraffic="true"` 与权限，签名出包。
+
+**真机联调**：手机与电脑同局域网，APK 访问 `http://<电脑IP>:8080/api/v1`（Go 默认监听所有网卡）；
+装机前改 `src/shared/api/request.js` 的 `BASE_URL`，或装机后
+`uni.setStorageSync('city_wall_api_base', 'http://<电脑IP>:8080/api/v1')` 覆盖（仅 App 端生效）。
+
+**微信小程序兼容**：`npm run build:mp-weixin` 产物导入微信开发者工具即可；或 HBuilderX 运行到小程序。
+开发模式登录用固定开发身份映射（conf/server.json `auth.dev_identities`），**仅限开发环境**；
+正式微信登录需配置 `auth.wechat_app_id / wechat_app_secret`，未配置时正式通道不会静默绕过登录。
 
 ## 配置说明
 
@@ -158,5 +181,5 @@ python scripts/e2e_idempotency.py    # 派发/上传幂等重放
 - 服务端：任务（多点派发/快照）、现场记录（到场/拍照/结论/提交/退回补正）、识别（开发响应与真实 YOLO 隔离，真实推理已接入）、审核（通过/退回/驳回）、问题（受理/指派/进展/观察/核验/关闭/重开）、报告（任务/范围 PDF 快照 + 重试 + 下载）、幂等、审计；`go test ./...` 全绿。
 - 识别服务：FastAPI + YOLOv8n（10 类病害，训练 `data/yolo/runs/baseline001-2`），dev 固定响应与真实 YOLO 推理以 `mode` 明确隔离，不编造指标。
 - PC 管理端：任务管理 / 审核管理 / 问题台账 / 记录检索 / 报告中心 / 点位管理 / 审计日志。
-- 小程序：登录 / 我的任务 / 任务详情 / 现场采集（拍照+定位）/ 主动上报。
+- 小程序/App 现场端：登录 / 我的任务 / 任务详情（真实审核状态）/ 现场采集（拍照+定位+识别确认+结论）/ 主动上报；**Android App（APK）与微信小程序双端构建已验证**（`build:app`、`build:mp-weixin` 均成功）。
 - 长期事项与阻塞项见 `docs/06-长期任务清单.md`（微信正式凭据按未知处理，开发身份仅限 dev）。

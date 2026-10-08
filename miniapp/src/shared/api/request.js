@@ -8,8 +8,22 @@
  */
 import { getToken, clearToken, getUser } from '../auth/auth'
 
-// dev 联调地址；正式发布按环境注入（HBuilderX 环境变量）。
+// dev 联调地址；正式发布按环境注入（HBuilderX 环境变量 / 打包时替换）。
+// - 微信开发者工具 / HBuilderX 内置模拟器：127.0.0.1 可直接访问电脑上的 Go 服务。
+// - Android 真机（APK）：127.0.0.1 是手机自身，必须改为电脑的局域网 IP，
+//   例如 http://192.168.1.100:8080/api/v1，并把值写到本地存储 key `city_wall_api_base`（见下方）。
 export const BASE_URL = 'http://127.0.0.1:8080/api/v1'
+
+// App（APK）真机联调：允许通过本地存储覆盖服务地址，避免改代码重新打包。
+// 首次装机时可在任意页面执行：
+//   uni.setStorageSync('city_wall_api_base', 'http://<电脑局域网IP>:8080/api/v1')
+export function getBaseUrl() {
+  // #ifdef APP-PLUS
+  const saved = uni.getStorageSync('city_wall_api_base')
+  if (saved) return saved
+  // #endif
+  return BASE_URL
+}
 
 function notify(title) {
   uni.showToast({ title, icon: 'none', duration: 2200 })
@@ -24,7 +38,7 @@ export function request(path, { method = 'GET', data } = {}) {
   return new Promise((resolve, reject) => {
     const token = getToken()
     uni.request({
-      url: `${BASE_URL}${path}`,
+      url: `${getBaseUrl()}${path}`,
       method,
       data,
       header: {
@@ -64,7 +78,7 @@ export function uploadImage(observationId, localPath, imageRole) {
   return new Promise((resolve, reject) => {
     const token = getToken()
     uni.uploadFile({
-      url: `${BASE_URL}/observations/${observationId}/images`,
+      url: `${getBaseUrl()}/observations/${observationId}/images`,
       filePath: localPath,
       name: 'image',
       formData: { image_role: imageRole },
@@ -87,7 +101,7 @@ export function loadImageContent(imageId) {
   if (!token) return Promise.reject(new Error('no token'))
   return new Promise((resolve, reject) => {
     uni.downloadFile({
-      url: `${BASE_URL}/images/${imageId}/content`,
+      url: `${getBaseUrl()}/images/${imageId}/content`,
       header: { Authorization: `Bearer ${token}` },
       success(res) {
         if (res.statusCode === 200) resolve(res.tempFilePath)

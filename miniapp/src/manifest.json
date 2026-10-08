@@ -1,13 +1,51 @@
 {
   "name": "古城墙病害巡检",
   "appid": "",
-  "description": "古城墙病害巡检系统微信小程序（巡检员现场端）",
+  "description": "古城墙病害巡检系统 - 巡检员现场端（Android App / 微信小程序）",
   "versionName": "0.2.0",
   "versionCode": "200",
   "transformPx": false,
   "app-plus": {
     "usingComponents": true,
-    "compilerVersion": 3
+    "compilerVersion": 3,
+    "nvueCompiler": "uni-app",
+    "compatible": {
+      "ignoreVersion": true
+    },
+    "modules": {
+      "Camera": {},
+      "Geolocation": {}
+    },
+    "distribute": {
+      "android": {
+        "packagename": "com.citywall.inspector",
+        "abiFilters": ["armeabi-v7a", "arm64-v8a"],
+        "permissions": [
+          "<uses-permission android:name=\"android.permission.CAMERA\"/>",
+          "<uses-permission android:name=\"android.permission.ACCESS_FINE_LOCATION\"/>",
+          "<uses-permission android:name=\"android.permission.ACCESS_COARSE_LOCATION\"/>",
+          "<uses-permission android:name=\"android.permission.INTERNET\"/>",
+          "<uses-permission android:name=\"android.permission.ACCESS_NETWORK_STATE\"/>",
+          "<uses-permission android:name=\"android.permission.ACCESS_WIFI_STATE\"/>",
+          "<uses-permission android:name=\"android.permission.READ_EXTERNAL_STORAGE\"/>",
+          "<uses-permission android:name=\"android.permission.WRITE_EXTERNAL_STORAGE\"/>",
+          "<uses-permission android:name=\"android.permission.READ_MEDIA_IMAGES\"/>"
+        ],
+        "icons": {
+          "hdpi": "static/app-icon.png",
+          "xhdpi": "static/app-icon.png",
+          "xxhdpi": "static/app-icon.png"
+        }
+      },
+      "ios": {
+        "icons": {
+          "appstore": "static/app-icon.png",
+          "iphone": "static/app-icon.png",
+          "ipad": "static/app-icon.png"
+        }
+      },
+      "sdkConfigs": {}
+    }
   },
   "quickapp": {},
   "mp-weixin": {
