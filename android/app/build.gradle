@@ -1,0 +1,50 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.citywall.inspector'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId "com.citywall.inspector"
+        minSdk 24
+        targetSdk 35
+        versionCode 200
+        versionName "0.2.0"
+    }
+
+    signingConfigs {
+        release {
+            storeFile file('citywall-release.keystore')
+            storePassword 'citywall123'
+            keyAlias 'citywall'
+            keyPassword 'citywall123'
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.release
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    configurations.all {
+        resolutionStrategy {
+            force 'org.jetbrains.kotlin:kotlin-stdlib:1.8.22'
+            force 'org.jetbrains.kotlin:kotlin-stdlib-jdk7:1.8.22'
+            force 'org.jetbrains.kotlin:kotlin-stdlib-jdk8:1.8.22'
+        }
+    }
+}
+
+dependencies {
+    implementation 'androidx.appcompat:appcompat:1.7.0'
+    implementation 'androidx.webkit:webkit:1.12.1'
+}

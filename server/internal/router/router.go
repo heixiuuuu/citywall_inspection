@@ -28,7 +28,7 @@ type Handlers struct {
 // idemSvc 为落库幂等服务（可为 nil：不启用 DB 幂等中间件）。
 func Router(h Handlers, tm *authn.TokenManager, reqIDHeader string, idemSvc idempotency.Service, idemHeader string) *gin.Engine {
 	engine := gin.New()
-	engine.Use(middleware.Recovery(), middleware.RequestID(reqIDHeader))
+	engine.Use(middleware.Recovery(), middleware.RequestID(reqIDHeader), middleware.CORS())
 
 	engine.GET("/healthz", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})

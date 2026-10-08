@@ -125,8 +125,11 @@ npm run build:app                 # 构建 Android App 资源 → dist/build/app
 npm run build:mp-weixin           # 构建微信小程序包 → dist/build/mp-weixin/
 ```
 
-**APK 打包**（App 资源构建通过后任选其一）：
-- **HBuilderX 云打包（推荐）**：HBuilderX 导入 `miniapp/` → 登录 DCloud 账号 → manifest 可视化界面
+**APK 打包**（本项目默认路径：本地 Gradle 原生 WebView 壳，已验证可装机运行；HBuilderX 云打包为备选）：
+- **本地打包（已验证，推荐）**：`android/` 是原生 WebView 壳工程（WebViewAssetLoader 安全加载 uni-app H5 产物），
+  构建流程见下方「一键构建 APK」；产物签名在 `app/build.gradle`（开发 keystore `app/citywall-release.keystore`，
+  正式发布必须更换为自己的签名）。
+- **HBuilderX 云打包（备选）**：HBuilderX 导入 `miniapp/` → 登录 DCloud 账号 → manifest 可视化界面
   自动申请 uni-app AppID（`__UNI__xxx`）→ 运行 → 原生App-云打包 → Android 云端打包 → 下载 APK
   装到手机。包名/权限/图标/版本已在 `src/manifest.json` 配好（`com.citywall.inspector`、相机/定位/存储、
   `src/static/app-icon.png`、0.2.0/200）。**联调期在云打包界面取消勾选「使用安全网络」**（Android 9+
@@ -134,9 +137,32 @@ npm run build:mp-weixin           # 构建微信小程序包 → dist/build/mp-w
 - **离线打包**：Android Studio + DCloud 离线 SDK，将 `dist/build/app/` 放入
   `assets/apps/__UNI__<AppID>/www/`，Manifest 加 `usesCleartextTraffic="true"` 与权限，签名出包。
 
-**真机联调**：手机与电脑同局域网，APK 访问 `http://<电脑IP>:8080/api/v1`（Go 默认监听所有网卡）；
-装机前改 `src/shared/api/request.js` 的 `BASE_URL`，或装机后
-`uni.setStorageSync('city_wall_api_base', 'http://<电脑IP>:8080/api/v1')` 覆盖（仅 App 端生效）。
+**一键构建 APK（本地 Gradle 壳）**：
+
+```powershell
+# 1) 构建 H5 产物（本地 WebView 壳加载；必须含 @dcloudio/uni-h5 依赖，否则产物只有统计 SDK 会白屏）
+cd miniapp
+npm install
+npm run build:h5                # → dist/build/h5/
+# 2) 同步产物到 Android assets（保持与 dist/build/h5 一致）
+python -c "import os,shutil; s=r'C:\code\city_wall\miniapp\dist\build\h5'; d=r'C:\code\city_wall\android\app\src\main\assets\www'; shutil.rmtree(d) if os.path.exists(d) else None; shutil.copytree(s,d)"
+# 3) 构建 APK（JDK17+，Android SDK）
+$env:JAVA_HOME="<JDK17 路径>"; $env:ANDROID_HOME="<Android SDK 路径>"
+cd android
+gradle assembleDebug assembleRelease   # → app/build/outputs/apk/{debug,release}/
+# 4) 装机测试
+adb install -r app\build\outputs\apk\release\app-release.apk
+adb shell am start -n com.citywall.inspector/.MainActivity
+```
+
+**真机/模拟器联调**：
+- Android 模拟器（本机联调）：WebView 壳内 H5 自动使用 `http://10.0.2.2:8080/api/v1` 访问宿主机 Go 服务（见
+  `src/shared/api/request.js`），**无需改代码**；Go 服务需监听 `0.0.0.0` 并启用 CORS（`server/internal/middleware/cors.go`，
+  已放开跨域回显 Origin，供 WebView 的 `https://appassets.androidplatform.net` 页面调用）。
+- 真机：手机与电脑同局域网，APK 访问 `http://<电脑IP>:8080/api/v1`（Go 默认监听所有网卡）；
+  装机前改 `src/shared/api/request.js` 的 `BASE_URL`，或装机后
+  `uni.setStorageSync('city_wall_api_base', 'http://<电脑IP>:8080/api/v1')` 覆盖（仅 App 端生效）。
+- 相机/相册：现场采集页点击「拍照/从相册选择」走系统文件选择器（`MainActivity.onShowFileChooser` 已实现）。
 
 **微信小程序兼容**：`npm run build:mp-weixin` 产物导入微信开发者工具即可；或 HBuilderX 运行到小程序。
 开发模式登录用固定开发身份映射（conf/server.json `auth.dev_identities`），**仅限开发环境**；

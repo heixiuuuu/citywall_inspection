@@ -1,6 +1,6 @@
 {
   "name": "古城墙病害巡检",
-  "appid": "",
+  "appid": "__UNI__D0C0A1B2C3D",
   "description": "古城墙病害巡检系统 - 巡检员现场端（Android App / 微信小程序）",
   "versionName": "0.2.0",
   "versionCode": "200",
@@ -19,7 +19,10 @@
     "distribute": {
       "android": {
         "packagename": "com.citywall.inspector",
-        "abiFilters": ["armeabi-v7a", "arm64-v8a"],
+        "abiFilters": [
+          "armeabi-v7a",
+          "arm64-v8a"
+        ],
         "permissions": [
           "<uses-permission android:name=\"android.permission.CAMERA\"/>",
           "<uses-permission android:name=\"android.permission.ACCESS_FINE_LOCATION\"/>",
@@ -42,7 +45,8 @@
           "appstore": "static/app-icon.png",
           "iphone": "static/app-icon.png",
           "ipad": "static/app-icon.png"
-        }
+        },
+        "dSYMs": false
       },
       "sdkConfigs": {}
     }
@@ -61,7 +65,18 @@
         "desc": "用于巡检点位打卡与现场定位"
       }
     },
-    "requiredPrivateInfos": ["getLocation"]
+    "requiredPrivateInfos": [
+      "getLocation"
+    ]
   },
-  "vueVersion": "3"
+  "vueVersion": "3",
+  "h5": {
+    "router": {
+      "base": "./"
+    },
+    "devServer": {
+      "https": false
+    },
+    "title": "古城墙病害巡检"
+  }
 }

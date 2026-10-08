@@ -55,3 +55,11 @@ report_test.pdf
 .preview/
 scripts/*_out.txt
 
+
+# ===== Android APK 构建 =====
+android/app/build/
+android/app/src/main/assets/www/
+scripts/_gradle_dist/
+scripts/_apk_out/
+scripts/_gradle.zip
+scripts/_*.png

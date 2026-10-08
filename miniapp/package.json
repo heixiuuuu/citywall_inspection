@@ -6,20 +6,30 @@
     "dev:app": "uni -p app",
     "build:app": "uni build -p app",
     "dev:mp-weixin": "uni -p mp-weixin",
-    "build:mp-weixin": "uni build -p mp-weixin"
+    "build:mp-weixin": "uni build -p mp-weixin",
+    "build:h5": "uni build -p h5"
   },
   "dependencies": {
-    "@dcloudio/uni-app": "3.0.0-alpha-5030120260930001",
-    "@dcloudio/uni-app-plus": "3.0.0-alpha-5030120260930001",
-    "@dcloudio/uni-components": "3.0.0-alpha-5030120260930001",
-    "@dcloudio/uni-mp-weixin": "3.0.0-alpha-5030120260930001",
+    "@dcloudio/uni-app": "^3.0.0-alpha-5020520260821001",
+    "@dcloudio/uni-app-plus": "^3.0.0-alpha-5020520260821001",
+    "@dcloudio/uni-components": "^3.0.0-alpha-5020520260821001",
+    "@dcloudio/uni-h5": "^3.0.0-alpha-5020520260821001",
+    "@dcloudio/uni-mp-weixin": "^3.0.0-alpha-5020520260821001",
+    "@vue/compiler-core": "^3.4.21",
+    "@vue/compiler-dom": "^3.4.21",
+    "@vue/compiler-sfc": "^3.4.21",
+    "@vue/reactivity": "^3.4.21",
+    "@vue/runtime-core": "^3.4.21",
+    "@vue/runtime-dom": "^3.4.21",
+    "@vue/server-renderer": "^3.4.21",
+    "@vue/shared": "^3.4.21",
     "vue": "^3.4.21"
   },
   "devDependencies": {
     "@dcloudio/types": "^3.4.8",
-    "@dcloudio/uni-cli-shared": "3.0.0-alpha-5030120260930001",
-    "@dcloudio/uni-stacktracey": "3.0.0-alpha-5030120260930001",
-    "@dcloudio/vite-plugin-uni": "3.0.0-alpha-5030120260930001",
+    "@dcloudio/uni-cli-shared": "^3.0.0-alpha-5020520260821001",
+    "@dcloudio/uni-stacktracey": "^3.0.0-alpha-5020520260821001",
+    "@dcloudio/vite-plugin-uni": "^3.0.0-alpha-5020520260821001",
     "vite": "5.2.8"
   }
 }

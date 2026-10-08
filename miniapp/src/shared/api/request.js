@@ -22,6 +22,12 @@ export function getBaseUrl() {
   const saved = uni.getStorageSync('city_wall_api_base')
   if (saved) return saved
   // #endif
+  // #ifdef H5
+  const savedH5 = uni.getStorageSync('city_wall_api_base')
+  if (savedH5) return savedH5
+  // H5 在 Android 模拟器（WebView 壳）中访问宿主机 Go 服务
+  return 'http://10.0.2.2:8080/api/v1'
+  // #endif
   return BASE_URL
 }
 
