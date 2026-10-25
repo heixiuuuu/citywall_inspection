@@ -48,6 +48,9 @@ func Router(h Handlers, tm *authn.TokenManager, reqIDHeader string, idemSvc idem
 		v1.GET("/inspection-points", authed, h.Site.ListPoints)
 		v1.GET("/wall-segments", authed, h.Site.ListSegments)
 		v1.POST("/inspection-points", authed, h.Site.CreatePoint)
+		v1.PUT("/inspection-points/:id", authed, h.Site.UpdatePoint)
+		v1.POST("/wall-segments", authed, h.Site.SaveSegment)
+		v1.PUT("/wall-segments/:id", authed, h.Site.SaveSegment)
 
 		// 任务（派发/提交/完成等易重复操作挂幂等中间件）。
 		taskGroup := v1.Group("/tasks", authed)
@@ -63,9 +66,11 @@ func Router(h Handlers, tm *authn.TokenManager, reqIDHeader string, idemSvc idem
 		obsGroup := v1.Group("/observations", authed)
 		obsGroup.POST("", h.Observation.Create)
 		obsGroup.GET("", h.Observation.List)
+		obsGroup.GET("/:id", h.Observation.Evidence)
 		obsGroup.PATCH("/:id", h.Observation.Update)
 		obsGroup.POST("/:id/images", h.Observation.AddImage)
 		obsGroup.GET("/:id/images", h.Observation.ListImages)
+		obsGroup.DELETE("/:id/images/:image_id", h.Observation.RemoveImage)
 		obsGroup.PUT("/:id/conclusion", h.Observation.SaveConclusion)
 		obsGroup.POST("/:id/submit", idem, h.Observation.Submit)
 		obsGroup.POST("/:id/review", idem, h.Observation.Review)

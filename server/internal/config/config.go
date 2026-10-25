@@ -37,10 +37,10 @@ type AppConfig struct {
 
 // ServerConfig HTTP 服务参数。
 type ServerConfig struct {
-	Listen             string `json:"listen"`
-	ReadTimeoutS       int    `json:"read_timeout_s"`
-	WriteTimeoutS      int    `json:"write_timeout_s"`
-	GracefulShutdownS  int    `json:"graceful_shutdown_s"`
+	Listen            string `json:"listen"`
+	ReadTimeoutS      int    `json:"read_timeout_s"`
+	WriteTimeoutS     int    `json:"write_timeout_s"`
+	GracefulShutdownS int    `json:"graceful_shutdown_s"`
 }
 
 // DatabaseConfig MySQL 连接参数。
@@ -87,9 +87,9 @@ type AuthConfig struct {
 
 // UploadConfig 上传约束与幂等/跟踪头。
 type UploadConfig struct {
-	MaxBodyBytes        int64  `json:"max_body_bytes"`
+	MaxBodyBytes         int64  `json:"max_body_bytes"`
 	IdempotencyKeyHeader string `json:"idempotency_key_header"`
-	RequestIDHeader     string `json:"request_id_header"`
+	RequestIDHeader      string `json:"request_id_header"`
 }
 
 // ReportConfig PDF 报告生成参数。
@@ -138,6 +138,15 @@ func Load(path string) (*Config, error) {
 
 // applyEnvOverrides 允许用环境变量覆盖关键敏感配置，避免密钥写入版本库。
 func (c *Config) applyEnvOverrides() error {
+	if v := os.Getenv("CITY_WALL_WECHAT_APP_ID"); v != "" {
+		c.Auth.WechatAppID = v
+	}
+	if v := os.Getenv("CITY_WALL_WECHAT_APP_SECRET"); v != "" {
+		c.Auth.WechatAppSecret = v
+	}
+	if v := os.Getenv("CITY_WALL_RECOGNIZER_URL"); v != "" {
+		c.Recognizer.BaseURL = v
+	}
 	if v := os.Getenv("CITY_WALL_DB_DSN"); v != "" {
 		c.Database.DSNOverride = v
 	}

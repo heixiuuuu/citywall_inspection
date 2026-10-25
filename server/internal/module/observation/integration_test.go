@@ -7,10 +7,10 @@ package observation
 // DSN 可用环境变量 CITY_WALL_TEST_DSN 覆盖。
 
 import (
+	"citywall/server/internal/infrastructure/database"
 	"context"
 	"os"
 	"path/filepath"
-	"sort"
 	"testing"
 
 	"gorm.io/driver/mysql"
@@ -29,25 +29,11 @@ func TestMain(m *testing.M) {
 
 // runMigrations 在测试库执行 001~003 显式迁移（CREATE TABLE IF NOT EXISTS，幂等）。
 func runMigrations(db *gorm.DB) error {
-	files, err := filepath.Glob(filepath.Join("..", "..", "..", "migrations", "*.sql"))
-	if err != nil {
-		return err
-	}
-	sort.Strings(files)
 	sqlDB, err := db.DB()
 	if err != nil {
 		return err
 	}
-	for _, f := range files {
-		raw, err := os.ReadFile(f)
-		if err != nil {
-			return err
-		}
-		if _, err := sqlDB.Exec(string(raw)); err != nil {
-			return err
-		}
-	}
-	return nil
+	return database.Migrate(sqlDB, filepath.Join("..", "..", "..", "migrations"))
 }
 
 func integrationDB(t *testing.T) *gorm.DB {

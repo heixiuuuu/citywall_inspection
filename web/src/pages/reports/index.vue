@@ -25,7 +25,7 @@
         <template #default="{ row }">{{ row.status === 'READY' ? `report-${row.id}.pdf` : '—' }}</template>
       </el-table-column>
       <el-table-column label="生成时间" width="170">
-        <template #default="{ row }">{{ (row.created_at || '').slice(0, 19).replace('T', ' ') }}</template>
+        <template #default="{ row }">{{ formatDateTime(row.created_at) }}</template>
       </el-table-column>
       <el-table-column label="失败原因" min-width="140">
         <template #default="{ row }">{{ row.error_code || '—' }}</template>
@@ -82,6 +82,7 @@
 </template>
 
 <script setup lang="ts">
+import { formatDateTime } from '@/shared/ui/time'
 import { onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { fetchReports, createTaskReport, createRangeReport, retryReport, loadReportBlob, type Report } from '@/shared/api/report'

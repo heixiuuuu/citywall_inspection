@@ -1,12 +1,11 @@
-openapi: 3.0.3
+openapi: 3.1.0
 info:
   title: 古城墙病害巡检系统 · 对外 API
   description: |
     Go 业务服务公开接口契约（/api/v1）。
     约定：成功响应 {"data": ..., "request_id": ...}；
     失败响应 {"error": {"code": ..., "message": ...}, "request_id": ...}；
-    业务规则（状态机/权限）在 Service 层实现，错误码映射见 03 文档第 7 节。
-    本文件与代码共同维护；版本 0.2.0 覆盖 MVP 纵向链路全部端点。
+    业务规则与角色权限在 Service 层实现。
   version: 0.2.0
 servers:
   - url: http://localhost:8080
@@ -82,7 +81,7 @@ paths:
   /api/v1/auth/wechat-login:
     post:
       tags: [identity]
-      summary: 小程序微信登录（MVP 测试身份映射）
+      summary: 小程序微信 code 换取已绑定人员会话
       security: []
       requestBody:
         required: true
@@ -92,7 +91,7 @@ paths:
               type: object
               required: [code]
               properties:
-                code: { type: string, example: test-inspector, description: 'MVP 固定映射：test-inspector/test-reviewer/test-admin' }
+                code: { type: string, description: 'uni.login 返回的临时 code，服务端配置凭据并查询绑定账号' }
       responses:
         '200':
           description: 登录成功，响应结构同 /auth/login
@@ -163,6 +162,16 @@ paths:
         '403':
           description: 仅管理员
   /api/v1/wall-segments:
+    post:
+      tags: [site]
+      summary: 创建城墙区段档案（管理员）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SegmentInput' }
+      responses:
+        '201': { description: data.segment 返回新档案 }
     get:
       tags: [site]
       summary: 区段列表
@@ -181,6 +190,45 @@ paths:
                         type: array
                         items: { $ref: '#/components/schemas/WallSegment' }
 
+  /api/v1/wall-segments/{id}:
+    put:
+      tags: [site]
+      summary: 更新区段档案及启用状态（管理员）
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SegmentInput' }
+      responses:
+        '200': { description: data.segment 返回更新后档案 }
+  /api/v1/inspection-points/{id}:
+    put:
+      tags: [site]
+      summary: 更新巡检点位及启用状态（管理员）
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - { $ref: '#/components/schemas/InspectionPoint' }
+              required: [segment_id, code, name]
+      responses:
+        '200': { description: data.point 返回更新后点位 }
+  /api/v1/observations/{id}/images/{image_id}:
+    delete:
+      tags: [observation]
+      summary: 从草稿或退回记录移除图片关联（本人或管理员、审核员）
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+        - { name: image_id, in: path, required: true, schema: { type: integer } }
+      responses:
+        '200': { description: data.removed 为 true }
+        '409': { $ref: '#/components/responses/Conflict' }
   # ---------- 任务 ----------
   /api/v1/tasks:
     post:
@@ -418,6 +466,16 @@ paths:
         '409':
           $ref: '#/components/responses/Conflict'
   /api/v1/observations/{id}:
+    get:
+      tags: [observation]
+      summary: 记录证据（本人或管理员、审核员），包含识别尝试、候选、结论修订和审核记录
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        '200':
+          description: data.evidence 包含 observation、attempts、detections、conclusions、items、reviews
+        '403':
+          $ref: '#/components/responses/Forbidden'
     patch:
       tags: [observation]
       summary: 更新草稿位置/现场判断（DRAFT/RETURNED）
@@ -1073,6 +1131,14 @@ components:
                   message: { type: string }
               request_id: { type: string }
   schemas:
+    SegmentInput:
+      type: object
+      required: [code, name]
+      properties:
+        code: { type: string, maxLength: 64 }
+        name: { type: string, maxLength: 128 }
+        description: { type: string }
+        active: { type: boolean }
     User:
       type: object
       properties:
@@ -1165,6 +1231,7 @@ components:
         id: { type: integer }
         image_id: { type: integer }
         attempt_no: { type: integer }
+        analysis_json: { type: string, description: '结构化视觉分析 JSON 字符串，含 status、model、description、possible_causes、recommendations、error_code；未分析时为空' }
         status: { type: string, enum: [PENDING, SUCCEEDED, FAILED] }
         model_version: { type: [string, 'null'] }
         schema_version: { type: [string, 'null'] }

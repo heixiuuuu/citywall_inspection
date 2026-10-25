@@ -45,7 +45,7 @@
         <template #default="{ row }">{{ row.inspection_outcome || '—' }}</template>
       </el-table-column>
       <el-table-column label="提交时间" width="170">
-        <template #default="{ row }">{{ (row.submitted_at || row.created_at || '').slice(0, 19).replace('T', ' ') }}</template>
+        <template #default="{ row }">{{ formatDateTime(row.submitted_at || row.created_at) }}</template>
       </el-table-column>
       <el-table-column label="操作" width="120" fixed="right">
         <template #default="{ row }">
@@ -65,7 +65,7 @@
     </div>
 
     <!-- 记录详情：原图 + 现场信息 -->
-    <el-drawer v-model="detailVisible" title="现场记录详情" size="480">
+    <el-drawer v-model="detailVisible" title="现场记录详情" size="min(900px, 95vw)" destroy-on-close>
       <div v-if="detail">
         <el-descriptions :column="1" border size="small">
           <el-descriptions-item label="记录 ID">{{ detail.id }}</el-descriptions-item>
@@ -73,20 +73,13 @@
           <el-descriptions-item label="状态">{{ statusText(detail.status) }}</el-descriptions-item>
           <el-descriptions-item label="位置">{{ detail.location_text || '—' }}</el-descriptions-item>
           <el-descriptions-item label="坐标">
-            {{ detail.latitude ? `${detail.latitude.toFixed(6)}, ${detail.longitude.toFixed(6)}` : '—' }}
+            {{ detail.latitude != null && detail.longitude != null ? `${detail.latitude.toFixed(6)}, ${detail.longitude.toFixed(6)}` : '—' }}
           </el-descriptions-item>
           <el-descriptions-item label="定位精度">{{ detail.accuracy_m ? `${detail.accuracy_m} m` : '—' }}</el-descriptions-item>
           <el-descriptions-item label="现场结论">{{ detail.inspection_outcome || '—' }}</el-descriptions-item>
           <el-descriptions-item label="版本">{{ detail.revision }}</el-descriptions-item>
         </el-descriptions>
-        <h4 class="subtitle">现场照片</h4>
-        <div v-if="images.length" class="photos">
-          <div v-for="img in images" :key="img.id" class="photo">
-            <img :src="img.url" :alt="`图片 #${img.id}`" />
-            <span>{{ img.role === 'OVERVIEW' ? '概览' : '细节' }} #{{ img.id }}</span>
-          </div>
-        </div>
-        <el-empty v-else description="暂无照片" :image-size="60" />
+        <ObservationEvidence v-if="detailVisible" :observation-id="detail.id" />
       </div>
     </el-drawer>
   </div>
@@ -94,8 +87,10 @@
 
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
+import ObservationEvidence from '@/shared/ui/ObservationEvidence.vue'
+import { formatDateTime } from '@/shared/ui/time'
 import { ElMessage } from 'element-plus'
-import { fetchObservations, fetchObservationImages, loadImageBlob, type Observation } from '@/shared/api/observation'
+import { fetchObservations, type Observation } from '@/shared/api/observation'
 
 const rows = ref<Observation[]>([])
 const loading = ref(false)
@@ -113,7 +108,6 @@ const dateRange = ref<[string, string] | null>(null)
 
 const detailVisible = ref(false)
 const detail = ref<Observation | null>(null)
-const images = ref<{ id: number; role: string; url: string }[]>([])
 
 onMounted(load)
 
@@ -163,15 +157,7 @@ function statusType(s: string) {
 async function openDetail(row: Observation) {
   detail.value = row
   detailVisible.value = true
-  images.value = []
-  try {
-    const metas = await fetchObservationImages(row.id)
-    images.value = await Promise.all(
-      metas.map(async (m) => ({ id: m.id, role: m.role, url: await loadImageBlob(m.id) })),
-    )
-  } catch {
-    ElMessage.warning('照片加载失败（可能无权访问）')
-  }
+
 }
 </script>
 

@@ -3,8 +3,9 @@
     <view class="field">
       <view class="field-label">发现位置 <text class="req">必填</text></view>
       <view class="loc-box">
-        <view class="loc-line"><view class="loc-dot" />已定位：{{ locationText || '待填写' }}</view>
+        <view class="loc-line"><view class="loc-dot" />位置描述：{{ locationText || '待填写' }}</view>
         <input class="input" v-model="locationText" placeholder="填写具体位置描述" />
+        <LocationCapture @change="location = $event" />
       </view>
     </view>
 
@@ -81,12 +82,14 @@
 
 <script setup>
 import { computed, ref } from 'vue'
+import LocationCapture from '../../shared/ui/LocationCapture.vue'
 import {
   createObservation,
   addImage,
   updateObservation,
   saveConclusion,
   submitObservation,
+  removeImage as deleteImage,
 } from '../../shared/api/observation'
 
 const outcomes = [
@@ -99,6 +102,7 @@ const outcomes = [
 const obs = ref(null)
 const images = ref([])
 const locationText = ref('')
+const location = ref(null)
 const description = ref('')
 const outcome = ref(null)
 const overall = ref('SUSPECTED')
@@ -137,8 +141,13 @@ function chooseImage() {
   })
 }
 
-function removeImage(i) {
-  images.value.splice(i, 1)
+async function removeImage(i) {
+  const image = images.value[i]
+  try {
+    await deleteImage(obs.value.id, image.imageId)
+    images.value.splice(i, 1)
+    conclusionItems.value = conclusionItems.value.filter(item => item.imageId !== image.imageId)
+  } catch { uni.showToast({ title: '照片移除失败', icon: 'none' }) }
 }
 
 function addConclusion() {
@@ -156,6 +165,10 @@ function removeConclusion(i) {
 }
 
 async function submit() {
+  if (!location.value) {
+    uni.showToast({ title: '请先获取现场定位', icon: 'none' })
+    return
+  }
   if (!obs.value) return
   if (!locationText.value.trim()) {
     uni.showToast({ title: '请填写位置', icon: 'none' })
@@ -174,10 +187,12 @@ async function submit() {
   try {
     let revision = obs.value.revision
     await updateObservation(obs.value.id, revision, {
+      ...location.value,
       location_text: locationText.value.trim(),
       inspection_outcome: outcome.value || overall.value,
     })
     revision++
+    obs.value.revision = revision
 
     await saveConclusion(obs.value.id, revision, {
       outcome: overall.value,
@@ -192,6 +207,7 @@ async function submit() {
         })),
     })
     revision++
+    obs.value.revision = revision
 
     await submitObservation(obs.value.id, revision)
     uni.showToast({ title: '已提交，等待审核', icon: 'success' })

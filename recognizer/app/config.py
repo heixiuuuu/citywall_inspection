@@ -5,7 +5,6 @@
   2. ./conf/recognizer.json（仓库根下）
   3. ../conf/recognizer.json（从 recognizer/ 目录启动时）
 
-初始化阶段使用固定响应验证契约，模型文件与阈值字段先行占位。
 """
 from __future__ import annotations
 
@@ -23,8 +22,8 @@ _DEFAULT_CANDIDATES = (
 @dataclass
 class RecognitionConfig:
     model_version: str = "yolo_baseline_001"
-    detector_mode: str = "dev"  # dev=固定响应（仅首轮联调）| yolo=真实推理
-    weights_path: str = "models/yolo_baseline_001.pt"
+    detector_mode: str = "yolo"
+    weights_path: str = "data/yolo/weights/best.pt"
     confidence_threshold: float = 0.35
     max_image_bytes: int = 10 * 1024 * 1024
     allowed_formats: list[str] = field(default_factory=lambda: ["jpeg", "png", "webp"])
@@ -37,6 +36,14 @@ class InternalConfig:
 
 
 @dataclass
+class VisionConfig:
+    base_url: str = ""
+    model: str = ""
+    api_key: str = ""
+    timeout_s: int = 45
+
+
+@dataclass
 class AppConfig:
     name: str = "city-wall-recognizer"
     env: str = "dev"
@@ -44,6 +51,7 @@ class AppConfig:
 
 @dataclass
 class Settings:
+    vision: VisionConfig = field(default_factory=VisionConfig)
     app: AppConfig = field(default_factory=AppConfig)
     server: dict = field(default_factory=lambda: {"host": "0.0.0.0", "port": 8000})
     recognition: RecognitionConfig = field(default_factory=RecognitionConfig)
@@ -76,6 +84,19 @@ def load_settings() -> Settings:
         s.recognition = RecognitionConfig(**raw["recognition"])
     if "internal" in raw:
         s.internal = InternalConfig(**raw["internal"])
+    if "vision" in raw:
+        s.vision = VisionConfig(**raw["vision"])
+    s.vision.base_url = os.getenv("VLM_BASE_URL", s.vision.base_url)
+    s.vision.model = os.getenv("VLM_MODEL", s.vision.model)
+    s.vision.api_key = os.getenv("VLM_API_KEY", s.vision.api_key)
+    s.recognition.weights_path = os.getenv("RECOGNIZER_WEIGHTS", s.recognition.weights_path)
+    s.recognition.detector_mode = os.getenv("RECOGNIZER_MODE", s.recognition.detector_mode)
+    token = os.getenv("RECOGNIZER_TOKEN")
+    if token:
+        s.internal.token = token
+        s.internal.require_token = True
+    if s.recognition.detector_mode not in ("dev", "yolo"):
+        raise ValueError("detector_mode must be dev or yolo")
     return s
 
 

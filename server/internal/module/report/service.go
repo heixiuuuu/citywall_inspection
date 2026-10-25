@@ -5,10 +5,12 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	_ "golang.org/x/image/webp"
 	"image"
 	_ "image/jpeg"
-	_ "image/png"
+	"image/png"
 	"io"
+	"log"
 	"os"
 	"path/filepath"
 	"time"
@@ -173,17 +175,26 @@ func (s *service) generate(ctx context.Context, actor *middleware.Actor, rep *Re
 	now := time.Now().UTC()
 	rep.SnapshotAt = now
 	var snap any
+	var loadErr error
 	switch rep.ScopeType {
 	case ScopeTask:
-		snap, _ = s.source.LoadTask(ctx, *rep.TaskID)
+		var value *TaskSource
+		value, loadErr = s.source.LoadTask(ctx, *rep.TaskID)
+		if value != nil {
+			snap = value
+		}
 	case ScopeDateRange:
-		snap, _ = s.source.LoadRange(ctx, *rep.RangeStart, *rep.RangeEnd)
+		var value *RangeSource
+		value, loadErr = s.source.LoadRange(ctx, *rep.RangeStart, *rep.RangeEnd)
+		if value != nil {
+			snap = value
+		}
 	default:
 		_ = s.repo.MarkFailed(ctx, rep.ID, "INVALID_SCOPE")
 		rep.Status = StatusFailed
 		return rep, ErrInvalidScope
 	}
-	if snap == nil {
+	if snap == nil || loadErr != nil {
 		_ = s.repo.MarkFailed(ctx, rep.ID, "SNAPSHOT_LOAD_FAILED")
 		rep.Status = StatusFailed
 		return rep, ErrTaskNotFound
@@ -196,7 +207,7 @@ func (s *service) generate(ctx context.Context, actor *middleware.Actor, rep *Re
 	}
 	opts := renderOpts{
 		GeneratedBy: actorName(actor),
-		SnapshotAt:  now.Format("2006-01-02 15:04:05"),
+		SnapshotAt:  now.In(reportLocation).Format("2006-01-02 15:04:05") + " (UTC+8)",
 		FontPath:    s.cfg.FontPath,
 		OpenImage: func(key string) (string, int, int, string, func(), error) {
 			f, err := s.storage.Open(key)
@@ -210,6 +221,18 @@ func (s *service) generate(ctx context.Context, actor *middleware.Actor, rep *Re
 			}
 			w, h := decodeImageSize(data)
 			mediaType := guessMediaType(key)
+			if mediaType == "image/webp" {
+				decoded, _, decodeErr := image.Decode(bytes.NewReader(data))
+				if decodeErr != nil {
+					return "", 0, 0, "", nil, decodeErr
+				}
+				var converted bytes.Buffer
+				if err := png.Encode(&converted, decoded); err != nil {
+					return "", 0, 0, "", nil, err
+				}
+				data = converted.Bytes()
+				mediaType = "image/png"
+			}
 			ext := "jpg"
 			if mediaType == "image/png" {
 				ext = "png"
@@ -234,6 +257,7 @@ func (s *service) generate(ctx context.Context, actor *middleware.Actor, rep *Re
 	}
 	if err != nil {
 		_ = s.repo.MarkFailed(ctx, rep.ID, "PDF_GENERATION_FAILED")
+		log.Printf("report generation failed: id=%d error=%v", rep.ID, err)
 		rep.Status = StatusFailed
 		return rep, err
 	}

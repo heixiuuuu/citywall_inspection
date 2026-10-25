@@ -35,6 +35,30 @@ export interface ConclusionRevision {
   author_id: number
 }
 
+export interface Detection {
+  id: number; attempt_id: number; class_code: string; confidence: number
+  x1: number; y1: number; x2: number; y2: number
+}
+export interface RecognitionAttempt {
+  id: number; image_id: number; attempt_no: number; status: string
+  model_version: string; error_code: string; analysis_json: string
+}
+export interface VisionAnalysis {
+  status: 'SUCCEEDED' | 'DISABLED' | 'FAILED'; model: string; description: string
+  possible_causes: string[]; recommendations: string[]; error_code: string
+}
+export interface Evidence {
+  observation: Observation
+  attempts: RecognitionAttempt[]
+  detections: Detection[]
+  conclusions: ConclusionRevision[]
+  items: { id: number; conclusion_revision_id: number; image_id: number; decision: string; final_class_code: string; description: string }[]
+  reviews: { id: number; decision: string; reason: string; disposition: string; created_at: string }[]
+}
+export async function fetchEvidence(id: number): Promise<Evidence> {
+  return (await request<{ evidence: Evidence }>(`/observations/${id}`)).evidence
+}
+
 export type ReviewDecision = 'ACCEPT' | 'RETURN' | 'REJECT'
 
 export interface ReviewPayload {

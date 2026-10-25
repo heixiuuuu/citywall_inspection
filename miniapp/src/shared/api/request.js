@@ -12,7 +12,7 @@ import { getToken, clearToken, getUser } from '../auth/auth'
 // - 微信开发者工具 / HBuilderX 内置模拟器：127.0.0.1 可直接访问电脑上的 Go 服务。
 // - Android 真机（APK）：127.0.0.1 是手机自身，必须改为电脑的局域网 IP，
 //   例如 http://192.168.1.100:8080/api/v1，并把值写到本地存储 key `city_wall_api_base`（见下方）。
-export const BASE_URL = 'http://127.0.0.1:8080/api/v1'
+export const BASE_URL = import.meta.env.VITE_API_BASE || 'http://127.0.0.1:8080/api/v1'
 
 // App（APK）真机联调：允许通过本地存储覆盖服务地址，避免改代码重新打包。
 // 首次装机时可在任意页面执行：
@@ -26,8 +26,12 @@ export function getBaseUrl() {
   const savedH5 = uni.getStorageSync('city_wall_api_base')
   if (savedH5) return savedH5
   // H5 在 Android 模拟器（WebView 壳）中访问宿主机 Go 服务
-  return 'http://10.0.2.2:8080/api/v1'
+  if (typeof location !== 'undefined' && location.hostname === 'appassets.androidplatform.net') {
+    return import.meta.env.VITE_API_BASE || 'http://10.0.2.2:8080/api/v1'
+  }
   // #endif
+  const savedBase = uni.getStorageSync('city_wall_api_base')
+  if (savedBase) return savedBase
   return BASE_URL
 }
 
@@ -47,6 +51,7 @@ export function request(path, { method = 'GET', data } = {}) {
       url: `${getBaseUrl()}${path}`,
       method,
       data,
+      timeout: 110000,
       header: {
         'Content-Type': 'application/json',
         ...(token ? { Authorization: `Bearer ${token}` } : {}),

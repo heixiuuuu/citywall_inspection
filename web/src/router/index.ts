@@ -54,7 +54,7 @@ const adminRoutes: RouteRecordRaw = {
       path: 'points',
       name: 'points',
       component: () => import('@/pages/points/index.vue'),
-      meta: { title: '点位管理', roles: ['ADMIN'] },
+      meta: { title: '城墙档案', roles: ['ADMIN'] },
     },
     {
       path: 'audit',

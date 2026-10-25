@@ -24,6 +24,23 @@ var (
 	ErrBadResponse = errors.New("recognizer: malformed response")
 )
 
+type ServiceError struct {
+	Code    string
+	Message string
+}
+
+func (e *ServiceError) Error() string { return "recognizer: " + e.Code + ": " + e.Message }
+func ErrorCode(err error) string {
+	if errors.Is(err, ErrTimeout) {
+		return "RECOGNITION_TIMEOUT"
+	}
+	var serviceErr *ServiceError
+	if errors.As(err, &serviceErr) {
+		return serviceErr.Code
+	}
+	return "RECOGNITION_FAILED"
+}
+
 // Detection 对应识别服务成功响应中的单个检测候选。
 // bbox 为按 EXIF 方向统一后的原图像素坐标，左上角原点。
 type Detection struct {
@@ -43,13 +60,14 @@ type BBox struct {
 
 // Result 识别成功响应。
 type Result struct {
-	SchemaVersion string      `json:"schema_version"`
-	AttemptID     string      `json:"attempt_id"`
-	ModelVersion  string      `json:"model_version"`
-	ImageWidth    int         `json:"image_width"`
-	ImageHeight   int         `json:"image_height"`
-	LatencyMs     int         `json:"latency_ms"`
-	Detections    []Detection `json:"detections"`
+	Analysis      json.RawMessage `json:"analysis"`
+	SchemaVersion string          `json:"schema_version"`
+	AttemptID     string          `json:"attempt_id"`
+	ModelVersion  string          `json:"model_version"`
+	ImageWidth    int             `json:"image_width"`
+	ImageHeight   int             `json:"image_height"`
+	LatencyMs     int             `json:"latency_ms"`
+	Detections    []Detection     `json:"detections"`
 }
 
 // Recognizer 抽象内部识别客户端，便于测试替身。
@@ -134,7 +152,7 @@ func (r *HTTPRecognizer) Recognize(ctx context.Context, attemptID, imageID, requ
 		if err := json.Unmarshal(data, &errBody); err != nil {
 			return nil, fmt.Errorf("recognizer: http %d: %w", resp.StatusCode, ErrBadResponse)
 		}
-		return nil, fmt.Errorf("recognizer: %s: %s", errBody.Error.Code, errBody.Error.Message)
+		return nil, &ServiceError{Code: errBody.Error.Code, Message: errBody.Error.Message}
 	}
 
 	var result Result

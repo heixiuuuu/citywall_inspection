@@ -1,7 +1,6 @@
 """识别编排服务。
 
 调用方向：FastAPI route → recognition service → Detector adapter。
-当前按 03 文档约定“先用固定响应验证契约”，未接真实模型。
 """
 from __future__ import annotations
 
@@ -13,9 +12,10 @@ from .schemas import RecognitionResponse
 
 
 class RecognitionService:
-    def __init__(self, detector: Detector, model_version: str) -> None:
+    def __init__(self, detector: Detector, model_version: str, analyzer=None) -> None:
         self._detector = detector
         self._model_version = model_version
+        self._analyzer = analyzer
 
     def recognize(
         self,
@@ -43,4 +43,5 @@ class RecognitionService:
             image_height=out.image_height,
             latency_ms=latency_ms,
             detections=out.detections,
+            analysis=self._analyzer.analyze(image_bytes, [d.class_code for d in out.detections]) if self._analyzer else None,
         )

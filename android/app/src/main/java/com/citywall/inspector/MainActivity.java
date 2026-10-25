@@ -6,7 +6,9 @@ import android.content.Intent;
 import android.net.Uri;
 import android.os.Bundle;
 import android.webkit.ConsoleMessage;
-import android.webkit.JavascriptInterface;
+import android.webkit.GeolocationPermissions;
+import android.Manifest;
+import android.content.pm.PackageManager;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceRequest;
@@ -22,6 +24,8 @@ public class MainActivity extends Activity {
 
     private WebView webView;
     private ValueCallback<Uri[]> filePathCallback;
+    private GeolocationPermissions.Callback locationCallback;
+    private String locationOrigin;
 
     @SuppressLint("SetJavaScriptEnabled")
     @Override
@@ -40,7 +44,8 @@ public class MainActivity extends Activity {
         s.setAllowContentAccess(true);
         s.setMediaPlaybackRequiresUserGesture(false);
         s.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
-        android.webkit.WebView.setWebContentsDebuggingEnabled(true);
+        s.setGeolocationEnabled(true);
+        android.webkit.WebView.setWebContentsDebuggingEnabled(BuildConfig.DEBUG);
 
         webView.setWebViewClient(new WebViewClient() {
             @Override
@@ -51,7 +56,7 @@ public class MainActivity extends Activity {
 
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
-                return false;
+                return !"appassets.androidplatform.net".equals(request.getUrl().getHost());
             }
 
             @Override
@@ -67,6 +72,20 @@ public class MainActivity extends Activity {
         });
 
         webView.setWebChromeClient(new WebChromeClient() {
+            @Override
+            public void onGeolocationPermissionsShowPrompt(String origin, GeolocationPermissions.Callback callback) {
+                if (!origin.startsWith("https://appassets.androidplatform.net")) {
+                    callback.invoke(origin, false, false);
+                    return;
+                }
+                if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+                    callback.invoke(origin, true, false);
+                } else {
+                    locationCallback = callback;
+                    locationOrigin = origin;
+                    requestPermissions(new String[]{Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION}, 1002);
+                }
+            }
             @Override
             public boolean onShowFileChooser(WebView view, ValueCallback<Uri[]> filePath,
                                              FileChooserParams fileChooserParams) {
@@ -91,11 +110,19 @@ public class MainActivity extends Activity {
             }
         });
 
-        // Android 原生能力桥（供 H5 页面通过 window.AndroidBridge.* 调用）
-        webView.addJavascriptInterface(new Bridge(), "AndroidBridge");
 
         setContentView(webView);
         webView.loadUrl("https://appassets.androidplatform.net/assets/www/index.html");
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == 1002 && locationCallback != null) {
+            boolean granted = grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED;
+            locationCallback.invoke(locationOrigin, granted, false);
+            locationCallback = null;
+        }
     }
 
     @Override
@@ -138,28 +165,4 @@ public class MainActivity extends Activity {
         super.onDestroy();
     }
 
-    /** 原生桥：给 JS 提供基础能力（版本信息、剪贴板等）。 */
-    private class Bridge {
-        @JavascriptInterface
-        public String getVersion() {
-            return "0.2.0";
-        }
-
-        @JavascriptInterface
-        public void setClipboard(String text) {
-            android.content.ClipboardManager cm =
-                    (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
-            cm.setPrimaryClip(android.content.ClipData.newPlainText("citywall", text));
-        }
-
-        @JavascriptInterface
-        public String getClipboard() {
-            android.content.ClipboardManager cm =
-                    (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
-            if (cm.hasPrimaryClip()) {
-                return cm.getPrimaryClip().getItemAt(0).getText().toString();
-            }
-            return "";
-        }
-    }
 }

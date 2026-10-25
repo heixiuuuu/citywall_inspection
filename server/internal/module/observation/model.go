@@ -20,11 +20,11 @@ const (
 
 // 记录状态（04 文档 7.2）。
 const (
-	ObsDraft    = "DRAFT"
+	ObsDraft     = "DRAFT"
 	ObsSubmitted = "SUBMITTED"
-	ObsReturned = "RETURNED"
-	ObsAccepted = "ACCEPTED"
-	ObsRejected = "REJECTED"
+	ObsReturned  = "RETURNED"
+	ObsAccepted  = "ACCEPTED"
+	ObsRejected  = "REJECTED"
 )
 
 // 图片角色。
@@ -113,17 +113,18 @@ type ObservationSubmission struct {
 
 // ReviewDecision 一个提交版本至多一个最终审核决定。
 type ReviewDecision struct {
-	ID          int64     `gorm:"primaryKey;column:id" json:"id"`
-	SubmissionID int64    `gorm:"column:submission_id;uniqueIndex" json:"submission_id"`
-	ReviewerID  int64     `gorm:"column:reviewer_id" json:"reviewer_id"`
-	Decision    string    `gorm:"column:decision" json:"decision"` // ACCEPT / RETURN / REJECT
-	Disposition string    `gorm:"column:disposition" json:"disposition"`
-	Reason      string    `gorm:"column:reason" json:"reason"`
-	CreatedAt   time.Time `gorm:"column:created_at" json:"created_at"`
+	ID           int64     `gorm:"primaryKey;column:id" json:"id"`
+	SubmissionID int64     `gorm:"column:submission_id;uniqueIndex" json:"submission_id"`
+	ReviewerID   int64     `gorm:"column:reviewer_id" json:"reviewer_id"`
+	Decision     string    `gorm:"column:decision" json:"decision"` // ACCEPT / RETURN / REJECT
+	Disposition  string    `gorm:"column:disposition" json:"disposition"`
+	Reason       string    `gorm:"column:reason" json:"reason"`
+	CreatedAt    time.Time `gorm:"column:created_at" json:"created_at"`
 }
 
 // RecognitionAttempt 识别尝试；每次重试新建记录，不覆盖历史。
 type RecognitionAttempt struct {
+	AnalysisJSON  string     `gorm:"column:analysis_json;type:json;default:null" json:"analysis_json"`
 	ID            int64      `gorm:"primaryKey;column:id" json:"id"`
 	ImageID       int64      `gorm:"column:image_id;index:idx_img_attempt_no" json:"image_id"`
 	AttemptNo     int        `gorm:"column:attempt_no;index:idx_img_attempt_no" json:"attempt_no"`
@@ -163,14 +164,14 @@ type ConclusionRevision struct {
 
 // ConclusionItem 人工结论项：确认/修改/删除候选或人工补录。
 type ConclusionItem struct {
-	ID                  int64  `gorm:"primaryKey;column:id" json:"id"`
-	ConclusionRevisionID int64 `gorm:"column:conclusion_revision_id;index" json:"conclusion_revision_id"`
-	ImageID             int64  `gorm:"column:image_id" json:"image_id"`
-	SourceDetectionID   *int64 `gorm:"column:source_detection_id" json:"source_detection_id"`
-	Decision            string `gorm:"column:decision" json:"decision"`
-	FinalClassCode      string `gorm:"column:final_class_code" json:"final_class_code"`
-	FinalBoxJSON        string `gorm:"column:final_box_json" json:"final_box_json"`
-	Description         string `gorm:"column:description" json:"description"`
+	ID                   int64  `gorm:"primaryKey;column:id" json:"id"`
+	ConclusionRevisionID int64  `gorm:"column:conclusion_revision_id;index" json:"conclusion_revision_id"`
+	ImageID              int64  `gorm:"column:image_id" json:"image_id"`
+	SourceDetectionID    *int64 `gorm:"column:source_detection_id" json:"source_detection_id"`
+	Decision             string `gorm:"column:decision" json:"decision"`
+	FinalClassCode       string `gorm:"column:final_class_code" json:"final_class_code"`
+	FinalBoxJSON         string `gorm:"column:final_box_json" json:"final_box_json"`
+	Description          string `gorm:"column:description" json:"description"`
 }
 
 // AcceptedInfo 审核通过记录的受理信息（供 issue 模块受理时使用）。
@@ -183,12 +184,12 @@ type AcceptedInfo struct {
 }
 
 // TableName 显式表名。
-func (Image) TableName() string                { return "images" }
-func (Observation) TableName() string          { return "observations" }
-func (ObservationImage) TableName() string     { return "observation_images" }
+func (Image) TableName() string                 { return "images" }
+func (Observation) TableName() string           { return "observations" }
+func (ObservationImage) TableName() string      { return "observation_images" }
 func (ObservationSubmission) TableName() string { return "observation_submissions" }
-func (ReviewDecision) TableName() string       { return "review_decisions" }
-func (RecognitionAttempt) TableName() string   { return "recognition_attempts" }
-func (Detection) TableName() string            { return "detections" }
-func (ConclusionRevision) TableName() string   { return "conclusion_revisions" }
-func (ConclusionItem) TableName() string       { return "conclusion_items" }
+func (ReviewDecision) TableName() string        { return "review_decisions" }
+func (RecognitionAttempt) TableName() string    { return "recognition_attempts" }
+func (Detection) TableName() string             { return "detections" }
+func (ConclusionRevision) TableName() string    { return "conclusion_revisions" }
+func (ConclusionItem) TableName() string        { return "conclusion_items" }

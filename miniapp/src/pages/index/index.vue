@@ -6,32 +6,61 @@
     <view class="title">台州府城墙病害巡检</view>
     <view class="sub">基于视觉识别的古城墙病害巡检系统</view>
 
-    <button class="btn btn-primary" :loading="loading" @tap="login">微信一键登录</button>
-    <view class="faint">MVP 测试身份：test-inspector / test-reviewer / test-admin</view>
+    <input v-model="username" class="input" placeholder="巡检账号" />
+    <input v-model="password" class="input" password placeholder="密码" />
+    <input v-model="apiBase" class="input" placeholder="服务地址，如 http://电脑IP:8080/api/v1" />
+    <button class="btn btn-primary" :loading="loading" @tap="login">账号登录</button>
+    <!-- #ifdef MP-WEIXIN -->
+    <button class="btn" :loading="loading" @tap="loginWithWechat">微信登录</button>
+    <!-- #endif -->
   </view>
 </template>
 
 <script setup>
 import { ref } from 'vue'
-import { wechatLogin } from '../../shared/api/task'
+import { wechatLogin, accountLogin } from '../../shared/api/task'
+import { getBaseUrl } from '../../shared/api/request'
 import { setToken, setUser } from '../../shared/auth/auth'
 
 const loading = ref(false)
+const username = ref('')
+const password = ref('')
+const apiBase = ref(getBaseUrl())
+
+function acceptSession(res) {
+  setToken(res.data.token)
+  setUser(res.data.user)
+  uni.reLaunch({ url: '/pages/tasks/index' })
+}
 
 function login() {
+  if (!username.value.trim() || !password.value) {
+    uni.showToast({ title: '请输入账号和密码', icon: 'none' })
+    return
+  }
+  if (!/^https?:\/\//i.test(apiBase.value.trim())) {
+    uni.showToast({ title: '请输入完整的 http 或 https 服务地址', icon: 'none' })
+    return
+  }
+  uni.setStorageSync('city_wall_api_base', apiBase.value.trim().replace(/\/$/, ''))
   loading.value = true
-  wechatLogin('test-inspector')
-    .then((res) => {
-      setToken(res.data.token)
-      setUser(res.data.user)
-      uni.reLaunch({ url: '/pages/tasks/index' })
-    })
+  accountLogin(username.value.trim(), password.value)
+    .then(acceptSession)
     .catch(() => {
       uni.showToast({ title: '登录失败，请确认服务已启动', icon: 'none' })
     })
     .finally(() => {
       loading.value = false
     })
+}
+
+function loginWithWechat() {
+  loading.value = true
+  uni.login({
+    provider: 'weixin',
+    success: result => wechatLogin(result.code).then(acceptSession).finally(() => { loading.value = false }),
+    fail: () => { loading.value = false; uni.showToast({ title: '微信登录失败', icon: 'none' }) },
+  })
 }
 </script>
 
@@ -59,6 +88,7 @@ function login() {
   text-align: center;
   margin-bottom: 40rpx;
 }
+.input { box-sizing: border-box; width: 100%; min-height: 88rpx; background: white; padding: 20rpx; margin-bottom: 20rpx; border-radius: 12rpx; }
 .logo-text {
   line-height: 1.35;
 }

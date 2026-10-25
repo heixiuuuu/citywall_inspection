@@ -50,8 +50,6 @@ var (
 	ErrRejectOnlyVoluntary = errors.New("observation: reject only allowed for voluntary")
 	// ErrIdempotentReplay 同幂等键重放，不产生副作用。
 	ErrIdempotentReplay = errors.New("observation: idempotent replay, no side effects")
-	// ErrNotImplemented 占位。
-	ErrNotImplemented = errors.New("observation: not implemented yet")
 )
 
 // Storage 抽象图片落盘（由 infrastructure/storage 实现）。
@@ -92,20 +90,20 @@ type PatchInput struct {
 
 // ConclusionItemIn 人工结论项。
 type ConclusionItemIn struct {
-	ImageID           int64   `json:"image_id" binding:"required"`
-	SourceDetectionID *int64  `json:"source_detection_id"`
-	Decision          string  `json:"decision" binding:"required,oneof=CONFIRM MODIFY REJECT ADD"`
-	FinalClassCode    string  `json:"final_class_code"`
-	FinalBoxJSON      string  `json:"final_box_json"`
-	Description       string  `json:"description"`
+	ImageID           int64  `json:"image_id" binding:"required"`
+	SourceDetectionID *int64 `json:"source_detection_id"`
+	Decision          string `json:"decision" binding:"required,oneof=CONFIRM MODIFY REJECT ADD"`
+	FinalClassCode    string `json:"final_class_code"`
+	FinalBoxJSON      string `json:"final_box_json"`
+	Description       string `json:"description"`
 }
 
 // ConclusionInput PUT /observations/{id}/conclusion 入参。
 type ConclusionInput struct {
-	Outcome      string              `json:"outcome" binding:"required,oneof=NORMAL SUSPECTED UNDETERMINED UNREACHABLE"`
-	Description  string              `json:"description"`
-	PriorityCode string              `json:"priority_code"`
-	Items        []ConclusionItemIn  `json:"items"`
+	Outcome      string             `json:"outcome" binding:"required,oneof=NORMAL SUSPECTED UNDETERMINED UNREACHABLE"`
+	Description  string             `json:"description"`
+	PriorityCode string             `json:"priority_code"`
+	Items        []ConclusionItemIn `json:"items"`
 }
 
 // ReviewInput POST /observations/{id}/review 入参。
@@ -117,6 +115,8 @@ type ReviewInput struct {
 
 // Service 现场记录业务规则。
 type Service interface {
+	RemoveImage(ctx context.Context, actor *middleware.Actor, observationID, imageID int64) error
+	Evidence(ctx context.Context, actor *middleware.Actor, id int64) (*Evidence, error)
 	Create(ctx context.Context, actor *middleware.Actor, source string, taskPointID *int64, locationText string) (*Observation, error)
 	Update(ctx context.Context, actor *middleware.Actor, id, revision int64, in PatchInput) (*Observation, error)
 	AddImage(ctx context.Context, actor *middleware.Actor, obsID int64, mediaType string, data []byte, role string, idempotencyKey string) (*Image, error)
@@ -136,17 +136,31 @@ type Service interface {
 	AcceptedAdmissionInfo(ctx context.Context, obsID int64) (*AcceptedInfo, error)
 }
 
+func (s *service) RemoveImage(ctx context.Context, actor *middleware.Actor, observationID, imageID int64) error {
+	o, err := s.repo.GetByID(ctx, observationID)
+	if err != nil {
+		return ErrNotFound
+	}
+	if o.ReporterID != actor.UserID && !isAdminOrReviewer(actor) {
+		return ErrForbidden
+	}
+	if o.Status != ObsDraft && o.Status != ObsReturned {
+		return ErrInvalidState
+	}
+	return s.repo.UnlinkImage(ctx, observationID, imageID)
+}
+
 type service struct {
-	repo             Repository
-	storage          Storage
-	recognizer       RecognizerClient
-	taskPoints       TaskPointRepository
-	taskLife         TaskLifecycle
-	taskPointLister  TaskPointLister
-	audit            audit.Recorder
-	idemMu           sync.Mutex
-	idemResults      map[string]idemResult
-	idemStore        IdempotencyStore
+	repo            Repository
+	storage         Storage
+	recognizer      RecognizerClient
+	taskPoints      TaskPointRepository
+	taskLife        TaskLifecycle
+	taskPointLister TaskPointLister
+	audit           audit.Recorder
+	idemMu          sync.Mutex
+	idemResults     map[string]idemResult
+	idemStore       IdempotencyStore
 }
 
 // IdempotencyStore 落库幂等记录（由 idempotency 模块实现；nil 时回退内存）。
@@ -189,9 +203,18 @@ func (s *service) Create(ctx context.Context, actor *middleware.Actor, source st
 		if taskPointID == nil {
 			return nil, ErrSourceConstraint
 		}
-		if _, err := s.taskPoints.GetTaskPoint(ctx, *taskPointID); err != nil {
+		point, err := s.taskPoints.GetTaskPoint(ctx, *taskPointID)
+		if err != nil {
 			return nil, ErrNotFound
 		}
+		if point.AssigneeID != actor.UserID && !isAdminOrReviewer(actor) {
+			return nil, ErrForbidden
+		}
+		if point.TaskStatus != task.StatusAssigned && point.TaskStatus != task.StatusInProgress && point.TaskStatus != task.StatusReturned {
+			return nil, ErrInvalidState
+		}
+		o.PointID = &point.PointID
+		o.SegmentID = point.SnapshotSegmentID
 		if existing, err := s.repo.GetByTaskPoint(ctx, *taskPointID); err == nil && existing != nil {
 			return nil, ErrDuplicateRecord
 		}
@@ -280,6 +303,9 @@ func (s *service) AddImage(ctx context.Context, actor *middleware.Actor, obsID i
 	}
 	if role != ImageRoleOverview && role != ImageRoleDetail {
 		return nil, ErrSourceConstraint
+	}
+	if o.Status != ObsDraft && o.Status != ObsReturned {
+		return nil, ErrInvalidState
 	}
 
 	key, err := s.storage.SaveImage(data, mediaType)
@@ -375,14 +401,14 @@ func (s *service) Recognize(ctx context.Context, actor *middleware.Actor, imageI
 	attempt.FinishedAt = &now
 	if err != nil {
 		attempt.Status = AttemptFailed
-		attempt.ErrorCode = "RECOGNITION_FAILED"
-		if err == recognizer.ErrTimeout {
-			attempt.ErrorCode = "RECOGNITION_TIMEOUT"
-		}
+		attempt.ErrorCode = recognizer.ErrorCode(err)
 		_ = s.repo.UpdateAttempt(ctx, attempt)
 		return attempt, nil, err
 	}
 	attempt.Status = AttemptSucceeded
+	if len(res.Analysis) > 0 {
+		attempt.AnalysisJSON = string(res.Analysis)
+	}
 	attempt.ModelVersion = res.ModelVersion
 	attempt.SchemaVersion = res.SchemaVersion
 	attempt.LatencyMs = res.LatencyMs
@@ -544,6 +570,7 @@ func (s *service) Submit(ctx context.Context, actor *middleware.Actor, obsID, re
 		return nil, ErrStatusConflict
 	}
 	o.Status = ObsSubmitted
+	o.InspectionOutcome = conclusion.Outcome
 	o.Revision++
 	o.SubmittedAt = &now
 
@@ -755,7 +782,7 @@ func (s *service) ListImages(ctx context.Context, actor *middleware.Actor, obsID
 // TaskPointStatuses 实现 task.ObservationStatusProvider。
 func (s *service) TaskPointStatuses(ctx context.Context, taskID int64) (map[int64]string, error) {
 	if s.taskPointLister == nil {
-		return nil, ErrNotImplemented
+		return nil, errors.New("observation: task point repository is unavailable")
 	}
 	points, err := s.taskPointLister.ListPoints(ctx, taskID)
 	if err != nil {

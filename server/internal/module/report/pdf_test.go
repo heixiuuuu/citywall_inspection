@@ -20,7 +20,7 @@ func TestRenderTaskPDF(t *testing.T) {
 	}
 	opts := renderOpts{
 		GeneratedBy: "user#1", SnapshotAt: "2026-10-07 12:00:00",
-		FontPath: `C:\Windows\Fonts\simhei.ttf`,
+		FontPath: os.Getenv("CITY_WALL_TEST_FONT"),
 		OpenImage: func(key string) (string, int, int, string, func(), error) {
 			return "none.png", 64, 48, "image/png", func() {}, nil
 		},
@@ -34,8 +34,5 @@ func TestRenderTaskPDF(t *testing.T) {
 	}
 	if !bytes.HasPrefix(data, []byte("%PDF")) {
 		t.Fatalf("bad pdf head: %q", data[:16])
-	}
-	if err := os.WriteFile("render_test.pdf", data, 0o644); err != nil {
-		t.Fatal(err)
 	}
 }

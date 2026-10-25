@@ -10,6 +10,7 @@ Go 只发送自己已校验并持久化的原图；本服务不持有业务用�
     绝不以 200 携带错误体，避免 Go 端误判为成功。
 """
 from __future__ import annotations
+import hmac
 
 from fastapi import APIRouter, File, Form, Request, UploadFile
 from fastapi.responses import JSONResponse
@@ -20,6 +21,9 @@ from ..service import RecognitionService
 from ..models.fixed import FixedDetector
 from ..models.yolo import DetectorError, YOLODetector
 from ..images import ImageValidationError
+from ..vision import VisionAnalyzer
+from ..models.yolo import resolve_weights_path
+from starlette.concurrency import run_in_threadpool
 
 router = APIRouter(prefix="/internal/v1", tags=["internal"])
 
@@ -39,7 +43,8 @@ def _build_detector():
 
 _service = RecognitionService(
     detector=_build_detector(),
-    model_version=settings.recognition.model_version,
+    model_version=settings.recognition.model_version if settings.recognition.detector_mode == "yolo" else "dev_fixed",
+    analyzer=VisionAnalyzer(settings.vision),
 )
 
 
@@ -47,7 +52,7 @@ def _check_internal_auth(request: Request) -> bool:
     if not settings.internal.require_token:
         return True
     token = request.headers.get("X-Internal-Token", "")
-    return token == settings.internal.token
+    return bool(settings.internal.token) and hmac.compare_digest(token, settings.internal.token)
 
 
 def _error(status: int, code: str, message: str, request_id: str) -> JSONResponse:
@@ -68,14 +73,14 @@ async def create_recognition(
     if not _check_internal_auth(request):
         return _error(401, "UNAUTHORIZED", "invalid internal token", request_id)
 
-    data = await image.read()
+    data = await image.read(settings.recognition.max_image_bytes + 1)
     if len(data) > settings.recognition.max_image_bytes:
         return _error(413, "IMAGE_TOO_LARGE", "image exceeds size limit", request_id)
     if len(data) == 0:
         return _error(422, "INVALID_IMAGE", "empty image", request_id)
 
     try:
-        return _service.recognize(
+        return await run_in_threadpool(_service.recognize,
             attempt_id,
             data,
             allowed_formats=settings.recognition.allowed_formats,
@@ -90,4 +95,10 @@ async def create_recognition(
 
 @router.get("/healthz")
 async def healthz() -> dict:
-    return {"status": "ok", "model_version": settings.recognition.model_version}
+    return {
+        "status": "ok",
+        "model_version": settings.recognition.model_version,
+        "detector_mode": settings.recognition.detector_mode,
+        "weights_available": resolve_weights_path(settings.recognition.weights_path).is_file(),
+        "vision_configured": bool(settings.vision.base_url and settings.vision.model),
+    }

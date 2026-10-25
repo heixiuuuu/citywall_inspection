@@ -44,7 +44,7 @@
 
 <script setup>
 import { computed, ref } from 'vue'
-import { onLoad } from '@dcloudio/uni-app'
+import { onLoad, onShow } from '@dcloudio/uni-app'
 import { getTask, submitTask } from '../../shared/api/task'
 import { listObservations } from '../../shared/api/observation'
 import { statusText, statusClass } from '../../shared/ui/status'
@@ -59,8 +59,8 @@ const user = getUser()
 
 onLoad((query) => {
   taskId.value = Number(query.id)
-  load()
 })
+onShow(() => { if (taskId.value) load() })
 
 async function load() {
   try {
@@ -105,7 +105,7 @@ function pointStatusText(p) {
 }
 
 function openCollect(p) {
-  if (!['ASSIGNED', 'IN_PROGRESS'].includes(task.value.status)) {
+  if (!['ASSIGNED', 'IN_PROGRESS'].includes(task.value.status) && !(task.value.status === 'PENDING_REVIEW' && pointStatus(p) === 'RETURNED')) {
     uni.showToast({ title: '任务已结束，不可采集', icon: 'none' })
     return
   }

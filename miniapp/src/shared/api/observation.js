@@ -21,6 +21,16 @@ export function addImage(observationId, localPath, imageRole) {
   return uploadImage(observationId, localPath, imageRole)
 }
 
+export function removeImage(observationId, imageId) {
+  return request(`/observations/${observationId}/images/${imageId}`, { method: 'DELETE' })
+}
+export function getObservation(id) {
+  return request(`/observations/${id}`)
+}
+export function getObservationImages(id) {
+  return request(`/observations/${id}/images`)
+}
+
 /** PATCH /observations/{id} 更新草稿位置/现场判断。 */
 export function updateObservation(id, revision, patch) {
   return request(`/observations/${id}`, { method: 'PATCH', data: { revision, ...patch } })

@@ -11,7 +11,9 @@ import (
 	"citywall/server/internal/module/issue"
 	"citywall/server/internal/module/observation"
 	"citywall/server/internal/module/report"
+	"citywall/server/internal/module/site"
 	"citywall/server/internal/module/task"
+	mysqldriver "github.com/go-sql-driver/mysql"
 )
 
 // writeData 统一成功响应：{"data": ..., "request_id": ...}。
@@ -32,9 +34,18 @@ func writeError(c *gin.Context, status int, code, message string) {
 
 // writeErr 将领域错误映射为 HTTP 错误。
 func writeErr(c *gin.Context, err error) {
+	var dbErr *mysqldriver.MySQLError
+	if errors.As(err, &dbErr) && dbErr.Number == 1062 {
+		writeError(c, http.StatusConflict, "CONFLICT", "record already exists")
+		return
+	}
 	switch {
 	case err == nil:
 		return
+	case errors.Is(err, site.ErrInvalidInput):
+		writeError(c, http.StatusBadRequest, "VALIDATION_ERROR", err.Error())
+	case errors.Is(err, site.ErrPointNotFound), errors.Is(err, site.ErrSegmentNotFound):
+		writeError(c, http.StatusNotFound, "NOT_FOUND", err.Error())
 	case errors.Is(err, task.ErrNotFound), errors.Is(err, observation.ErrNotFound), errors.Is(err, issue.ErrNotFound),
 		errors.Is(err, report.ErrNotFound):
 		writeError(c, http.StatusNotFound, "NOT_FOUND", err.Error())

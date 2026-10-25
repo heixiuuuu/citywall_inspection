@@ -7,6 +7,10 @@ export function wechatLogin(code) {
   return request('/auth/wechat-login', { method: 'POST', data: { code } })
 }
 
+export function accountLogin(username, password) {
+  return request('/auth/login', { method: 'POST', data: { username, password } })
+}
+
 /** GET /tasks 本人任务列表。 */
 export function getTasks() {
   return request('/tasks')

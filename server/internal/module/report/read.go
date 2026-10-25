@@ -106,17 +106,19 @@ func (s *snapshotRepository) LoadTask(ctx context.Context, taskID int64) (*TaskS
 		}
 		if o, ok := obsByPoint[row.TaskPointID]; ok {
 			pt.Observation = o
-			src.PointCovered++
-			switch o.Outcome {
-			case "NORMAL":
-				src.PointNormal++
-			case "SUSPECTED":
-				src.PointSuspected++
-			case "UNREACHABLE":
-				if o.Review != nil && o.Review.Decision == "ACCEPT" {
-					src.PointUnreachable++
-					src.PointUncovered++
+			if o.Status == "ACCEPTED" && o.Outcome == "UNREACHABLE" {
+				src.PointUnreachable++
+				src.PointUncovered++
+			} else if o.Status == "SUBMITTED" || o.Status == "ACCEPTED" {
+				src.PointCovered++
+				if o.Outcome == "NORMAL" {
+					src.PointNormal++
 				}
+				if o.Outcome == "SUSPECTED" {
+					src.PointSuspected++
+				}
+			} else {
+				src.PointUncovered++
 			}
 		} else {
 			src.PointUncovered++ // 无有效记录 → 本次未覆盖
@@ -305,7 +307,8 @@ func (s *snapshotRepository) assembleObservations(ctx context.Context, obs []Obs
 		}
 		for _, a := range attempts {
 			av := AttemptView{
-				AttemptNo: a.AttemptNo, Status: a.Status, ModelVersion: a.ModelVersion,
+				AnalysisJSON: a.AnalysisJSON,
+				AttemptNo:    a.AttemptNo, Status: a.Status, ModelVersion: a.ModelVersion,
 				ErrorCode: a.ErrorCode, LatencyMs: a.LatencyMs,
 				Detections: detByAttempt[a.ID],
 			}
@@ -510,19 +513,19 @@ func mergeUnique(a, b []int64) []int64 {
 
 // 复用 observation 模块模型做只读查询（不导入避免环依赖；定义同构行结构）。
 type Observation struct {
-	ID               int64
-	Source           string
-	TaskPointID      *int64
-	ReporterID       int64
-	LocationText     string
-	Latitude         *float64
-	Longitude        *float64
-	AccuracyM        *float64
-	DistanceM        *float64
-	Status           string
+	ID                int64
+	Source            string
+	TaskPointID       *int64
+	ReporterID        int64
+	LocationText      string
+	Latitude          *float64
+	Longitude         *float64
+	AccuracyM         *float64
+	DistanceM         *float64
+	Status            string
 	InspectionOutcome string
-	SubmittedAt      *time.Time
-	ReviewedAt       *time.Time
+	SubmittedAt       *time.Time
+	ReviewedAt        *time.Time
 }
 type ObservationImage struct {
 	ObservationID int64
@@ -537,6 +540,7 @@ type Image struct {
 	Height     int
 }
 type RecognitionAttempt struct {
+	AnalysisJSON string
 	ID           int64
 	ImageID      int64
 	AttemptNo    int
@@ -546,10 +550,10 @@ type RecognitionAttempt struct {
 	LatencyMs    int
 }
 type Detection struct {
-	ID        int64
-	AttemptID int64
-	ClassCode string
-	Confidence float64
+	ID             int64
+	AttemptID      int64
+	ClassCode      string
+	Confidence     float64
 	X1, Y1, X2, Y2 int
 }
 type ConclusionRevision struct {
@@ -587,15 +591,15 @@ type ReviewDecision struct {
 	CreatedAt    time.Time
 }
 
-func (Observation) TableName() string             { return "observations" }
-func (ObservationImage) TableName() string        { return "observation_images" }
-func (Image) TableName() string                   { return "images" }
-func (RecognitionAttempt) TableName() string      { return "recognition_attempts" }
-func (Detection) TableName() string               { return "detections" }
-func (ConclusionRevision) TableName() string      { return "conclusion_revisions" }
-func (ConclusionItem) TableName() string          { return "conclusion_items" }
-func (ObservationSubmission) TableName() string   { return "observation_submissions" }
-func (ReviewDecision) TableName() string          { return "review_decisions" }
+func (Observation) TableName() string           { return "observations" }
+func (ObservationImage) TableName() string      { return "observation_images" }
+func (Image) TableName() string                 { return "images" }
+func (RecognitionAttempt) TableName() string    { return "recognition_attempts" }
+func (Detection) TableName() string             { return "detections" }
+func (ConclusionRevision) TableName() string    { return "conclusion_revisions" }
+func (ConclusionItem) TableName() string        { return "conclusion_items" }
+func (ObservationSubmission) TableName() string { return "observation_submissions" }
+func (ReviewDecision) TableName() string        { return "review_decisions" }
 
 // snapshotJSON 将快照序列化为 JSON。
 func snapshotJSON(v any) (string, error) {

@@ -6,8 +6,9 @@ import sys
 import time
 
 import requests
+import os
 
-BASE = "http://127.0.0.1:8080/api/v1"
+BASE = os.getenv("CITY_WALL_API_BASE", "http://127.0.0.1:8080/api/v1")
 
 
 def login(username, password):

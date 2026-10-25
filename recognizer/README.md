@@ -1,68 +1,15 @@
-# recognizer/ — 病害识别服务（FastAPI）
+# 识别服务
 
-> 城墙病害图像识别服务：接收服务端图片，做格式/EXIF 校验，调用检测器返回病害候选框。
-> 当前为契约骨架（FixedDetector 固定响应），YOLO 真实推理待训练权重接入。
+识别端接收业务后端传入的文件，不直接接受客户端图片 URL。执行格式与尺寸校验、EXIF 方向归一、YOLO 检测和可选视觉语言模型分析，输出原图像素坐标的候选框。候选与分析均须人工复核。
 
-## 技术栈与依赖
+- Python 3.12，基础依赖 requirements.txt，推理及数据转换依赖 requirements-yolo.txt。
+- POST /internal/v1/recognitions：multipart 字段 image、attempt_id、image_id、request_id。
+- GET /internal/v1/healthz：服务状态、检测模式、权重文件是否存在、视觉模型是否配置。文件存在不等于模型可加载。
+- RECOGNIZER_CONFIG 指定 JSON 配置。RECOGNIZER_MODE 仅允许 yolo 或 dev；dev 返回空候选，仅用于接口联调。
+- RECOGNIZER_WEIGHTS 覆盖权重路径；模型类别名称必须与业务类别码匹配。
+- RECOGNIZER_TOKEN 非空时要求 X-Internal-Token。
+- VLM_BASE_URL、VLM_MODEL、VLM_API_KEY 配置兼容图像输入的模型服务；分析状态为 SUCCEEDED / DISABLED / FAILED。
 
-- Python 3.12+、FastAPI、Uvicorn、Pillow、pydantic
-- 依赖（轻量，无 torch）：`requirements.txt`；模型接入阶段按需追加 torch/ultralytics
+本地启动：在 recognizer 目录执行 `python -m uvicorn app.main:app --host 127.0.0.1 --port 4100`。测试执行 `python -m pytest tests -q`，测试替身不会下载或调用真实模型。
 
-## 目录结构
-
-```
-recognizer/
-├── app/
-│   ├── main.py        # FastAPI 入口（/healthz /detect）
-│   ├── config.py      # 配置（模型路径、阈值、超时）
-│   ├── images.py      # 图像校验：格式白名单 / EXIF 方向归一 / 损坏拒绝
-│   ├── schemas.py     # 请求/响应契约
-│   ├── service.py     # 检测编排（校验 → 检测器 → 坐标回映）
-│   ├── api/routes.py  # 路由（internal_token 校验）
-│   └── models/
-│       ├── protocol.py # 检测器接口协议
-│       ├── fixed.py    # FixedDetector（骨架：固定响应，契约测试用）
-│       └── yolo.py     # YOLODetector（Ultralytics 推理，待权重接入）
-├── tests/             # pytest 契约测试 + 图像校验测试
-├── Dockerfile         # 容器化（构建阶段）
-├── requirements.txt
-└── .venv/             # 本地虚拟环境（不入库）
-```
-
-## 运行
-
-```powershell
-cd recognizer
-python -m venv .venv
-.\.venv\Scripts\pip install -r requirements.txt
-.\.venv\Scripts\python -m uvicorn app.main:app --host 127.0.0.1 --port 4100
-```
-
-或一键：仓库根 `.\scripts\dev.ps1 start`（自动使用 .venv 启动）。
-
-## 契约
-
-- `GET /healthz` → `{"status":"ok","model_version":"..."}`
-- `POST /detect`（multipart: file, request_id, image_id, internal_token）→ 检测结果（候选框/置信度/延迟）
-
-失败码：`INVALID_IMAGE`（422，含原因）、`MODEL_UNAVAILABLE`（503，模型未加载）、`UNAUTHORIZED`（401）。
-
-## 测试
-
-```powershell
-cd recognizer
-.\.venv\Scripts\python -m pytest tests/ -q    # 契约 + 图像校验全部用例
-```
-
-## 模型接入（真实 YOLO）
-
-1. 训练产出 `best.pt`（数据集 `data/yolo/`，训练命令见 `data/yolo/README.md`；本机不训练，云端/GPU 执行）
-2. 放置权重：`recognizer/models/yolo_baseline_001.pt`
-3. 配置 `app/config.py`：`model_path`、`detector_type: fixed → yolo`
-4. `app/models/yolo.py` 完成推理：Ultralytics 加载、EXIF 归一、网络输入尺寸框坐标回映原图、置信度过滤
-5. 回归：契约测试不回归 + 真实图片返回坐标候选；`MODEL_UNAVAILABLE` 路径有测试
-
-## 与整体架构
-
-- 服务端（server 8080）通过 `conf/server.json recognizer.base_url`（4100）调用本服务
-- 识别结果由服务端持久化为 `recognition_attempts` / `detections`，人工审核引用为结论候选
+检测采用串行模型访问，避免并发调用共享模型状态；耗时操作在线程池执行。模型缺失、加载失败、推理失败使用明确错误码。分析失败不会删除 YOLO 候选。

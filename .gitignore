@@ -1,8 +1,6 @@
 # ===== 数据与文档（本地素材与设计稿，不入库） =====
 data/*
-docs/*
 !data/.gitkeep
-!docs/.gitkeep
 
 # ===== 运行时生成 =====
 *.log
@@ -63,3 +61,6 @@ scripts/_gradle_dist/
 scripts/_apk_out/
 scripts/_gradle.zip
 scripts/_*.png
+android/.gradle/
+android/local.properties
+*.keystore

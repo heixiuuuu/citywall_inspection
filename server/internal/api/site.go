@@ -22,7 +22,8 @@ func NewSiteHandler(svc site.Service) *SiteHandler {
 
 // ListPoints 点位列表（巡检端只读，管理端维护）。
 func (h *SiteHandler) ListPoints(c *gin.Context) {
-	pts, err := h.service.ListPoints(context.Background(), true)
+	actor, _ := middleware.GetActor(c)
+	pts, err := h.service.ListPoints(c.Request.Context(), !(hasAnyRole(actor, "ADMIN") && c.Query("include_inactive") == "true"))
 	if err != nil {
 		writeErr(c, err)
 		return
@@ -32,7 +33,8 @@ func (h *SiteHandler) ListPoints(c *gin.Context) {
 
 // ListSegments 区段列表。
 func (h *SiteHandler) ListSegments(c *gin.Context) {
-	segs, err := h.service.ListSegments(context.Background(), true)
+	actor, _ := middleware.GetActor(c)
+	segs, err := h.service.ListSegments(c.Request.Context(), !(hasAnyRole(actor, "ADMIN") && c.Query("include_inactive") == "true"))
 	if err != nil {
 		writeErr(c, err)
 		return
@@ -62,4 +64,60 @@ func (h *SiteHandler) CreatePoint(c *gin.Context) {
 		return
 	}
 	writeData(c, http.StatusCreated, gin.H{"point": p})
+}
+
+func (h *SiteHandler) UpdatePoint(c *gin.Context) {
+	actor, _ := middleware.GetActor(c)
+	if !hasAnyRole(actor, "ADMIN") {
+		writeError(c, http.StatusForbidden, "FORBIDDEN", "admin required")
+		return
+	}
+	id, err := pathID(c)
+	if err != nil {
+		writeError(c, http.StatusBadRequest, "VALIDATION_ERROR", err.Error())
+		return
+	}
+	var input site.CreatePointInput
+	if err := c.ShouldBindJSON(&input); err != nil {
+		writeError(c, http.StatusBadRequest, "VALIDATION_ERROR", err.Error())
+		return
+	}
+	point, err := h.service.UpdatePoint(c.Request.Context(), id, input)
+	if err != nil {
+		writeErr(c, err)
+		return
+	}
+	writeData(c, http.StatusOK, gin.H{"point": point})
+}
+
+func (h *SiteHandler) SaveSegment(c *gin.Context) {
+	actor, _ := middleware.GetActor(c)
+	if !hasAnyRole(actor, "ADMIN") {
+		writeError(c, http.StatusForbidden, "FORBIDDEN", "admin required")
+		return
+	}
+	var input site.SegmentInput
+	if err := c.ShouldBindJSON(&input); err != nil {
+		writeError(c, http.StatusBadRequest, "VALIDATION_ERROR", err.Error())
+		return
+	}
+	var segment *site.WallSegment
+	var err error
+	status := http.StatusCreated
+	if c.Param("id") == "" {
+		segment, err = h.service.CreateSegment(c.Request.Context(), input)
+	} else {
+		id, parseErr := pathID(c)
+		if parseErr != nil {
+			writeError(c, http.StatusBadRequest, "VALIDATION_ERROR", parseErr.Error())
+			return
+		}
+		segment, err = h.service.UpdateSegment(c.Request.Context(), id, input)
+		status = http.StatusOK
+	}
+	if err != nil {
+		writeErr(c, err)
+		return
+	}
+	writeData(c, status, gin.H{"segment": segment})
 }

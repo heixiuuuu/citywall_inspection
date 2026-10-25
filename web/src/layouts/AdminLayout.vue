@@ -19,7 +19,7 @@
           <span>报告中心</span>
         </el-menu-item>
         <el-menu-item v-if="isAdmin" index="/points">
-          <span>点位管理</span>
+          <span>城墙档案</span>
         </el-menu-item>
         <el-menu-item v-if="isAdmin" index="/audit">
           <span>审计日志</span>

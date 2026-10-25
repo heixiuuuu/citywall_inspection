@@ -17,6 +17,7 @@ import io
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
+from threading import Lock
 
 from PIL import Image, ImageOps
 
@@ -74,6 +75,7 @@ class YOLODetector:
     confidence_threshold: float = 0.35
     class_names: dict[int, str] = field(default_factory=lambda: dict(DEFAULT_CLASS_NAMES))
     _model: object = field(default=None, repr=False, compare=False)
+    _lock: object = field(default_factory=Lock, repr=False, compare=False)
 
     def _load_model(self) -> object:
         if self._model is not None:
@@ -85,6 +87,9 @@ class YOLODetector:
             from ultralytics import YOLO  # 延迟导入，避免拖慢服务启动
 
             model = YOLO(str(resolved))
+            names = getattr(model, "names", {})
+            if not names or any(self.class_names.get(int(index)) != name for index, name in names.items()):
+                raise DetectorError("MODEL_UNAVAILABLE", "model category names do not match business category codes")
             logger.info("YOLO model loaded: %s", resolved)
             self._model = model
             return model
@@ -92,6 +97,10 @@ class YOLODetector:
             raise DetectorError("MODEL_UNAVAILABLE", f"failed to load model: {e}") from e
 
     def detect(self, image_bytes: bytes) -> DetectOutput:
+        with self._lock:
+            return self._detect(image_bytes)
+
+    def _detect(self, image_bytes: bytes) -> DetectOutput:
         model = self._load_model()
         try:
             im = Image.open(io.BytesIO(image_bytes))
@@ -122,16 +131,17 @@ class YOLODetector:
                     if code is None:
                         unknown_labels += 1
                         continue  # 未知类别跳过，不静默转“正常”
+                    ix1, iy1 = max(0, min(width, int(round(x1)))), max(0, min(height, int(round(y1))))
+                    ix2, iy2 = max(0, min(width, int(round(x2)))), max(0, min(height, int(round(y2))))
+                    if ix1 >= ix2 or iy1 >= iy2:
+                        continue
                     detections.append(
                         Detection(
                             detection_id=f"d{i:04d}",
                             class_code=code,
                             confidence=round(c_conf, 4),
                             bbox=BBox(
-                                x1=max(0, int(round(x1))),
-                                y1=max(0, int(round(y1))),
-                                x2=min(width, int(round(x2))),
-                                y2=min(height, int(round(y2))),
+                                x1=ix1, y1=iy1, x2=ix2, y2=iy2,
                             ),
                         )
                     )

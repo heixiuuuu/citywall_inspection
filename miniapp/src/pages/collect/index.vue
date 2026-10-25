@@ -24,8 +24,9 @@
     <view class="field">
       <view class="field-label">位置 <text class="req">必填</text></view>
       <view class="loc-box">
-        <view class="loc-line"><view class="loc-dot" />已定位：{{ locationText || '待填写' }}</view>
+        <view class="loc-line"><view class="loc-dot" />位置描述：{{ locationText || '待填写' }}</view>
         <input class="input" v-model="locationText" placeholder="填写具体位置描述" />
+        <LocationCapture @change="location = $event" />
       </view>
     </view>
 
@@ -55,6 +56,11 @@
         <view v-for="d in detections" :key="d.id" class="detect-item">
           <view class="chip brick">{{ d.class_code }} {{ d.confidence.toFixed(2) }}</view>
           <text class="faint">框 ({{ d.x1 }},{{ d.y1 }})-({{ d.x2 }},{{ d.y2 }})</text>
+          <view class="row">
+            <button size="mini" @tap="useCandidate(d, 'CONFIRM')">确认</button>
+            <button size="mini" @tap="useCandidate(d, 'MODIFY')">修改类别</button>
+            <button size="mini" @tap="useCandidate(d, 'REJECT')">误检</button>
+          </view>
         </view>
       </view>
     </view>
@@ -108,6 +114,7 @@
 <script setup>
 import { computed, ref } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
+import LocationCapture from '../../shared/ui/LocationCapture.vue'
 import {
   createObservation,
   addImage,
@@ -116,7 +123,11 @@ import {
   saveConclusion,
   submitObservation,
   listObservations,
+  removeImage as deleteImage,
+  getObservation,
+  getObservationImages,
 } from '../../shared/api/observation'
+import { loadImageContent } from '../../shared/api/request'
 
 const outcomes = [
   { value: 'NORMAL', label: '正常' },
@@ -131,6 +142,7 @@ const pointName = ref('')
 const obs = ref(null)
 const images = ref([])
 const locationText = ref('')
+const location = ref(null)
 const outcome = ref(null)
 const overall = ref('SUSPECTED')
 const overallNote = ref('')
@@ -140,6 +152,19 @@ const modelVersion = ref('')
 const recognizing = ref(false)
 const submitting = ref(false)
 const lastDetectionImageId = ref(null)
+
+function useCandidate(detection, decision) {
+  const image = images.value.find(i => i.imageId === lastDetectionImageId.value)
+  const existing = conclusionItems.value.findIndex(i => i.source_detection_id === detection.id)
+  const item = {
+    imageId: lastDetectionImageId.value, thumb: image?.localPath || '',
+    source_detection_id: detection.id, decision, final_class_code: detection.class_code,
+    final_box_json: JSON.stringify({ x1: detection.x1, y1: detection.y1, x2: detection.x2, y2: detection.y2 }),
+    description: '',
+  }
+  if (existing >= 0) conclusionItems.value[existing] = item
+  else conclusionItems.value.push(item)
+}
 
 onLoad((query) => {
   taskId.value = Number(query.taskId)
@@ -175,6 +200,30 @@ async function resumeExisting() {
       return
     }
     obs.value = mine
+    const evidence = (await getObservation(mine.id)).data.evidence
+    const metas = (await getObservationImages(mine.id)).data.images || []
+    images.value = await Promise.all(metas.map(async image => ({
+      localId: `saved_${image.id}`, imageId: image.id, role: image.role,
+      localPath: await loadImageContent(image.id),
+    })))
+    locationText.value = mine.location_text
+    if (mine.latitude != null && mine.longitude != null) {
+      location.value = { latitude: mine.latitude, longitude: mine.longitude, accuracy_m: mine.accuracy_m, captured_at: mine.captured_at }
+    }
+    const latest = evidence.conclusions[evidence.conclusions.length - 1]
+    if (latest) {
+      overall.value = latest.outcome
+      overallNote.value = latest.description
+      conclusionItems.value = evidence.items.filter(item => item.conclusion_revision_id === latest.id).map(item => ({
+        ...item, imageId: item.image_id, thumb: images.value.find(image => image.imageId === item.image_id)?.localPath || '',
+      }))
+    }
+    const latestAttempt = evidence.attempts[evidence.attempts.length - 1]
+    if (latestAttempt) {
+      lastDetectionImageId.value = latestAttempt.image_id
+      modelVersion.value = latestAttempt.model_version
+      detections.value = evidence.detections.filter(item => item.attempt_id === latestAttempt.id)
+    }
     if (mine.status === 'RETURNED') {
       uni.showToast({ title: '该点位已退回，请补正后重新提交', icon: 'none' })
     } else if (mine.status === 'SUBMITTED' || mine.status === 'ACCEPTED') {
@@ -217,8 +266,14 @@ function chooseImage(slotIndex) {
   })
 }
 
-function removeImage(i) {
-  images.value.splice(i, 1)
+async function removeImage(i) {
+  const image = images.value[i]
+  try {
+    await deleteImage(obs.value.id, image.imageId)
+    images.value.splice(i, 1)
+    conclusionItems.value = conclusionItems.value.filter(item => item.imageId !== image.imageId)
+    if (lastDetectionImageId.value === image.imageId) { lastDetectionImageId.value = null; detections.value = [] }
+  } catch { uni.showToast({ title: '照片移除失败', icon: 'none' }) }
 }
 
 async function runRecognition() {
@@ -230,6 +285,7 @@ async function runRecognition() {
 }
 
 async function runRecognitionOn(imageId) {
+  lastDetectionImageId.value = imageId
   recognizing.value = true
   try {
     const res = await recognize(imageId)
@@ -289,10 +345,12 @@ async function submit() {
     // 1) 更新位置与现场判断。
     let revision = obs.value.revision
     await updateObservation(obs.value.id, revision, {
+      ...(location.value || {}),
       location_text: locationText.value.trim(),
       inspection_outcome: outcome.value || overall.value,
     })
     revision++
+    obs.value.revision = revision
 
     // 2) 保存人工结论（整体替换）。
     await saveConclusion(obs.value.id, revision, {
@@ -302,12 +360,15 @@ async function submit() {
         .filter((it) => it.imageId && it.final_class_code)
         .map((it) => ({
           image_id: it.imageId,
+          source_detection_id: it.source_detection_id,
+          final_box_json: it.final_box_json,
           decision: it.decision,
           final_class_code: it.final_class_code,
           description: it.description,
         })),
     })
     revision++
+    obs.value.revision = revision
 
     // 3) 提交记录。
     await submitObservation(obs.value.id, revision)

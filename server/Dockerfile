@@ -11,8 +11,12 @@ RUN CGO_ENABLED=0 go build -o /out/citywall-server ./cmd/server \
  && CGO_ENABLED=0 go build -o /out/seed ./cmd/seed \
  && CGO_ENABLED=0 go build -o /out/migrate ./cmd/migrate
 
-FROM alpine:3.20
-RUN adduser -D app && mkdir -p /app/data/storage && chown -R app /app/data
+FROM debian:bookworm-slim
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates wget fonts-arphic-gbsn00lp \
+ && rm -rf /var/lib/apt/lists/* \
+ && useradd --create-home app && mkdir -p /app/data/storage /app/fonts \
+ && find /usr/share/fonts -name gbsn00lp.ttf -exec cp '{}' /app/fonts/report.ttf \; \
+ && test -s /app/fonts/report.ttf && chown -R app:app /app/data
 WORKDIR /app
 COPY --from=builder /out/ /app/bin/
 COPY migrations/ /app/migrations/

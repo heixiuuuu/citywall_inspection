@@ -10,7 +10,7 @@
   "recognition": {
     "model_version": "yolo_baseline_001",
     "detector_mode": "yolo",
-    "weights_path": "data/yolo/runs/baseline001-2/weights/best.pt",
+    "weights_path": "data/yolo/weights/best.pt",
     "confidence_threshold": 0.35,
     "max_image_bytes": 10485760,
     "allowed_formats": [

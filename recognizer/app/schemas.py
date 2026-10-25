@@ -27,6 +27,15 @@ class Detection(BaseModel):
     bbox: BBox
 
 
+class VisionAnalysis(BaseModel):
+    status: Literal["SUCCEEDED", "DISABLED", "FAILED"]
+    model: str = ""
+    description: str = Field(default="", max_length=3000)
+    possible_causes: list[str] = Field(default_factory=list, max_length=10)
+    recommendations: list[str] = Field(default_factory=list, max_length=10)
+    error_code: str = ""
+
+
 class RecognitionResponse(BaseModel):
     schema_version: str = SCHEMA_VERSION
     attempt_id: str
@@ -35,6 +44,7 @@ class RecognitionResponse(BaseModel):
     image_height: int
     latency_ms: int
     detections: list[Detection] = []
+    analysis: VisionAnalysis | None = None
 
 
 ErrorCode = Literal[

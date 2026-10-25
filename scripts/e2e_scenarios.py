@@ -7,8 +7,9 @@ import sys
 import time
 import zlib
 import requests
+import os
 
-BASE = "http://127.0.0.1:8080/api/v1"
+BASE = os.getenv("CITY_WALL_API_BASE", "http://127.0.0.1:8080/api/v1")
 FAILURES = []
 
 
@@ -35,6 +36,7 @@ def call(method, path, token=None, json_body=None, expect=200, prefix="  "):
     mark = "OK " if ok else "FAIL"
     print(f"{prefix}{method:4} {path:44} -> {r.status_code} {mark}", body and json.dumps(body, ensure_ascii=False)[:160])
     if not ok:
+        FAILURES.append(f"{method} {path}: expected {expect}, got {r.status_code}")
         return None
     return body
 
@@ -381,8 +383,9 @@ def main():
          {"revision": 4, "decision": "ACCEPT", "disposition": "批准本次未覆盖", "reason": "现场封闭属实"})
     # 报告生成应包含未覆盖点
     r = requests.post(f"{BASE}/reports/range", headers={"Authorization": f"Bearer {admin}"},
-                      json={"start": "2026-10-07T00:00:00Z", "end": "2026-10-08T00:00:00Z"}, timeout=30)
-    check("未覆盖记录审核通过", True)
+                      json={"start": "2026-01-01T00:00:00Z", "end": "2026-12-31T23:59:59Z"}, timeout=30)
+    current_record = call("GET", f"/observations/{oid12}", reviewer)
+    check("未覆盖记录审核通过", current_record is not None and current_record["data"]["evidence"]["observation"]["status"] == "ACCEPTED")
     check("范围报告生成成功", r.status_code == 201, f"http={r.status_code}")
 
     print("\n" + ("ALL SCENARIOS PASSED" if not FAILURES else f"FAILURES: {len(FAILURES)} -> {FAILURES}"))

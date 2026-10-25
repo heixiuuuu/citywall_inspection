@@ -51,7 +51,7 @@ type wechatLoginRequest struct {
 	Code string `json:"code" binding:"required"`
 }
 
-// WechatLogin 小程序微信登录（MVP：测试身份映射）。
+// WechatLogin 小程序微信登录。
 func (h *IdentityHandler) WechatLogin(c *gin.Context) {
 	var req wechatLoginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {

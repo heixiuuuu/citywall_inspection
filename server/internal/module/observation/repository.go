@@ -9,6 +9,8 @@ import (
 
 // Repository 现场记录数据访问接口。
 type Repository interface {
+	UnlinkImage(ctx context.Context, observationID, imageID int64) error
+	LoadEvidence(ctx context.Context, id int64) (*Evidence, error)
 	Insert(ctx context.Context, o *Observation) error
 	GetByID(ctx context.Context, id int64) (*Observation, error)
 	GetByTaskPoint(ctx context.Context, taskPointID int64) (*Observation, error)
@@ -42,6 +44,10 @@ type Repository interface {
 	CountObservations(ctx context.Context, q ListQuery) (int64, error)
 	StatusByTaskPoints(ctx context.Context, taskPointIDs []int64) (map[int64]string, error)
 	ObservationByImage(ctx context.Context, imageID int64) (*Observation, error)
+}
+
+func (r *GORMRepository) UnlinkImage(ctx context.Context, observationID, imageID int64) error {
+	return r.db.WithContext(ctx).Where("observation_id = ? AND image_id = ?", observationID, imageID).Delete(&ObservationImage{}).Error
 }
 
 // GORMRepository 基于 GORM 的实现。
@@ -87,10 +93,19 @@ func (r *GORMRepository) BumpRevision(ctx context.Context, id int64, fromRevisio
 }
 
 func (r *GORMRepository) UpdateStatus(ctx context.Context, id int64, fromRevision int64, status string) (int64, error) {
+	changes := map[string]any{"status": status, "revision": gorm.Expr("revision + 1")}
+	if status == ObsSubmitted {
+		changes["submitted_at"] = time.Now().UTC()
+		changes["reviewed_at"] = nil
+		changes["inspection_outcome"] = gorm.Expr("(SELECT outcome FROM conclusion_revisions WHERE observation_id = ? ORDER BY revision_no DESC LIMIT 1)", id)
+	}
+	if status == ObsAccepted || status == ObsReturned || status == ObsRejected {
+		changes["reviewed_at"] = time.Now().UTC()
+	}
 	res := r.db.WithContext(ctx).
 		Model(&Observation{}).
 		Where("id = ? AND revision = ?", id, fromRevision).
-		Updates(map[string]any{"status": status, "revision": gorm.Expr("revision + 1")})
+		Updates(changes)
 	return res.RowsAffected, res.Error
 }
 

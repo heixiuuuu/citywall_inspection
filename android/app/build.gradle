@@ -4,6 +4,7 @@ plugins {
 
 android {
     namespace 'com.citywall.inspector'
+    buildFeatures { buildConfig true }
     compileSdk 35
 
     defaultConfig {
@@ -16,17 +17,21 @@ android {
 
     signingConfigs {
         release {
-            storeFile file('citywall-release.keystore')
-            storePassword 'citywall123'
-            keyAlias 'citywall'
-            keyPassword 'citywall123'
+            if (project.hasProperty('CITYWALL_STORE_FILE')) {
+                storeFile file(project.property('CITYWALL_STORE_FILE'))
+                storePassword project.findProperty('CITYWALL_STORE_PASSWORD')
+                keyAlias project.findProperty('CITYWALL_KEY_ALIAS')
+                keyPassword project.findProperty('CITYWALL_KEY_PASSWORD')
+            }
         }
     }
 
     buildTypes {
         release {
             minifyEnabled false
-            signingConfig signingConfigs.release
+            if (project.hasProperty('CITYWALL_STORE_FILE')) {
+                signingConfig signingConfigs.release
+            }
         }
     }
 

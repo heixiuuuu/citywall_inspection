@@ -1,10 +1,12 @@
 // Package identity 承载用户身份与登录（PC 账号密码、小程序微信身份）。
-// MVP 阶段：wechat-login 使用预置测试身份映射，正式微信身份交换后续接入。
 package identity
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"net/http"
+	"net/url"
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
@@ -33,14 +35,14 @@ var (
 
 // User 业务用户。username 或 wechat_openid 至少一种身份。
 type User struct {
-	ID            int64     `gorm:"primaryKey;column:id" json:"id"`
-	Username      *string   `gorm:"column:username;uniqueIndex" json:"username"`
-	PasswordHash  string    `gorm:"column:password_hash" json:"-"`
-	WechatOpenid  *string   `gorm:"column:wechat_openid;uniqueIndex" json:"wechat_openid"`
-	DisplayName   string    `gorm:"column:display_name" json:"display_name"`
-	Status        string    `gorm:"column:status" json:"status"` // ACTIVE / DISABLED
-	CreatedAt     time.Time `gorm:"column:created_at" json:"created_at"`
-	UpdatedAt     time.Time `gorm:"column:updated_at" json:"updated_at"`
+	ID           int64     `gorm:"primaryKey;column:id" json:"id"`
+	Username     *string   `gorm:"column:username;uniqueIndex" json:"username"`
+	PasswordHash string    `gorm:"column:password_hash" json:"-"`
+	WechatOpenid *string   `gorm:"column:wechat_openid;uniqueIndex" json:"wechat_openid"`
+	DisplayName  string    `gorm:"column:display_name" json:"display_name"`
+	Status       string    `gorm:"column:status" json:"status"` // ACTIVE / DISABLED
+	CreatedAt    time.Time `gorm:"column:created_at" json:"created_at"`
+	UpdatedAt    time.Time `gorm:"column:updated_at" json:"updated_at"`
 }
 
 // UserRole 用户角色（复合主键）。
@@ -51,13 +53,13 @@ type UserRole struct {
 }
 
 // TableName 显式表名。
-func (User) TableName() string      { return "users" }
-func (UserRole) TableName() string  { return "user_roles" }
+func (User) TableName() string     { return "users" }
+func (UserRole) TableName() string { return "user_roles" }
 
 // Session 登录返回结果。
 type Session struct {
-	Token string `json:"token"`
-	User  User   `json:"user"`
+	Token string   `json:"token"`
+	User  User     `json:"user"`
 	Roles []string `json:"roles"`
 }
 
@@ -77,7 +79,7 @@ type Repository interface {
 type Service interface {
 	// Login PC 账号密码登录。
 	Login(ctx context.Context, username, password string) (*Session, error)
-	// WechatLogin 小程序微信登录（MVP：测试身份）。
+	// WechatLogin 交换微信 code 并查询已绑定人员。
 	WechatLogin(ctx context.Context, code string) (*Session, error)
 	// GetUser 返回用户与角色。
 	GetUser(ctx context.Context, userID int64) (*User, []string, error)
@@ -86,17 +88,27 @@ type Service interface {
 }
 
 type service struct {
-	repo Repository
-	tm   *authn.TokenManager
-	aud  audit.Recorder
+	repo   Repository
+	tm     *authn.TokenManager
+	aud    audit.Recorder
+	wechat WechatConfig
+}
+
+type WechatConfig struct {
+	AppID  string
+	Secret string
 }
 
 // NewService 构造身份服务。
-func NewService(repo Repository, tm *authn.TokenManager, aud audit.Recorder) Service {
+func NewService(repo Repository, tm *authn.TokenManager, aud audit.Recorder, wechat ...WechatConfig) Service {
 	if aud == nil {
 		aud = audit.NewRecorder(nil)
 	}
-	return &service{repo: repo, tm: tm, aud: aud}
+	svc := &service{repo: repo, tm: tm, aud: aud}
+	if len(wechat) > 0 {
+		svc.wechat = wechat[0]
+	}
+	return svc
 }
 
 func (s *service) Login(ctx context.Context, username, password string) (*Session, error) {
@@ -121,15 +133,27 @@ func (s *service) Login(ctx context.Context, username, password string) (*Sessio
 }
 
 func (s *service) WechatLogin(ctx context.Context, code string) (*Session, error) {
-	// MVP：固定测试身份映射（正式接入时由 Go 与微信完成身份交换，不信任客户端自报 user_id）。
-	openid, ok := map[string]string{
-		"test-inspector":  "wx_test_inspector",
-		"test-reviewer":   "wx_test_reviewer",
-		"test-admin":      "wx_test_admin",
-	}[code]
-	if !ok {
+	if s.wechat.AppID == "" || s.wechat.Secret == "" {
 		return nil, ErrWechatCodeInvalid
 	}
+	params := url.Values{"appid": {s.wechat.AppID}, "secret": {s.wechat.Secret}, "js_code": {code}, "grant_type": {"authorization_code"}}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://api.weixin.qq.com/sns/jscode2session?"+params.Encode(), nil)
+	if err != nil {
+		return nil, ErrWechatCodeInvalid
+	}
+	response, err := (&http.Client{Timeout: 10 * time.Second}).Do(req)
+	if err != nil {
+		return nil, ErrWechatCodeInvalid
+	}
+	defer response.Body.Close()
+	var session struct {
+		OpenID  string `json:"openid"`
+		ErrCode int    `json:"errcode"`
+	}
+	if response.StatusCode != http.StatusOK || json.NewDecoder(response.Body).Decode(&session) != nil || session.ErrCode != 0 || session.OpenID == "" {
+		return nil, ErrWechatCodeInvalid
+	}
+	openid := session.OpenID
 	u, err := s.repo.GetByWechatOpenid(ctx, openid)
 	if err != nil {
 		return nil, ErrUserNotFound

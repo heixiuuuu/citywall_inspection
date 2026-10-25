@@ -55,7 +55,7 @@ func (fakeIdentity) GetUser(_ context.Context, id int64) (*identity.User, []stri
 }
 func (fakeIdentity) HashPassword(password string) (string, error) { return password, nil }
 
-type fakeSite struct{}
+type fakeSite struct{ site.Service }
 
 func (fakeSite) ListPoints(_ context.Context, _ bool) ([]site.InspectionPoint, error) {
 	return []site.InspectionPoint{{ID: 100, Code: "P-EAST-01", Name: "东城墙 1 号点", Latitude: 28.8, Longitude: 121.1}}, nil
@@ -112,7 +112,10 @@ func (f *fakeTask) Cancel(_ context.Context, _ *middleware.Actor, id, _ int64, _
 	return &task.Task{ID: id, Status: task.StatusCancelled, Revision: 5}, nil
 }
 
-type fakeObs struct{ failWith error }
+type fakeObs struct {
+	observation.Service
+	failWith error
+}
 
 func (f *fakeObs) Create(_ context.Context, _ *middleware.Actor, source string, tp *int64, _ string) (*observation.Observation, error) {
 	if f.failWith != nil {

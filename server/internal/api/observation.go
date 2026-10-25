@@ -167,8 +167,12 @@ func (h *ObservationHandler) Recognize(c *gin.Context) {
 	}
 	var req recognizeRequest
 	_ = c.ShouldBindJSON(&req)
-	attempt, detections, err := h.service.Recognize(context.Background(), actor, id, req.RequestID)
+	attempt, detections, err := h.service.Recognize(c.Request.Context(), actor, id, middleware.GetRequestID(c))
 	if err != nil {
+		if attempt != nil {
+			writeData(c, http.StatusOK, gin.H{"attempt": attempt, "detections": []observation.Detection{}})
+			return
+		}
 		writeErr(c, err)
 		return
 	}

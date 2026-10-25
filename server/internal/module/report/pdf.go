@@ -2,6 +2,7 @@ package report
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"os"
 	"time"
@@ -24,6 +25,8 @@ const (
 	lineHeight = 5.0  // mm
 )
 
+var reportLocation = time.FixedZone("Asia/Shanghai", 8*60*60)
+
 // newPDF 创建 A4 文档并加载中文字体。
 func newPDF(fontPath string) (*pdfWriter, error) {
 	path, err := resolveFont(fontPath)
@@ -31,7 +34,14 @@ func newPDF(fontPath string) (*pdfWriter, error) {
 		return nil, err
 	}
 	p := gofpdf.New("P", "mm", "A4", "")
-	p.AddUTF8Font("hei", "", path)
+	fontData, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	p.AddUTF8FontFromBytes("hei", "", fontData)
+	if err := p.Error(); err != nil {
+		return nil, err
+	}
 	w := &pdfWriter{
 		pdf:     p,
 		left:    pdfMargin,
@@ -52,6 +62,7 @@ func resolveFont(cfgPath string) (string, error) {
 		candidates = append(candidates, cfgPath)
 	}
 	candidates = append(candidates,
+		`/app/fonts/report.ttf`,
 		`C:\Windows\Fonts\simhei.ttf`,
 		`C:\Windows\Fonts\simsun.ttc`,
 		`/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc`,
@@ -70,16 +81,37 @@ func (w *pdfWriter) ensure(h float64) {
 		w.pdf.AddPage()
 		w.y = pdfMargin
 	}
+	w.pdf.SetY(w.y)
 }
 
 // text 输出一行文本（自动分页）。
 func (w *pdfWriter) text(s string, size float64, indent float64) {
-	w.ensure(lineHeight)
-	w.pdf.SetFont("hei", "", size)
-	w.pdf.SetX(w.left + indent)
-	w.pdf.CellFormat(0, lineHeight, s, "", 0, "L", false, 0, "")
-	w.pdf.Ln(lineHeight)
-	w.y += lineHeight
+	for _, line := range w.splitLines(s, size, w.pageW-2*pdfMargin-indent) {
+		w.ensure(lineHeight)
+		w.pdf.SetX(w.left + indent)
+		w.pdf.CellFormat(0, lineHeight, line, "", 0, "L", false, 0, "")
+		w.y += lineHeight
+	}
+}
+
+func (w *pdfWriter) analysis(raw string) {
+	var analysis struct {
+		Status          string   `json:"status"`
+		Model           string   `json:"model"`
+		Description     string   `json:"description"`
+		Causes          []string `json:"possible_causes"`
+		Recommendations []string `json:"recommendations"`
+	}
+	if json.Unmarshal([]byte(raw), &analysis) != nil || analysis.Status != "SUCCEEDED" {
+		return
+	}
+	w.text("视觉语言模型辅助分析（"+analysis.Model+"，须人工复核）："+analysis.Description, 9, 3)
+	for _, cause := range analysis.Causes {
+		w.text("可能成因："+cause, 9, 6)
+	}
+	for _, recommendation := range analysis.Recommendations {
+		w.text("复查建议："+recommendation, 9, 6)
+	}
 }
 
 // wrapText 输出多行文本（按宽度换行）。
@@ -121,18 +153,7 @@ func (w *pdfWriter) splitLines(s string, size, maxW float64) []string {
 
 // labelValue 同一行输出「标签：值」。
 func (w *pdfWriter) labelValue(label, value string, labelSize float64, maxW float64) {
-	w.ensure(lineHeight)
-	w.pdf.SetFont("hei", "", labelSize)
-	w.pdf.SetX(w.left)
-	w.pdf.CellFormat(0, lineHeight, label, "", 0, "L", false, 0, "")
-	rest := maxW - 32
-	lines := w.splitLines(value, labelSize, rest)
-	for _, ln := range lines {
-		w.pdf.SetX(w.left + 32)
-		w.pdf.CellFormat(0, lineHeight, ln, "", 0, "L", false, 0, "")
-		w.pdf.Ln(lineHeight)
-		w.y += lineHeight
-	}
+	w.text(label+" "+value, labelSize, 0)
 }
 
 // section 小节标题与分隔线。
@@ -226,10 +247,10 @@ func renderTaskPDF(src *TaskSource, opts renderOpts) ([]byte, error) {
 	w.labelValue("期限：", timeStr(src.DueAt), 10, 500)
 	w.labelValue("状态：", src.Status, 10, 500)
 	if src.DispatchedAt != nil {
-		w.labelValue("派发时间：", src.DispatchedAt.Format("2006-01-02 15:04:05"), 10, 500)
+		w.labelValue("派发时间：", timeStr(src.DispatchedAt), 10, 170)
 	}
 	if src.CompletedAt != nil {
-		w.labelValue("完成时间：", src.CompletedAt.Format("2006-01-02 15:04:05"), 10, 500)
+		w.labelValue("完成时间：", timeStr(src.CompletedAt), 10, 170)
 	}
 	if src.Description != "" {
 		w.wrapText("说明："+src.Description, 10, 170)
@@ -263,6 +284,7 @@ func renderTaskPDF(src *TaskSource, opts renderOpts) ([]byte, error) {
 			w.text("定位异常："+o.LocationAbnormal, 9, 3)
 		}
 		for _, a := range o.Attempts {
+			w.analysis(a.AnalysisJSON)
 			if len(a.Detections) == 0 {
 				w.text(fmt.Sprintf("识别尝试 %d：%s（模型 %s，无候选）", a.AttemptNo, a.Status, a.ModelVersion), 9, 3)
 				continue
@@ -286,22 +308,9 @@ func renderTaskPDF(src *TaskSource, opts renderOpts) ([]byte, error) {
 			w.text(fmt.Sprintf("审核：%s ｜ %s ｜ %s", o.Review.Decision, o.Review.Disposition, o.Review.Reason), 9, 3)
 		}
 	}
-	// 照片集中嵌入。
-	for _, p := range src.Points {
-		if p.Observation == nil {
-			continue
-		}
-		for _, img := range p.Observation.Images {
-			path, pxW, pxH, mediaType, cleanup, err := opts.OpenImage(img.StorageKey)
-			if err != nil {
-				w.text(fmt.Sprintf("照片 #%d 读取失败：%v", img.ID, err), 9, 3)
-				continue
-			}
-			w.section(fmt.Sprintf("照片：点位 %d · 照片 #%d（%s）", p.SequenceNo, img.ID, img.Role))
-			if err := w.image(path, imgFormat(mediaType), pxW, pxH, 120); err != nil {
-				w.text(fmt.Sprintf("照片 #%d 嵌入失败：%v", img.ID, err), 9, 3)
-			}
-			cleanup()
+	for _, point := range src.Points {
+		if point.Observation != nil {
+			w.photos(point.Observation.Images, opts)
 		}
 	}
 
@@ -330,7 +339,7 @@ func renderRangePDF(src *RangeSource, opts renderOpts) ([]byte, error) {
 		return nil, err
 	}
 	w.title("古城墙病害巡检报告（时间范围）")
-	w.text(fmt.Sprintf("范围：%s ～ %s", src.Start.Format("2006-01-02 15:04"), src.End.Format("2006-01-02 15:04")), 10, 0)
+	w.text(fmt.Sprintf("范围：%s ～ %s", src.Start.In(reportLocation).Format("2006-01-02 15:04"), src.End.In(reportLocation).Format("2006-01-02 15:04")), 10, 0)
 	w.text("生成时间："+opts.SnapshotAt+"    生成人："+opts.GeneratedBy, 9, 0)
 
 	w.section("汇总")
@@ -351,6 +360,7 @@ func renderRangePDF(src *RangeSource, opts renderOpts) ([]byte, error) {
 			w.text("定位异常："+o.LocationAbnormal, 9, 3)
 		}
 		for _, a := range o.Attempts {
+			w.analysis(a.AnalysisJSON)
 			w.text(fmt.Sprintf("识别 %d：%s（模型 %s，候选 %d）", a.AttemptNo, a.Status, a.ModelVersion, len(a.Detections)), 9, 3)
 		}
 		for _, c := range o.Conclusions {
@@ -359,6 +369,10 @@ func renderRangePDF(src *RangeSource, opts renderOpts) ([]byte, error) {
 		if o.Review != nil {
 			w.text(fmt.Sprintf("审核：%s ｜ %s", o.Review.Decision, o.Review.Reason), 9, 3)
 		}
+	}
+
+	for _, observation := range src.Observations {
+		w.photos(observation.Images, opts)
 	}
 
 	w.section("关联问题")
@@ -382,7 +396,7 @@ func timeStr(t *time.Time) string {
 	if t == nil {
 		return "-"
 	}
-	return t.Format("2006-01-02 15:04:05")
+	return t.In(reportLocation).Format("2006-01-02 15:04:05")
 }
 
 func itoa(n int64) string {

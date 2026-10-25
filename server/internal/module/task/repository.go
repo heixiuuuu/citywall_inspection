@@ -2,6 +2,7 @@ package task
 
 import (
 	"context"
+	"time"
 
 	"gorm.io/gorm"
 )
@@ -86,13 +87,17 @@ func (r *GORMRepository) CountTasks(ctx context.Context, actorID int64, isAdmin 
 }
 
 func (r *GORMRepository) UpdateStatus(ctx context.Context, id int64, fromRevision int64, status string) (int64, error) {
+	changes := map[string]any{"status": status, "revision": gorm.Expr("revision + 1")}
+	if status == StatusAssigned {
+		changes["dispatched_at"] = time.Now().UTC()
+	}
+	if status == StatusCompleted {
+		changes["completed_at"] = time.Now().UTC()
+	}
 	res := r.db.WithContext(ctx).
 		Model(&Task{}).
 		Where("id = ? AND revision = ?", id, fromRevision).
-		Updates(map[string]any{
-			"status":   status,
-			"revision": gorm.Expr("revision + 1"),
-		})
+		Updates(changes)
 	return res.RowsAffected, res.Error
 }
 
@@ -156,7 +161,10 @@ func (r *GORMRepository) MarkInProgressIfAssigned(ctx context.Context, taskID in
 // GetTaskPoint 实现 observation.TaskPointRepository：按 ID 查询任务点。
 func (r *GORMRepository) GetTaskPoint(ctx context.Context, id int64) (*TaskPoint, error) {
 	var p TaskPoint
-	if err := r.db.WithContext(ctx).First(&p, id).Error; err != nil {
+	if err := r.db.WithContext(ctx).Table("task_points").
+		Select("task_points.*, tasks.assignee_id, tasks.status AS task_status").
+		Joins("JOIN tasks ON tasks.id = task_points.task_id").
+		Where("task_points.id = ?", id).First(&p).Error; err != nil {
 		return nil, err
 	}
 	return &p, nil

@@ -4,6 +4,8 @@
   </el-config-provider>
 </template>
 
-<script setup lang="ts">
-// 全局壳：登录态与错误边界在此层处理。
-</script>
+<style>
+html, body, #app { margin: 0; min-height: 100%; }
+body { font-family: "Microsoft YaHei", sans-serif; }
+.el-main, .el-container { min-width: 0; }
+</style>

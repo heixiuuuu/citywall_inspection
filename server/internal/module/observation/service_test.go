@@ -15,15 +15,19 @@ import (
 // ---- fakes ----
 
 type fakeObsRepo struct {
-	obs      map[int64]*Observation
-	images   map[int64]*Image
-	links    map[int64][]ObservationImage
-	attempts []RecognitionAttempt
-	detect   []Detection
-	concl    []ConclusionRevision
-	subs     []ObservationSubmission
+	obs       map[int64]*Observation
+	images    map[int64]*Image
+	links     map[int64][]ObservationImage
+	attempts  []RecognitionAttempt
+	detect    []Detection
+	concl     []ConclusionRevision
+	subs      []ObservationSubmission
 	decisions []ReviewDecision
-	next     int64
+	next      int64
+}
+
+func (f *fakeObsRepo) LoadEvidence(_ context.Context, _ int64) (*Evidence, error) {
+	return &Evidence{Attempts: f.attempts, Detections: f.detect, Conclusions: f.concl, Reviews: f.decisions}, nil
 }
 
 func newFakeObsRepo() *fakeObsRepo {
@@ -33,6 +37,17 @@ func newFakeObsRepo() *fakeObsRepo {
 		links:  map[int64][]ObservationImage{},
 		next:   1,
 	}
+}
+
+func (f *fakeObsRepo) UnlinkImage(_ context.Context, observationID, imageID int64) error {
+	var links []ObservationImage
+	for _, link := range f.links[observationID] {
+		if link.ImageID != imageID {
+			links = append(links, link)
+		}
+	}
+	f.links[observationID] = links
+	return nil
 }
 
 func (f *fakeObsRepo) Insert(_ context.Context, o *Observation) error {
@@ -255,8 +270,8 @@ func (f *fakeStorage) Open(relKey string) (*os.File, error) {
 }
 
 type fakeRecognizer struct {
-	res  *recognizer.Result
-	err  error
+	res   *recognizer.Result
+	err   error
 	calls int
 }
 
@@ -298,7 +313,7 @@ func admin() *middleware.Actor     { return &middleware.Actor{UserID: 1, Roles: 
 
 func newObsService() (*service, *fakeObsRepo) {
 	repo := newFakeObsRepo()
-	points := map[int64]*task.TaskPoint{1: {ID: 1, TaskID: 10, PointID: 100}}
+	points := map[int64]*task.TaskPoint{1: {ID: 1, TaskID: 10, PointID: 100, AssigneeID: 3, TaskStatus: task.StatusAssigned}}
 	s := &service{
 		repo:            repo,
 		storage:         &fakeStorage{},
@@ -315,6 +330,16 @@ func newObsService() (*service, *fakeObsRepo) {
 func pngBytes() []byte {
 	// 1x1 PNG
 	return []byte("\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\rIDAT\x08\xd7c\xf8\xff\xff?\x00\x05\xfe\x02\xfe\xdc\xcc\x59\xe7\x00\x00\x00\x00IEND\xaeB`\x82")
+}
+
+func TestTaskPointCannotBeClaimedByAnotherInspector(t *testing.T) {
+	service, _ := newObsService()
+	id := int64(1)
+	other := &middleware.Actor{UserID: 99, Roles: []string{"INSPECTOR"}}
+	_, err := service.Create(context.Background(), other, SourceTask, &id, "loc")
+	if !errors.Is(err, ErrForbidden) {
+		t.Fatalf("expected forbidden, got %v", err)
+	}
 }
 
 // ---- tests ----

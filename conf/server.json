@@ -6,7 +6,7 @@
   "server": {
     "listen": ":8080",
     "read_timeout_s": 30,
-    "write_timeout_s": 30,
+    "write_timeout_s": 120,
     "graceful_shutdown_s": 10
   },
   "database": {
@@ -17,7 +17,7 @@
     "password": "city_wall_dev",
     "dbname": "city_wall",
     "charset": "utf8mb4",
-    "required": false,
+    "required": true,
     "max_open_conns": 20,
     "max_idle_conns": 5,
     "conn_max_lifetime_min": 60,
@@ -33,13 +33,13 @@
   "recognizer": {
     "base_url": "http://127.0.0.1:4100",
     "internal_token": "change-me-internal-token",
-    "timeout_s": 15,
+    "timeout_s": 90,
     "max_retries": 1
   },
   "auth": {
     "jwt_secret": "dev-only-secret-please-change",
     "token_ttl_hours": 72,
-    "wechat_app_id": "wx72b5ed580b73500a",
+    "wechat_app_id": "",
     "wechat_app_secret": ""
   },
   "upload": {

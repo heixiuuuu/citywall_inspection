@@ -37,6 +37,20 @@ func (r *GORMRepository) CreatePoint(ctx context.Context, p *InspectionPoint) er
 	return r.db.WithContext(ctx).Create(p).Error
 }
 
+func (r *GORMRepository) GetSegment(ctx context.Context, id int64) (*WallSegment, error) {
+	var segment WallSegment
+	if err := r.db.WithContext(ctx).First(&segment, id).Error; err != nil {
+		return nil, err
+	}
+	return &segment, nil
+}
+func (r *GORMRepository) UpdateSegment(ctx context.Context, segment *WallSegment) error {
+	return r.db.WithContext(ctx).Save(segment).Error
+}
+func (r *GORMRepository) UpdatePoint(ctx context.Context, point *InspectionPoint) error {
+	return r.db.WithContext(ctx).Save(point).Error
+}
+
 func (r *GORMRepository) CreateSegment(ctx context.Context, s *WallSegment) error {
 	return r.db.WithContext(ctx).Create(s).Error
 }

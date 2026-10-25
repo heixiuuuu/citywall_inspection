@@ -35,6 +35,8 @@ type Task struct {
 // TaskPoint 任务点：草稿阶段仅登记 point_id 与序号，派发时写入点位快照，
 // 后续修改基础点位不改旧任务。
 type TaskPoint struct {
+	AssigneeID           int64     `gorm:"->;column:assignee_id" json:"-"`
+	TaskStatus           string    `gorm:"->;column:task_status" json:"-"`
 	ID                   int64     `gorm:"primaryKey;column:id" json:"id"`
 	TaskID               int64     `gorm:"column:task_id;index:idx_task_seq" json:"task_id"`
 	PointID              int64     `gorm:"column:point_id" json:"point_id"`

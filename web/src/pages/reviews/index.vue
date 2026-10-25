@@ -20,7 +20,7 @@
       </el-table-column>
       <el-table-column prop="reporter_id" label="上报人ID" width="100" />
       <el-table-column label="提交时间" width="150">
-        <template #default="{ row }">{{ row.submitted_at ? row.submitted_at.slice(0, 16).replace('T', ' ') : '—' }}</template>
+        <template #default="{ row }">{{ formatDateTime(row.submitted_at) }}</template>
       </el-table-column>
       <el-table-column label="操作" width="120" fixed="right">
         <template #default="{ row }">
@@ -30,7 +30,7 @@
     </el-table>
 
     <!-- 审核对话框 -->
-    <el-dialog v-model="reviewVisible" title="审核记录" width="680">
+    <el-dialog v-model="reviewVisible" title="审核记录" width="min(960px, 95vw)" destroy-on-close>
       <div v-if="current" class="review-body">
         <el-descriptions :column="2" border>
           <el-descriptions-item label="ID">{{ current.id }}</el-descriptions-item>
@@ -40,25 +40,13 @@
           <el-descriptions-item label="上报人ID">{{ current.reporter_id }}</el-descriptions-item>
           <el-descriptions-item label="版本">{{ current.revision }}</el-descriptions-item>
         </el-descriptions>
-        <div class="img-block" v-if="overviewImages.length || detailImages.length">
-          <h4 class="subtitle">现场图片（概览 {{ overviewImages.length }} 张 / 细节 {{ detailImages.length }} 张）</h4>
-          <div class="img-grid">
-            <div v-for="img in overviewImages" :key="img" class="img-cell">
-              <el-image :src="img" fit="cover" :preview-src-list="overviewImages" preview-teleported />
-            </div>
-            <div v-for="img in detailImages" :key="img" class="img-cell">
-              <el-image :src="img" fit="cover" :preview-src-list="detailImages" preview-teleported />
-            </div>
-          </div>
-        </div>
-        <div v-else-if="imagesLoading" class="hint">正在加载图片…</div>
-        <div v-else class="hint">该记录暂无现场图片</div>
+        <ObservationEvidence v-if="reviewVisible" :observation-id="current.id" />
       </div>
       <template #footer>
         <el-select v-model="decision" style="width: 120px; margin-right: 8px">
           <el-option label="通过" value="ACCEPT" />
           <el-option label="退回" value="RETURN" />
-          <el-option label="驳回" value="REJECT" />
+          <el-option v-if="current?.source === 'VOLUNTARY'" label="驳回" value="REJECT" />
         </el-select>
         <el-input
           v-model="reason"
@@ -121,17 +109,16 @@
 
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
+import ObservationEvidence from '@/shared/ui/ObservationEvidence.vue'
+import { formatDateTime } from '@/shared/ui/time'
 import { ElMessage } from 'element-plus'
-import { fetchPendingReviews, reviewObservation, fetchObservationImages, loadImageBlob, type ReviewDecision } from '@/shared/api/observation'
+import { fetchPendingReviews, reviewObservation, type ReviewDecision } from '@/shared/api/observation'
 import { fetchIssues, admitObservation, type Issue } from '@/shared/api/issue'
 
 const reviews = ref<any[]>([])
 const loading = ref(false)
 const reviewVisible = ref(false)
 const current = ref<any>(null)
-const overviewImages = ref<string[]>([])
-const detailImages = ref<string[]>([])
-const imagesLoading = ref(false)
 const decision = ref<ReviewDecision>('ACCEPT')
 const reason = ref('')
 const submitting = ref(false)
@@ -177,29 +164,10 @@ function outcomeText(o: string | null) {
 
 async function openReview(row: any) {
   current.value = row
-  overviewImages.value = []
-  detailImages.value = []
   decision.value = 'ACCEPT'
   reason.value = ''
   reviewVisible.value = true
-  // 图片列表接口（GET /observations/{id}/images）：按 role 分组加载受控图片内容。
-  imagesLoading.value = true
-  try {
-    const metas = await fetchObservationImages(row.id)
-    for (const m of metas) {
-      try {
-        const blob = await loadImageBlob(m.id)
-        if (m.role === 'DETAIL') detailImages.value.push(blob)
-        else overviewImages.value.push(blob)
-      } catch {
-        /* 跳过加载失败的图片 */
-      }
-    }
-  } catch {
-    /* 无记录或加载失败 */
-  } finally {
-    imagesLoading.value = false
-  }
+
 }
 
 async function submitReview() {

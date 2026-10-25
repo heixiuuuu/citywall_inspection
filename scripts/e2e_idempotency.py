@@ -1,11 +1,12 @@
 # 阶段四 幂等联调：DB 幂等中间件（dispatch/submit/review/verify）与图片上传幂等
 import requests
+import os
 import sys
 import io
 import struct
 import zlib
 
-BASE = "http://127.0.0.1:8080/api/v1"
+BASE = os.getenv("CITY_WALL_API_BASE", "http://127.0.0.1:8080/api/v1")
 
 
 def check(name, r, expect=None):
