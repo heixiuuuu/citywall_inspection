@@ -51,6 +51,8 @@ def main():
     assert evidence["conclusions"][0]["description"] == "现场人工复核"
     assert evidence["reviews"][0]["decision"] == "ACCEPT"
     call("DELETE", f"/observations/{oid}/images/{iid}", inspector, 409)
+    call("POST", f"/images/{iid}/recognitions", inspector, 409, json={})
+    assert len(call("GET", f"/observations/{oid}", inspector)["evidence"]["attempts"]) == 1
     draft = call("POST", "/observations", inspector, 201, json={"source": "VOLUNTARY", "location_text": "移除照片验收"})["observation"]
     removable = call("POST", f'/observations/{draft["id"]}/images', inspector, 201, files={"image": ("sample.png", buffer.getvalue(), "image/png")})["image"]
     call("DELETE", f'/observations/{draft["id"]}/images/{removable["id"]}', inspector)

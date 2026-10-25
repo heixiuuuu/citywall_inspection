@@ -685,6 +685,7 @@ paths:
     post:
       tags: [observation]
       summary: 触发一次识别尝试（每次重试新建 attempt，不覆盖历史）
+      description: 仅草稿或退回补正中的记录可发起识别。并发请求各自获得独立尝试编号。
       parameters:
         - { name: id, in: path, required: true, schema: { type: integer } }
       requestBody:
@@ -694,7 +695,7 @@ paths:
             schema:
               type: object
               properties:
-                request_id: { type: string, description: 幂等/追踪 ID }
+                request_id: { type: string, description: 请求追踪 ID }
       responses:
         '200':
           description: 识别完成（成功或失败均返回 attempt 记录）
@@ -710,8 +711,10 @@ paths:
                       detections:
                         type: array
                         items: { $ref: '#/components/schemas/Detection' }
+        '409':
+          description: 记录已提交或审核，不允许发起识别
         '500':
-          description: 识别服务超时/不可用（attempt=FAILED + error_code）
+          description: 数据存储或内部服务异常
   /api/v1/reviews:
     get:
       tags: [review]

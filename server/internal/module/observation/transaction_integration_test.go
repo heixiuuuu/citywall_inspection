@@ -3,6 +3,7 @@
 package observation
 
 import (
+	"citywall/server/internal/infrastructure/recognizer"
 	"context"
 	"errors"
 	"fmt"
@@ -11,6 +12,66 @@ import (
 
 	"gorm.io/gorm"
 )
+
+func TestConcurrentRecognitions(t *testing.T) {
+	s, db, o := persistentObservation(t)
+	ctx := context.Background()
+	links, err := s.repo.ListImages(ctx, o.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := make(chan struct{})
+	errorsFound := make(chan error, 2)
+	for range 2 {
+		go func() {
+			<-start
+			_, _, err := s.Recognize(ctx, inspector(), links[0].ImageID, "parallel")
+			errorsFound <- err
+		}()
+	}
+	close(start)
+	for range 2 {
+		if err := <-errorsFound; err != nil {
+			t.Fatal(err)
+		}
+	}
+	var attempts []RecognitionAttempt
+	if err := db.Where("image_id = ?", links[0].ImageID).Order("attempt_no").Find(&attempts).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(attempts) != 2 || attempts[0].AttemptNo != 1 || attempts[1].AttemptNo != 2 || attempts[0].Status != AttemptSucceeded || attempts[1].Status != AttemptSucceeded {
+		t.Fatalf("attempts=%+v", attempts)
+	}
+}
+
+func TestRecognitionPersistenceRollsBack(t *testing.T) {
+	s, db, o := persistentObservation(t)
+	ctx := context.Background()
+	links, _ := s.repo.ListImages(ctx, o.ID)
+	s.recognizer = &fakeRecognizer{res: &recognizer.Result{ModelVersion: "test", Detections: []recognizer.Detection{{DetectionID: "d0", ClassCode: "CRACK", Confidence: 0.8, BBox: recognizer.BBox{X1: 0, Y1: 0, X2: 1, Y2: 1}}}}}
+	callback := "test:fail_detection"
+	if err := db.Callback().Create().Before("gorm:create").Register(callback, func(tx *gorm.DB) {
+		if tx.Statement.Table == "detections" {
+			tx.AddError(errors.New("detection storage unavailable"))
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Callback().Create().Remove(callback) })
+	attempt, _, err := s.Recognize(ctx, inspector(), links[0].ImageID, "rollback")
+	if err == nil || attempt.Status != AttemptFailed {
+		t.Fatalf("attempt=%+v err=%v", attempt, err)
+	}
+	var saved RecognitionAttempt
+	if err := db.First(&saved, attempt.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	var count int64
+	db.Model(&Detection{}).Where("attempt_id = ?", attempt.ID).Count(&count)
+	if saved.Status != AttemptFailed || count != 0 {
+		t.Fatalf("status=%s detections=%d", saved.Status, count)
+	}
+}
 
 func persistentObservation(t *testing.T) (*service, *gorm.DB, *Observation) {
 	t.Helper()

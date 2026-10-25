@@ -274,13 +274,11 @@ func (f *fakeStorage) Open(relKey string) (*os.File, error) {
 }
 
 type fakeRecognizer struct {
-	res   *recognizer.Result
-	err   error
-	calls int
+	res *recognizer.Result
+	err error
 }
 
 func (f *fakeRecognizer) Recognize(_ context.Context, attemptID, _, _ string, _ []byte) (*recognizer.Result, error) {
-	f.calls++
 	if f.err != nil {
 		return nil, f.err
 	}
@@ -485,6 +483,22 @@ func TestRecognizeSuccessWithDetections(t *testing.T) {
 	}
 	if len(dets) != 1 || dets[0].ClassCode != "CRACK" {
 		t.Fatalf("detections = %+v", dets)
+	}
+}
+
+func TestRecognizeRejectsReadOnlyRecord(t *testing.T) {
+	s, repo := newObsService()
+	tp := int64(1)
+	o, _ := s.Create(context.Background(), inspector(), SourceTask, &tp, "loc")
+	img, _ := s.AddImage(context.Background(), inspector(), o.ID, "image/png", pngBytes(), ImageRoleOverview, "")
+	for _, status := range []string{ObsSubmitted, ObsAccepted, ObsRejected} {
+		o.Status = status
+		if _, _, err := s.Recognize(context.Background(), inspector(), img.ID, "read-only"); !errors.Is(err, ErrInvalidState) {
+			t.Fatalf("status=%s err=%v", status, err)
+		}
+	}
+	if len(repo.attempts) != 0 {
+		t.Fatalf("attempts=%d", len(repo.attempts))
 	}
 }
 

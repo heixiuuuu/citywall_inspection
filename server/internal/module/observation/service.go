@@ -383,17 +383,22 @@ func (s *service) Recognize(ctx context.Context, actor *middleware.Actor, imageI
 		return nil, nil, err
 	}
 
-	attemptNo, err := s.repo.NextAttemptNo(ctx, imageID)
+	attempt, err := transactionValue(ctx, s, func(tx *service) (*RecognitionAttempt, error) {
+		current, err := tx.repo.GetByID(ctx, o.ID)
+		if err != nil {
+			return nil, err
+		}
+		if current.Status != ObsDraft && current.Status != ObsReturned {
+			return nil, ErrInvalidState
+		}
+		attemptNo, err := tx.repo.NextAttemptNo(ctx, imageID)
+		if err != nil {
+			return nil, err
+		}
+		attempt := &RecognitionAttempt{ImageID: imageID, AttemptNo: attemptNo, Status: AttemptPending, StartedAt: time.Now().UTC()}
+		return attempt, tx.repo.InsertAttempt(ctx, attempt)
+	})
 	if err != nil {
-		return nil, nil, err
-	}
-	attempt := &RecognitionAttempt{
-		ImageID:   imageID,
-		AttemptNo: attemptNo,
-		Status:    AttemptPending,
-		StartedAt: time.Now().UTC(),
-	}
-	if err := s.repo.InsertAttempt(ctx, attempt); err != nil {
 		return nil, nil, err
 	}
 
@@ -404,7 +409,9 @@ func (s *service) Recognize(ctx context.Context, actor *middleware.Actor, imageI
 	if err != nil {
 		attempt.Status = AttemptFailed
 		attempt.ErrorCode = recognizer.ErrorCode(err)
-		_ = s.repo.UpdateAttempt(ctx, attempt)
+		if saveErr := s.repo.UpdateAttempt(ctx, attempt); saveErr != nil {
+			return nil, nil, saveErr
+		}
 		return attempt, nil, err
 	}
 	attempt.Status = AttemptSucceeded
@@ -414,10 +421,6 @@ func (s *service) Recognize(ctx context.Context, actor *middleware.Actor, imageI
 	attempt.ModelVersion = res.ModelVersion
 	attempt.SchemaVersion = res.SchemaVersion
 	attempt.LatencyMs = res.LatencyMs
-	if err := s.repo.UpdateAttempt(ctx, attempt); err != nil {
-		return nil, nil, err
-	}
-
 	detections := make([]Detection, 0, len(res.Detections))
 	for _, d := range res.Detections {
 		detections = append(detections, Detection{
@@ -431,8 +434,18 @@ func (s *service) Recognize(ctx context.Context, actor *middleware.Actor, imageI
 			Y2:           d.BBox.Y2,
 		})
 	}
-	if err := s.repo.InsertDetections(ctx, detections); err != nil {
-		return nil, nil, err
+	if err := s.repo.Transaction(ctx, func(repo Repository) error {
+		if err := repo.InsertDetections(ctx, detections); err != nil {
+			return err
+		}
+		return repo.UpdateAttempt(ctx, attempt)
+	}); err != nil {
+		attempt.Status = AttemptFailed
+		attempt.ErrorCode = "RECOGNITION_PERSIST_FAILED"
+		if saveErr := s.repo.UpdateAttempt(ctx, attempt); saveErr != nil {
+			return nil, nil, saveErr
+		}
+		return attempt, nil, err
 	}
 	return attempt, detections, nil
 }

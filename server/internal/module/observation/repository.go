@@ -172,6 +172,9 @@ func (r *GORMRepository) InsertAttempt(ctx context.Context, a *RecognitionAttemp
 }
 
 func (r *GORMRepository) UpdateAttempt(ctx context.Context, a *RecognitionAttempt) error {
+	if a.AnalysisJSON == "" {
+		a.AnalysisJSON = "null"
+	}
 	return r.db.WithContext(ctx).Save(a).Error
 }
 
