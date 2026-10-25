@@ -40,7 +40,7 @@ class VisionConfig:
     base_url: str = ""
     model: str = ""
     api_key: str = ""
-    timeout_s: int = 45
+    timeout_s: int = 75
 
 
 @dataclass

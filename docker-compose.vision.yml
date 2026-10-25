@@ -1,0 +1,23 @@
+services:
+  vision:
+    image: ollama/ollama:0.40.11
+    gpus: all
+    ports:
+      - "127.0.0.1:11434:11434"
+    environment:
+      HTTPS_PROXY: ${VLM_DOWNLOAD_PROXY:-}
+      OLLAMA_CONTEXT_LENGTH: 4096
+      OLLAMA_MAX_LOADED_MODELS: 1
+    volumes:
+      - vision-data:/root/.ollama
+    healthcheck:
+      test: [CMD, ollama, list]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+  recognizer:
+    environment:
+      VLM_BASE_URL: http://vision:11434/v1
+      VLM_MODEL: qwen3-vl:2b-instruct
+volumes:
+  vision-data:

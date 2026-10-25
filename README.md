@@ -68,6 +68,16 @@ C:\environment\citywall-python312\Scripts\python.exe scripts/train_model.py --de
 
 视觉语言模型使用兼容 Chat Completions 的图像输入接口。配置 .env 中的 VLM_BASE_URL（包含 /v1 等服务前缀）、VLM_MODEL 和 VLM_API_KEY 后重建识别容器。支持不要求 API Key 的本地服务。输出保存于识别尝试中，可在管理端审核页面与报告查看。未配置显示 DISABLED，失败显示 FAILED；不会生成代替模型的分析文本。
 
+本地 NVIDIA GPU 可使用 Docker 内的 Ollama 和 Qwen3-VL 2B：
+
+```powershell
+docker compose -f docker-compose.yml -f docker-compose.vision.yml up -d vision
+docker compose -f docker-compose.yml -f docker-compose.vision.yml exec vision ollama pull qwen3-vl:2b-instruct
+docker compose -f docker-compose.yml -f docker-compose.vision.yml up -d --build --wait
+```
+
+模型保存在 citywall_vision-data 卷中，识别端通过容器网络调用服务，宿主接口仅绑定 127.0.0.1:11434。下载需要代理时，通过 VLM_DOWNLOAD_PROXY 指定容器可访问的 HTTPS 代理地址，例如 http://host.docker.internal:7897。
+
 ## 验证
 
 完整软件验收使用隔离的 Docker 项目，执行单元检查、前端构建、数据库集成测试及业务闭环，结束后自动删除测试容器与数据卷：
