@@ -282,16 +282,17 @@ func (r *GORMRepository) ListByStatuses(ctx context.Context, statuses []string) 
 
 // ListQuery 记录列表过滤条件（按任务/点位/来源/时间/审核状态）。
 type ListQuery struct {
-	ReporterID int64
-	IsAdmin    bool
-	Status     string
-	TaskID     int64
-	Source     string
-	PointID    int64
-	DateFrom   *time.Time
-	DateTo     *time.Time
-	Limit      int
-	Offset     int
+	TaskPointID int64
+	ReporterID  int64
+	IsAdmin     bool
+	Status      string
+	TaskID      int64
+	Source      string
+	PointID     int64
+	DateFrom    *time.Time
+	DateTo      *time.Time
+	Limit       int
+	Offset      int
 }
 
 // ListPage 分页查询（管理员/审核员看全部，巡检员只看自己的上报）。
@@ -317,6 +318,9 @@ func (r *GORMRepository) CountObservations(ctx context.Context, q ListQuery) (in
 
 // applyObservationFilter 组装过滤条件。
 func applyObservationFilter(db *gorm.DB, q ListQuery) *gorm.DB {
+	if q.TaskPointID > 0 {
+		db = db.Where("observations.task_point_id = ?", q.TaskPointID)
+	}
 	if !q.IsAdmin {
 		db = db.Where("reporter_id = ?", q.ReporterID)
 	}

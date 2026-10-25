@@ -43,6 +43,14 @@
         "navigationBarTextStyle": "white",
         "backgroundColor": "#F5F1E8"
       }
+    },
+    {
+      "path": "pages/records/index",
+      "style": {
+        "navigationBarTitleText": "我的巡检记录",
+        "navigationBarBackgroundColor": "#25584F",
+        "navigationBarTextStyle": "white"
+      }
     }
   ],
   "globalStyle": {

@@ -1,8 +1,9 @@
 import { request } from './request'
+import { queryString } from './query'
 
 /** 任务相关接口（与 server/api/openapi.yaml 契约对齐）。 */
 
-/** POST /auth/wechat-login 微信身份登录（MVP 固定测试 code）。 */
+/** POST /auth/wechat-login 微信身份登录。 */
 export function wechatLogin(code) {
   return request('/auth/wechat-login', { method: 'POST', data: { code } })
 }
@@ -12,8 +13,9 @@ export function accountLogin(username, password) {
 }
 
 /** GET /tasks 本人任务列表。 */
-export function getTasks() {
-  return request('/tasks')
+export function getTasks(params = {}) {
+  const query = queryString(params)
+  return request(`/tasks${query ? `?${query}` : ''}`)
 }
 
 /** GET /tasks/{id} 任务详情与点位。 */

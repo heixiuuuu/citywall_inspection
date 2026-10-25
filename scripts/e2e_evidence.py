@@ -55,8 +55,25 @@ def main():
     removable = call("POST", f'/observations/{draft["id"]}/images', inspector, 201, files={"image": ("sample.png", buffer.getvalue(), "image/png")})["image"]
     call("DELETE", f'/observations/{draft["id"]}/images/{removable["id"]}', inspector)
     assert call("GET", f'/observations/{draft["id"]}/images', inspector)["images"] == []
+    did = draft["id"]
+    call("POST", f"/observations/{did}/images", inspector, 201, files={"image": ("sample.png", buffer.getvalue(), "image/png")}, data={"image_role": "OVERVIEW"})
+    call("PATCH", f"/observations/{did}", inspector, json={"revision": 1, "latitude": 0, "longitude": 0, "location_text": "退回补正位置"})
+    call("PUT", f"/observations/{did}/conclusion", inspector, 201, json={"revision": 2, "outcome": "SUSPECTED", "description": "保留待补正描述", "items": []})
+    call("POST", f"/observations/{did}/submit", inspector, json={"revision": 3})
+    call("POST", f"/observations/{did}/review", admin, json={"revision": 4, "decision": "RETURN", "reason": "请补充墙体近景"})
+    returned = call("GET", f"/observations/{did}", inspector)["evidence"]
+    assert returned["observation"]["status"] == "RETURNED" and returned["reviews"][-1]["reason"] == "请补充墙体近景"
+    assert returned["conclusions"][-1]["description"] == "保留待补正描述"
+    private = call("POST", "/observations", admin, 201, json={"source": "VOLUNTARY", "location_text": "其他人的记录"})["observation"]
+    call("GET", f'/observations/{private["id"]}', inspector, 403)
+    own_task = call("POST", "/tasks", admin, 201, json={"title": "记录定位查询", "assignee_id": 3, "point_ids": [point["id"]]})["task"]
+    call("POST", f'/tasks/{own_task["id"]}/dispatch', admin, json={"revision": 1})
+    own_point = call("GET", f'/tasks/{own_task["id"]}', inspector)["points"][0]
+    own_record = call("POST", "/observations", inspector, 201, json={"source": "TASK", "task_point_id": own_point["id"], "location_text": "任务草稿"})["observation"]
+    filtered = call("GET", f'/observations?task_point_id={own_point["id"]}&page_size=1', inspector)
+    assert filtered["total"] == 1 and filtered["items"][0]["id"] == own_record["id"]
     call("POST", "/auth/wechat-login", {}, 401, json={"code": "test-admin"})
-    print("Evidence, archive, assignment authorization, image removal and persisted timestamps passed")
+    print("Evidence, returned drafts, exact point queries, authorization and persisted timestamps passed")
 
 
 if __name__ == "__main__":

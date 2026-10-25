@@ -297,14 +297,15 @@ func (h *ObservationHandler) List(c *gin.Context) {
 		return
 	}
 	in := observation.ListInput{
-		Status:   c.Query("status"),
-		TaskID:   int64(queryInt(c, "task_id", 0)),
-		Source:   c.Query("source"),
-		PointID:  int64(queryInt(c, "point_id", 0)),
-		DateFrom: c.Query("date_from"),
-		DateTo:   c.Query("date_to"),
-		Page:     queryInt(c, "page", 1),
-		PageSize: queryInt(c, "page_size", 20),
+		TaskPointID: int64(queryInt(c, "task_point_id", 0)),
+		Status:      c.Query("status"),
+		TaskID:      int64(queryInt(c, "task_id", 0)),
+		Source:      c.Query("source"),
+		PointID:     int64(queryInt(c, "point_id", 0)),
+		DateFrom:    c.Query("date_from"),
+		DateTo:      c.Query("date_to"),
+		Page:        queryInt(c, "page", 1),
+		PageSize:    queryInt(c, "page_size", 20),
 	}
 	res, err := h.service.List(context.Background(), actor, in)
 	if err != nil {

@@ -8,6 +8,7 @@
       </view>
       <button class="btn-mini" @tap="logout">退出</button>
     </view>
+    <button class="btn-mini" style="margin-bottom: 24rpx" @tap="openRecords">我的巡检记录</button>
 
     <view class="segment">
       <view
@@ -15,7 +16,7 @@
         :key="i"
         class="seg"
         :class="{ on: activeTab === i }"
-        @tap="activeTab = i"
+        @tap="changeTab(i)"
       >
         {{ tab.label }}
       </view>
@@ -37,31 +38,36 @@
     </view>
 
     <view class="fab" @tap="goReport">＋</view>
+    <button v-if="tasks.length < total" class="btn-mini" :loading="loading" @tap="load(false)">加载更多任务（{{ tasks.length }}/{{ total }}）</button>
   </view>
 </template>
 
 <script setup>
 import { computed, ref } from 'vue'
-import { onShow } from '@dcloudio/uni-app'
+import { onShow, onReachBottom, onPullDownRefresh } from '@dcloudio/uni-app'
 import { getTasks } from '../../shared/api/task'
 import { getToken, clearToken, getUser } from '../../shared/auth/auth'
 import { statusText, statusClass } from '../../shared/ui/status'
 
 const tabs = [
-  { label: '全部', match: () => true },
-  { label: '进行中', match: (s) => ['ASSIGNED', 'IN_PROGRESS'].includes(s) },
-  { label: '待审核', match: (s) => s === 'PENDING_REVIEW' },
-  { label: '已完成', match: (s) => s === 'COMPLETED' },
+  { label: '全部', value: '' },
+  { label: '待执行', value: 'ASSIGNED' },
+  { label: '采集中', value: 'IN_PROGRESS' },
+  { label: '待审核', value: 'PENDING_REVIEW' },
+  { label: '已完成', value: 'COMPLETED' },
 ]
 const activeTab = ref(0)
 const tasks = ref([])
 const loading = ref(false)
 const user = getUser()
+const page = ref(0)
+const total = ref(0)
+let generation = 0
 
 const userName = computed(() => (user && user.display_name) || '巡检员')
 const initial = computed(() => (userName.value ? userName.value.slice(0, 1) : '巡'))
 
-const filtered = computed(() => tasks.value.filter((t) => tabs[activeTab.value].match(t.status)))
+const filtered = computed(() => tasks.value)
 
 onShow(() => {
   if (!getToken()) {
@@ -70,17 +76,23 @@ onShow(() => {
   }
   load()
 })
+onReachBottom(() => { if (tasks.value.length < total.value) load(false) })
+onPullDownRefresh(async () => { try { await load(true) } finally { uni.stopPullDownRefresh() } })
 
-function load() {
+function changeTab(index) { activeTab.value = index; load(true) }
+async function load(reset = true) {
+  if (loading.value && !reset) return
+  const token = reset ? ++generation : generation
+  const nextPage = reset ? 1 : page.value + 1
   loading.value = true
-  getTasks()
-    .then((res) => {
-      tasks.value = res.data.tasks || []
-    })
-    .catch(() => {})
-    .finally(() => {
-      loading.value = false
-    })
+  try {
+    const response = await getTasks({ page: nextPage, page_size: 20, status: tabs[activeTab.value].value })
+    if (token !== generation) return
+    tasks.value = reset ? response.data.tasks || [] : [...tasks.value, ...(response.data.tasks || [])]
+    page.value = nextPage
+    total.value = response.data.total
+  } catch { uni.showToast({ title: '加载任务失败', icon: 'none' }) }
+  finally { if (token === generation) loading.value = false }
 }
 
 function openTask(id) {
@@ -90,6 +102,7 @@ function openTask(id) {
 function goReport() {
   uni.navigateTo({ url: '/pages/report/index' })
 }
+function openRecords() { uni.navigateTo({ url: '/pages/records/index' }) }
 
 function assigneeLabel(id) {
   return id === (user && user.id) ? '我' : `巡检员#${id}`

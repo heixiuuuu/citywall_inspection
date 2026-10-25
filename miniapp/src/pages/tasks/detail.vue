@@ -54,6 +54,7 @@ const taskId = ref(null)
 const task = ref(null)
 const points = ref([])
 const pointStatusMap = ref({})
+const pointRecords = ref({})
 const submitting = ref(false)
 const user = getUser()
 
@@ -69,13 +70,25 @@ async function load() {
     points.value = res.data.points || []
     // 点位 → 记录状态：按 GET /observations?task_id= 拉取本人各任务点记录的真实审核状态。
     pointStatusMap.value = {}
+    pointRecords.value = {}
     try {
-      const ores = await listObservations({ task_id: taskId.value, page_size: 200 })
-      for (const o of ores.data.items || []) {
-        if (o.task_point_id != null) {
-          pointStatusMap.value[o.task_point_id] = o.status
+      let page = 1
+      let loaded = 0
+      let total = 0
+      do {
+        const ores = await listObservations({ task_id: taskId.value, page_size: 100, page })
+        const records = ores.data.items || []
+        total = ores.data.total
+        for (const o of records) {
+          if (o.task_point_id != null) {
+            pointStatusMap.value[o.task_point_id] = o.status
+            pointRecords.value[o.task_point_id] = o
+          }
         }
-      }
+        loaded += records.length
+        page++
+        if (!records.length) break
+      } while (loaded < total)
     } catch (e) {
       // 状态加载失败不阻塞任务详情（仍可按点位采集）。
     }
@@ -105,12 +118,17 @@ function pointStatusText(p) {
 }
 
 function openCollect(p) {
+  const record = pointRecords.value[p.id]
+  if (record && !['DRAFT', 'RETURNED'].includes(record.status)) {
+    uni.navigateTo({ url: `/pages/records/index?observationId=${record.id}` })
+    return
+  }
   if (!['ASSIGNED', 'IN_PROGRESS'].includes(task.value.status) && !(task.value.status === 'PENDING_REVIEW' && pointStatus(p) === 'RETURNED')) {
     uni.showToast({ title: '任务已结束，不可采集', icon: 'none' })
     return
   }
   uni.navigateTo({
-    url: `/pages/collect/index?taskId=${task.value.id}&taskPointId=${p.id}&name=${encodeURIComponent(p.snapshot_name || '点位')}`,
+    url: record ? `/pages/collect/index?observationId=${record.id}` : `/pages/collect/index?taskId=${task.value.id}&taskPointId=${p.id}&name=${encodeURIComponent(p.snapshot_name || '点位')}`,
   })
 }
 

@@ -1,14 +1,18 @@
 <template>
   <view>
     <button class="locate" :loading="loading" @tap="locate">获取现场定位</button>
-    <view class="tip">{{ message }}</view>
+    <view class="tip">{{ label }}</view>
   </view>
 </template>
 <script setup>
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
+const props = defineProps({ value: { type: Object, default: null } })
 const emit = defineEmits(['change'])
 const loading = ref(false)
-const message = ref('尚未获取定位')
+const message = ref('')
+const label = computed(() => message.value || (props.value
+  ? `已保存位置：${props.value.latitude.toFixed(6)}, ${props.value.longitude.toFixed(6)} · 精度 ${props.value.accuracy_m == null ? '未知' : Math.round(props.value.accuracy_m) + ' m'}`
+  : '尚未获取定位'))
 function locate() {
   loading.value = true
   uni.getLocation({

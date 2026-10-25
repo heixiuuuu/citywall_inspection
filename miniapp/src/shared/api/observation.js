@@ -1,4 +1,5 @@
-import { request, uploadImage } from './request'
+import { request, uploadImage, loadImageContent } from './request'
+import { queryString } from './query'
 
 /** 现场记录相关接口（与 server/api/openapi.yaml 契约对齐）。 */
 
@@ -31,6 +32,15 @@ export function getObservationImages(id) {
   return request(`/observations/${id}/images`)
 }
 
+export async function loadObservation(id) {
+  const [record, metadata] = await Promise.all([getObservation(id), getObservationImages(id)])
+  const images = await Promise.all((metadata.data.images || []).map(async image => ({
+    localId: `saved_${image.id}`, imageId: image.id, role: image.role,
+    localPath: await loadImageContent(image.id).catch(() => ''),
+  })))
+  return { evidence: record.data.evidence, images }
+}
+
 /** PATCH /observations/{id} 更新草稿位置/现场判断。 */
 export function updateObservation(id, revision, patch) {
   return request(`/observations/${id}`, { method: 'PATCH', data: { revision, ...patch } })
@@ -56,11 +66,7 @@ export function submitObservation(observationId, revision) {
 
 /** GET /observations 记录列表（按任务/状态过滤，巡检员只看本人记录）。 */
 export function listObservations(params = {}) {
-  const qs = new URLSearchParams()
-  if (params.task_id) qs.set('task_id', String(params.task_id))
-  if (params.status) qs.set('status', params.status)
-  if (params.page_size) qs.set('page_size', String(params.page_size))
-  const q = qs.toString()
+  const q = queryString(params)
   return request(`/observations${q ? `?${q}` : ''}`)
 }
 

@@ -70,6 +70,17 @@ C:\environment\citywall-python312\Scripts\python.exe scripts/train_model.py --de
 
 ## 验证
 
+完整软件验收使用隔离的 Docker 项目，执行单元检查、前端构建、数据库集成测试及业务闭环，结束后自动删除测试容器与数据卷：
+
+```powershell
+C:\environment\citywall-python312\Scripts\python.exe -m pip install -r scripts/requirements-test.txt
+.\scripts\verify.ps1
+```
+
+可通过 -Python、-MySQLPort、-APIPort、-WebPort 指定本机环境。-SkipBuildChecks 仅执行数据库集成和业务联调，适合构建检查已经通过后的部署复验。测试 PDF 保存在 C:\code\tmp 的独立目录。
+
+分项检查：
+
 ```powershell
 cd server
 go test ./...

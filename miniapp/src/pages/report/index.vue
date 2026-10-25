@@ -1,11 +1,12 @@
 <template>
   <view class="page">
+    <view v-if="returnReason" class="return-reason">退回原因：{{ returnReason }}</view>
     <view class="field">
       <view class="field-label">发现位置 <text class="req">必填</text></view>
       <view class="loc-box">
         <view class="loc-line"><view class="loc-dot" />位置描述：{{ locationText || '待填写' }}</view>
         <input class="input" v-model="locationText" placeholder="填写具体位置描述" />
-        <LocationCapture @change="location = $event" />
+        <LocationCapture :value="location" @change="location = $event" />
       </view>
     </view>
 
@@ -74,6 +75,7 @@
     </view>
 
     <view class="bottombar">
+      <button class="btn-ghost" :loading="submitting" @tap="saveDraft">保存草稿</button>
       <button class="btn-primary" :loading="submitting" @tap="submit">提交上报</button>
       <view class="note">主动上报将由审核员在管理端审核，可驳回</view>
     </view>
@@ -82,6 +84,7 @@
 
 <script setup>
 import { computed, ref } from 'vue'
+import { onLoad } from '@dcloudio/uni-app'
 import LocationCapture from '../../shared/ui/LocationCapture.vue'
 import {
   createObservation,
@@ -90,6 +93,7 @@ import {
   saveConclusion,
   submitObservation,
   removeImage as deleteImage,
+  loadObservation,
 } from '../../shared/api/observation'
 
 const outcomes = [
@@ -108,6 +112,7 @@ const outcome = ref(null)
 const overall = ref('SUSPECTED')
 const conclusionItems = ref([])
 const submitting = ref(false)
+const returnReason = ref('')
 
 const slots = computed(() => Math.max(0, 6 - images.value.length))
 
@@ -119,7 +124,33 @@ async function boot() {
     uni.showToast({ title: '创建记录失败', icon: 'none' })
   }
 }
-boot()
+onLoad(async query => {
+  if (!query.observationId) { await boot(); return }
+  try {
+    const { evidence, images: savedImages } = await loadObservation(Number(query.observationId))
+    const record = evidence.observation
+    if (record.source !== 'VOLUNTARY' || !['DRAFT', 'RETURNED'].includes(record.status)) {
+      uni.redirectTo({ url: `/pages/records/index?observationId=${record.id}` })
+      return
+    }
+    obs.value = record
+    images.value = savedImages
+    locationText.value = record.location_text
+    outcome.value = record.inspection_outcome
+    if (record.latitude != null && record.longitude != null) {
+      location.value = { latitude: record.latitude, longitude: record.longitude, accuracy_m: record.accuracy_m, captured_at: record.captured_at }
+    }
+    const latest = evidence.conclusions[evidence.conclusions.length - 1]
+    if (latest) {
+      overall.value = latest.outcome
+      description.value = latest.description
+      conclusionItems.value = evidence.items
+        .filter(item => item.conclusion_revision_id === latest.id && images.value.some(image => image.imageId === item.image_id))
+        .map(item => ({ ...item, imageId: item.image_id }))
+    }
+    if (record.status === 'RETURNED') returnReason.value = evidence.reviews[evidence.reviews.length - 1]?.reason || '请补充现场信息'
+  } catch { uni.showToast({ title: '加载记录失败', icon: 'none' }) }
+})
 
 function chooseImage() {
   uni.chooseImage({
@@ -129,7 +160,7 @@ function chooseImage() {
     success: (res) => {
       const localPath = res.tempFilePaths[0]
       if (!obs.value) return
-      const role = images.value.length === 0 ? 'OVERVIEW' : 'DETAIL'
+      const role = images.value.some(image => image.role === 'OVERVIEW') ? 'DETAIL' : 'OVERVIEW'
       addImage(obs.value.id, localPath, role)
         .then((r) => {
           images.value.push({ localId: `img_${Date.now()}`, localPath, imageId: r.data.image.id, role })
@@ -164,59 +195,43 @@ function removeConclusion(i) {
   conclusionItems.value.splice(i, 1)
 }
 
+async function persistDraft() {
+  const updated = await updateObservation(obs.value.id, obs.value.revision, {
+    ...(location.value || {}), location_text: locationText.value.trim() || '未填写',
+    inspection_outcome: outcome.value || overall.value,
+  })
+  obs.value = updated.data.observation
+  await saveConclusion(obs.value.id, obs.value.revision, {
+    outcome: overall.value, description: description.value.trim(),
+    items: conclusionItems.value.filter(item => item.imageId && item.final_class_code).map(item => ({
+      image_id: item.imageId, decision: item.decision, final_class_code: item.final_class_code,
+      source_detection_id: item.source_detection_id, final_box_json: item.final_box_json, description: item.description,
+    })),
+  })
+  obs.value.revision++
+}
+async function saveDraft() {
+  if (!obs.value || submitting.value) return
+  submitting.value = true
+  try { await persistDraft(); uni.showToast({ title: '草稿已保存', icon: 'success' }) }
+  catch { uni.showToast({ title: '保存失败，请检查记录状态', icon: 'none' }) }
+  finally { submitting.value = false }
+}
 async function submit() {
-  if (!location.value) {
-    uni.showToast({ title: '请先获取现场定位', icon: 'none' })
-    return
-  }
-  if (!obs.value) return
-  if (!locationText.value.trim()) {
-    uni.showToast({ title: '请填写位置', icon: 'none' })
-    return
-  }
-  if (!description.value.trim()) {
-    uni.showToast({ title: '请填写现场描述', icon: 'none' })
-    return
-  }
-  if (!images.value.some((i) => i.role === 'OVERVIEW')) {
-    uni.showToast({ title: '缺少概览图', icon: 'none' })
-    return
-  }
-
+  if (!obs.value || submitting.value) return
+  if (!location.value) { uni.showToast({ title: '请先获取现场定位', icon: 'none' }); return }
+  if (!locationText.value.trim()) { uni.showToast({ title: '请填写位置', icon: 'none' }); return }
+  if (!description.value.trim()) { uni.showToast({ title: '请填写现场描述', icon: 'none' }); return }
+  if (!images.value.some(image => image.role === 'OVERVIEW')) { uni.showToast({ title: '缺少概览图', icon: 'none' }); return }
   submitting.value = true
   try {
-    let revision = obs.value.revision
-    await updateObservation(obs.value.id, revision, {
-      ...location.value,
-      location_text: locationText.value.trim(),
-      inspection_outcome: outcome.value || overall.value,
-    })
-    revision++
-    obs.value.revision = revision
-
-    await saveConclusion(obs.value.id, revision, {
-      outcome: overall.value,
-      description: description.value.trim(),
-      items: conclusionItems.value
-        .filter((it) => it.imageId && it.final_class_code)
-        .map((it) => ({
-          image_id: it.imageId,
-          decision: it.decision,
-          final_class_code: it.final_class_code,
-          description: it.description,
-        })),
-    })
-    revision++
-    obs.value.revision = revision
-
-    await submitObservation(obs.value.id, revision)
+    await persistDraft()
+    await submitObservation(obs.value.id, obs.value.revision)
     uni.showToast({ title: '已提交，等待审核', icon: 'success' })
     setTimeout(() => uni.navigateBack(), 800)
-  } catch (e) {
-    uni.showToast({ title: e && e.statusCode === 409 ? '数据已更新，请重试' : '提交失败', icon: 'none' })
-  } finally {
-    submitting.value = false
-  }
+  } catch (error) {
+    uni.showToast({ title: error?.statusCode === 409 ? '记录已更新，请返回后重试' : '提交失败，请检查必填项', icon: 'none' })
+  } finally { submitting.value = false }
 }
 </script>
 
@@ -226,6 +241,7 @@ async function submit() {
   background: #f5f1e8;
   padding: 24rpx 32rpx 200rpx;
 }
+.return-reason { padding: 24rpx; margin-bottom: 24rpx; color: #9f422d; background: #fff0e9; border-radius: 16rpx; }
 .field {
   margin-bottom: 28rpx;
 }

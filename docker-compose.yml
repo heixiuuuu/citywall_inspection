@@ -13,7 +13,7 @@ services:
     volumes:
       - mysql-data:/var/lib/mysql
     healthcheck:
-      test: [CMD-SHELL, 'mysqladmin ping -h localhost -uroot -p"$$MYSQL_ROOT_PASSWORD"']
+      test: [CMD-SHELL, 'mysql --protocol=TCP -h 127.0.0.1 -u"$$MYSQL_USER" -p"$$MYSQL_PASSWORD" "$$MYSQL_DATABASE" -e "SELECT 1"']
       interval: 5s
       timeout: 5s
       retries: 30

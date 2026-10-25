@@ -1,0 +1,6 @@
+services:
+  recognizer:
+    build:
+      target: api
+    environment:
+      RECOGNIZER_MODE: dev

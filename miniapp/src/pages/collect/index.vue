@@ -1,5 +1,6 @@
 <template>
   <view class="page">
+    <view v-if="returnReason" class="return-reason">退回原因：{{ returnReason }}</view>
     <view class="field">
       <view class="field-label">
         现场照片 <text class="req">概览图至少 1 张</text>
@@ -16,9 +17,9 @@
             {{ img.role === 'OVERVIEW' ? '概览' : '细节' }}
           </view>
         </view>
-        <view v-for="n in slots" :key="'add' + n" class="img-cell add" @tap="chooseImage(n)">＋</view>
+        <view v-for="n in slots" :key="'add' + n" class="img-cell add" @tap="chooseImage">＋</view>
       </view>
-      <view class="faint">拍照或从相册选择 · 首张标记为概览图，可切换角色</view>
+      <view class="faint">拍照或从相册选择 · 首张为概览图，后续为细节图</view>
     </view>
 
     <view class="field">
@@ -26,7 +27,7 @@
       <view class="loc-box">
         <view class="loc-line"><view class="loc-dot" />位置描述：{{ locationText || '待填写' }}</view>
         <input class="input" v-model="locationText" placeholder="填写具体位置描述" />
-        <LocationCapture @change="location = $event" />
+        <LocationCapture :value="location" @change="location = $event" />
       </view>
     </view>
 
@@ -105,6 +106,7 @@
     </view>
 
     <view class="bottombar">
+      <button class="btn-ghost" :loading="submitting" @tap="saveDraft">保存草稿</button>
       <button class="btn-primary" :loading="submitting" @tap="submit">提交记录</button>
       <view class="note">保存草稿后可继续补充 · 提交后进入待审核</view>
     </view>
@@ -124,10 +126,8 @@ import {
   submitObservation,
   listObservations,
   removeImage as deleteImage,
-  getObservation,
-  getObservationImages,
+  loadObservation,
 } from '../../shared/api/observation'
-import { loadImageContent } from '../../shared/api/request'
 
 const outcomes = [
   { value: 'NORMAL', label: '正常' },
@@ -152,6 +152,7 @@ const modelVersion = ref('')
 const recognizing = ref(false)
 const submitting = ref(false)
 const lastDetectionImageId = ref(null)
+const returnReason = ref('')
 
 function useCandidate(detection, decision) {
   const image = images.value.find(i => i.imageId === lastDetectionImageId.value)
@@ -171,7 +172,8 @@ onLoad((query) => {
   taskPointId.value = Number(query.taskPointId)
   pointName.value = decodeURIComponent(query.name || '点位')
   locationText.value = pointName.value
-  boot()
+  if (query.observationId) loadExisting(Number(query.observationId))
+  else boot()
 })
 
 const slots = computed(() => Math.max(0, 6 - images.value.length))
@@ -190,53 +192,54 @@ async function boot() {
   }
 }
 
-/** 加载该任务点已有记录（DRAFT 草稿 / RETURNED 退回补正）。 */
 async function resumeExisting() {
   try {
-    const ores = await listObservations({ task_id: taskId.value, page_size: 200 })
-    const mine = (ores.data.items || []).find((o) => o.task_point_id === taskPointId.value)
-    if (!mine) {
-      uni.showToast({ title: '记录状态异常，请返回重试', icon: 'none' })
+    const response = await listObservations({ task_point_id: taskPointId.value, page_size: 1 })
+    const record = (response.data.items || [])[0]
+    if (!record) throw new Error('record missing')
+    await loadExisting(record.id)
+  } catch {
+    uni.showToast({ title: '加载已有记录失败', icon: 'none' })
+  }
+}
+
+async function loadExisting(id) {
+  try {
+    const loaded = await loadObservation(id)
+    const evidence = loaded.evidence
+    const record = evidence.observation
+    if (record.source !== 'TASK' || !['DRAFT', 'RETURNED'].includes(record.status)) {
+      uni.redirectTo({ url: `/pages/records/index?observationId=${id}` })
       return
     }
-    obs.value = mine
-    const evidence = (await getObservation(mine.id)).data.evidence
-    const metas = (await getObservationImages(mine.id)).data.images || []
-    images.value = await Promise.all(metas.map(async image => ({
-      localId: `saved_${image.id}`, imageId: image.id, role: image.role,
-      localPath: await loadImageContent(image.id),
-    })))
-    locationText.value = mine.location_text
-    if (mine.latitude != null && mine.longitude != null) {
-      location.value = { latitude: mine.latitude, longitude: mine.longitude, accuracy_m: mine.accuracy_m, captured_at: mine.captured_at }
+    obs.value = record
+    images.value = loaded.images
+    locationText.value = record.location_text
+    outcome.value = record.inspection_outcome
+    if (record.latitude != null && record.longitude != null) {
+      location.value = { latitude: record.latitude, longitude: record.longitude, accuracy_m: record.accuracy_m, captured_at: record.captured_at }
     }
     const latest = evidence.conclusions[evidence.conclusions.length - 1]
     if (latest) {
       overall.value = latest.outcome
       overallNote.value = latest.description
-      conclusionItems.value = evidence.items.filter(item => item.conclusion_revision_id === latest.id).map(item => ({
-        ...item, imageId: item.image_id, thumb: images.value.find(image => image.imageId === item.image_id)?.localPath || '',
-      }))
+      conclusionItems.value = evidence.items
+        .filter(item => item.conclusion_revision_id === latest.id && images.value.some(image => image.imageId === item.image_id))
+        .map(item => ({ ...item, imageId: item.image_id, thumb: images.value.find(image => image.imageId === item.image_id)?.localPath || '' }))
     }
-    const latestAttempt = evidence.attempts[evidence.attempts.length - 1]
-    if (latestAttempt) {
-      lastDetectionImageId.value = latestAttempt.image_id
-      modelVersion.value = latestAttempt.model_version
-      detections.value = evidence.detections.filter(item => item.attempt_id === latestAttempt.id)
+    const attempt = evidence.attempts[evidence.attempts.length - 1]
+    if (attempt) {
+      lastDetectionImageId.value = attempt.image_id
+      modelVersion.value = attempt.model_version
+      detections.value = evidence.detections.filter(item => item.attempt_id === attempt.id)
     }
-    if (mine.status === 'RETURNED') {
-      uni.showToast({ title: '该点位已退回，请补正后重新提交', icon: 'none' })
-    } else if (mine.status === 'SUBMITTED' || mine.status === 'ACCEPTED') {
-      uni.showToast({ title: '该点位已提交，不可重复采集', icon: 'none' })
-    } else {
-      uni.showToast({ title: '继续编辑已有记录', icon: 'none' })
-    }
-  } catch (err) {
+    if (record.status === 'RETURNED') returnReason.value = evidence.reviews[evidence.reviews.length - 1]?.reason || '请补充现场信息'
+  } catch {
     uni.showToast({ title: '加载已有记录失败', icon: 'none' })
   }
 }
 
-function chooseImage(slotIndex) {
+function chooseImage() {
   uni.chooseImage({
     count: 1,
     sizeType: ['compressed'],
@@ -247,8 +250,7 @@ function chooseImage(slotIndex) {
         uni.showToast({ title: '记录尚未创建', icon: 'none' })
         return
       }
-      // 首张为概览图；slotIndex >= 1 用户可指定（MVP：新图默认为细节图，首张概览）。
-      const role = images.value.length === 0 ? 'OVERVIEW' : 'DETAIL'
+      const role = images.value.some(image => image.role === 'OVERVIEW') ? 'DETAIL' : 'OVERVIEW'
       addImage(obs.value.id, localPath, role)
         .then((r) => {
           const image = r.data.image
@@ -325,64 +327,47 @@ function removeConclusion(i) {
   conclusionItems.value.splice(i, 1)
 }
 
-async function submit() {
-  if (!obs.value) return
-  if (!locationText.value.trim()) {
-    uni.showToast({ title: '请填写位置', icon: 'none' })
-    return
-  }
-  if (!images.value.some((i) => i.role === 'OVERVIEW')) {
-    uni.showToast({ title: '缺少概览图', icon: 'none' })
-    return
-  }
-  if (!overall.value) {
-    uni.showToast({ title: '请选择总体结论', icon: 'none' })
-    return
-  }
+async function persistDraft() {
+  const updated = await updateObservation(obs.value.id, obs.value.revision, {
+    ...(location.value || {}),
+    location_text: locationText.value.trim(),
+    inspection_outcome: outcome.value || overall.value,
+  })
+  obs.value = updated.data.observation
+  await saveConclusion(obs.value.id, obs.value.revision, {
+    outcome: overall.value,
+    description: overallNote.value,
+    items: conclusionItems.value.filter(item => item.imageId && item.final_class_code).map(item => ({
+      image_id: item.imageId, source_detection_id: item.source_detection_id,
+      final_box_json: item.final_box_json, decision: item.decision,
+      final_class_code: item.final_class_code, description: item.description,
+    })),
+  })
+  obs.value.revision++
+}
 
+async function saveDraft() {
+  if (!obs.value || submitting.value) return
+  submitting.value = true
+  try { await persistDraft(); uni.showToast({ title: '草稿已保存', icon: 'success' }) }
+  catch { uni.showToast({ title: '保存失败，请检查记录状态', icon: 'none' }) }
+  finally { submitting.value = false }
+}
+
+async function submit() {
+  if (!obs.value || submitting.value) return
+  if (!locationText.value.trim()) { uni.showToast({ title: '请填写位置', icon: 'none' }); return }
+  if (!images.value.some(image => image.role === 'OVERVIEW')) { uni.showToast({ title: '缺少概览图', icon: 'none' }); return }
+  if (!overall.value) { uni.showToast({ title: '请选择总体结论', icon: 'none' }); return }
   submitting.value = true
   try {
-    // 1) 更新位置与现场判断。
-    let revision = obs.value.revision
-    await updateObservation(obs.value.id, revision, {
-      ...(location.value || {}),
-      location_text: locationText.value.trim(),
-      inspection_outcome: outcome.value || overall.value,
-    })
-    revision++
-    obs.value.revision = revision
-
-    // 2) 保存人工结论（整体替换）。
-    await saveConclusion(obs.value.id, revision, {
-      outcome: overall.value,
-      description: overallNote.value,
-      items: conclusionItems.value
-        .filter((it) => it.imageId && it.final_class_code)
-        .map((it) => ({
-          image_id: it.imageId,
-          source_detection_id: it.source_detection_id,
-          final_box_json: it.final_box_json,
-          decision: it.decision,
-          final_class_code: it.final_class_code,
-          description: it.description,
-        })),
-    })
-    revision++
-    obs.value.revision = revision
-
-    // 3) 提交记录。
-    await submitObservation(obs.value.id, revision)
+    await persistDraft()
+    await submitObservation(obs.value.id, obs.value.revision)
     uni.showToast({ title: '已提交，等待审核', icon: 'success' })
     setTimeout(() => uni.navigateBack(), 800)
-  } catch (e) {
-    if (e && e.statusCode === 409) {
-      uni.showToast({ title: '数据已更新，请重试', icon: 'none' })
-    } else {
-      uni.showToast({ title: '提交失败，请检查必填项', icon: 'none' })
-    }
-  } finally {
-    submitting.value = false
-  }
+  } catch (error) {
+    uni.showToast({ title: error?.statusCode === 409 ? '记录已更新，请返回后重试' : '提交失败，请检查必填项', icon: 'none' })
+  } finally { submitting.value = false }
 }
 </script>
 
@@ -392,6 +377,7 @@ async function submit() {
   background: #f5f1e8;
   padding: 24rpx 32rpx 200rpx;
 }
+.return-reason { padding: 24rpx; margin-bottom: 24rpx; color: #9f422d; background: #fff0e9; border-radius: 16rpx; }
 .field {
   margin-bottom: 28rpx;
 }
