@@ -136,7 +136,7 @@ type Service interface {
 	AcceptedAdmissionInfo(ctx context.Context, obsID int64) (*AcceptedInfo, error)
 }
 
-func (s *service) RemoveImage(ctx context.Context, actor *middleware.Actor, observationID, imageID int64) error {
+func (s *service) removeImage(ctx context.Context, actor *middleware.Actor, observationID, imageID int64) error {
 	o, err := s.repo.GetByID(ctx, observationID)
 	if err != nil {
 		return ErrNotFound
@@ -234,7 +234,7 @@ func (s *service) Create(ctx context.Context, actor *middleware.Actor, source st
 	return o, nil
 }
 
-func (s *service) Update(ctx context.Context, actor *middleware.Actor, id, revision int64, in PatchInput) (*Observation, error) {
+func (s *service) update(ctx context.Context, actor *middleware.Actor, id, revision int64, in PatchInput) (*Observation, error) {
 	o, err := s.repo.GetByID(ctx, id)
 	if err != nil {
 		return nil, ErrNotFound
@@ -269,8 +269,10 @@ func (s *service) Update(ctx context.Context, actor *middleware.Actor, id, revis
 	if err := s.repo.Update(ctx, o); err != nil {
 		return nil, err
 	}
-	if _, err := s.repo.BumpRevision(ctx, id, revision); err != nil {
+	if count, err := s.repo.BumpRevision(ctx, id, revision); err != nil {
 		return nil, err
+	} else if count == 0 {
+		return nil, ErrStatusConflict
 	}
 	o.Revision++
 	return o, nil
@@ -435,7 +437,7 @@ func (s *service) Recognize(ctx context.Context, actor *middleware.Actor, imageI
 	return attempt, detections, nil
 }
 
-func (s *service) SaveConclusion(ctx context.Context, actor *middleware.Actor, obsID, revision int64, in ConclusionInput) (*ConclusionRevision, error) {
+func (s *service) saveConclusion(ctx context.Context, actor *middleware.Actor, obsID, revision int64, in ConclusionInput) (*ConclusionRevision, error) {
 	o, err := s.repo.GetByID(ctx, obsID)
 	if err != nil {
 		return nil, ErrNotFound
@@ -487,14 +489,16 @@ func (s *service) SaveConclusion(ctx context.Context, actor *middleware.Actor, o
 	if err := s.repo.InsertConclusion(ctx, rev, items); err != nil {
 		return nil, err
 	}
-	if _, err := s.repo.BumpRevision(ctx, obsID, revision); err != nil {
+	if count, err := s.repo.BumpRevision(ctx, obsID, revision); err != nil {
 		return nil, err
+	} else if count == 0 {
+		return nil, ErrStatusConflict
 	}
 	o.Revision++
 	return rev, nil
 }
 
-func (s *service) Submit(ctx context.Context, actor *middleware.Actor, obsID, revision int64) (*Observation, error) {
+func (s *service) submit(ctx context.Context, actor *middleware.Actor, obsID, revision int64) (*Observation, error) {
 	o, err := s.repo.GetByID(ctx, obsID)
 	if err != nil {
 		return nil, ErrNotFound
@@ -591,7 +595,7 @@ func (s *service) Submit(ctx context.Context, actor *middleware.Actor, obsID, re
 	return o, nil
 }
 
-func (s *service) Review(ctx context.Context, actor *middleware.Actor, obsID, revision int64, in ReviewInput) (*Observation, error) {
+func (s *service) review(ctx context.Context, actor *middleware.Actor, obsID, revision int64, in ReviewInput) (*Observation, error) {
 	if !isAdminOrReviewer(actor) {
 		return nil, ErrForbidden
 	}

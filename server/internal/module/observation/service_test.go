@@ -26,6 +26,10 @@ type fakeObsRepo struct {
 	next      int64
 }
 
+func (f *fakeObsRepo) Transaction(ctx context.Context, operation func(Repository) error) error {
+	return operation(f)
+}
+
 func (f *fakeObsRepo) LoadEvidence(_ context.Context, _ int64) (*Evidence, error) {
 	return &Evidence{Attempts: f.attempts, Detections: f.detect, Conclusions: f.concl, Reviews: f.decisions}, nil
 }

@@ -5,10 +5,12 @@ import (
 	"time"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // Repository 现场记录数据访问接口。
 type Repository interface {
+	Transaction(ctx context.Context, operation func(Repository) error) error
 	UnlinkImage(ctx context.Context, observationID, imageID int64) error
 	LoadEvidence(ctx context.Context, id int64) (*Evidence, error)
 	Insert(ctx context.Context, o *Observation) error
@@ -52,7 +54,14 @@ func (r *GORMRepository) UnlinkImage(ctx context.Context, observationID, imageID
 
 // GORMRepository 基于 GORM 的实现。
 type GORMRepository struct {
-	db *gorm.DB
+	db      *gorm.DB
+	locking bool
+}
+
+func (r *GORMRepository) Transaction(ctx context.Context, operation func(Repository) error) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		return operation(&GORMRepository{db: tx, locking: true})
+	})
 }
 
 // NewGORMRepository 构造现场记录仓储。
@@ -66,7 +75,11 @@ func (r *GORMRepository) Insert(ctx context.Context, o *Observation) error {
 
 func (r *GORMRepository) GetByID(ctx context.Context, id int64) (*Observation, error) {
 	var o Observation
-	if err := r.db.WithContext(ctx).First(&o, id).Error; err != nil {
+	query := r.db.WithContext(ctx)
+	if r.locking {
+		query = query.Clauses(clause.Locking{Strength: "UPDATE"})
+	}
+	if err := query.First(&o, id).Error; err != nil {
 		return nil, err
 	}
 	return &o, nil
@@ -122,11 +135,18 @@ func (r *GORMRepository) GetImage(ctx context.Context, id int64) (*Image, error)
 }
 
 func (r *GORMRepository) LinkImage(ctx context.Context, obsID, imageID int64, role string) error {
-	return r.db.WithContext(ctx).Create(&ObservationImage{
-		ObservationID: obsID,
-		ImageID:       imageID,
-		ImageRole:     role,
-	}).Error
+	return r.Transaction(ctx, func(repo Repository) error {
+		observation, err := repo.GetByID(ctx, obsID)
+		if err != nil {
+			return err
+		}
+		if observation.Status != ObsDraft && observation.Status != ObsReturned {
+			return ErrInvalidState
+		}
+		return repo.(*GORMRepository).db.Create(&ObservationImage{
+			ObservationID: obsID, ImageID: imageID, ImageRole: role,
+		}).Error
+	})
 }
 
 func (r *GORMRepository) ListImages(ctx context.Context, obsID int64) ([]ObservationImage, error) {
