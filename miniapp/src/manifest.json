@@ -5,6 +5,9 @@
   "versionName": "0.2.0",
   "versionCode": "200",
   "transformPx": false,
+  "uniStatistics": {
+    "enable": false
+  },
   "app-plus": {
     "usingComponents": true,
     "compilerVersion": 3,

@@ -18,14 +18,16 @@
 
 <script setup>
 import { ref } from 'vue'
+import { onLoad } from '@dcloudio/uni-app'
 import { wechatLogin, accountLogin } from '../../shared/api/task'
 import { getBaseUrl } from '../../shared/api/request'
-import { setToken, setUser } from '../../shared/auth/auth'
+import { setToken, setUser, isLoggedIn } from '../../shared/auth/auth'
 
 const loading = ref(false)
 const username = ref('')
 const password = ref('')
 const apiBase = ref(getBaseUrl())
+onLoad(() => { if (isLoggedIn()) uni.reLaunch({ url: '/pages/tasks/index' }) })
 
 function acceptSession(res) {
   setToken(res.data.token)
@@ -34,6 +36,7 @@ function acceptSession(res) {
 }
 
 function login() {
+  if (loading.value) return
   if (!username.value.trim() || !password.value) {
     uni.showToast({ title: '请输入账号和密码', icon: 'none' })
     return

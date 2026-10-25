@@ -239,7 +239,7 @@ async function submit() {
 .page {
   min-height: 100vh;
   background: #f5f1e8;
-  padding: 24rpx 32rpx 200rpx;
+  padding: 24rpx 32rpx calc(320rpx + env(safe-area-inset-bottom));
 }
 .return-reason { padding: 24rpx; margin-bottom: 24rpx; color: #9f422d; background: #fff0e9; border-radius: 16rpx; }
 .field {
@@ -279,6 +279,7 @@ async function submit() {
 }
 .input {
   width: 100%;
+  min-height: 88rpx;
   border: 1rpx solid #e6e1d5;
   border-radius: 16rpx;
   padding: 18rpx 20rpx;
@@ -292,6 +293,8 @@ textarea.input {
 }
 .input-sm {
   flex: 1;
+  min-height: 64rpx;
+  box-sizing: border-box;
   border: 1rpx solid #e6e1d5;
   border-radius: 10rpx;
   padding: 8rpx 14rpx;
@@ -413,6 +416,7 @@ textarea.input {
   background: #fff;
   border-top: 1rpx solid #e6e1d5;
   padding: 20rpx 32rpx;
+  padding-bottom: calc(20rpx + env(safe-area-inset-bottom));
   display: flex;
   flex-direction: column;
   gap: 6rpx;

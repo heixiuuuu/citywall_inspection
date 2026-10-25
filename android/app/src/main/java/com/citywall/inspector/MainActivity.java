@@ -5,6 +5,7 @@ import android.app.Activity;
 import android.content.Intent;
 import android.net.Uri;
 import android.os.Bundle;
+import android.provider.MediaStore;
 import android.webkit.ConsoleMessage;
 import android.webkit.GeolocationPermissions;
 import android.Manifest;
@@ -18,6 +19,9 @@ import android.webkit.WebView;
 import android.webkit.WebViewClient;
 
 import androidx.webkit.WebViewAssetLoader;
+import androidx.core.content.FileProvider;
+import java.io.File;
+import java.io.IOException;
 
 /** uni-app H5 构建产物的 Android WebView 壳（WebViewAssetLoader 提供安全本地加载）。 */
 public class MainActivity extends Activity {
@@ -26,6 +30,7 @@ public class MainActivity extends Activity {
     private ValueCallback<Uri[]> filePathCallback;
     private GeolocationPermissions.Callback locationCallback;
     private String locationOrigin;
+    private Uri cameraOutput;
 
     @SuppressLint("SetJavaScriptEnabled")
     @Override
@@ -74,11 +79,12 @@ public class MainActivity extends Activity {
         webView.setWebChromeClient(new WebChromeClient() {
             @Override
             public void onGeolocationPermissionsShowPrompt(String origin, GeolocationPermissions.Callback callback) {
-                if (!origin.startsWith("https://appassets.androidplatform.net")) {
+                Uri source = Uri.parse(origin);
+                if (!"https".equals(source.getScheme()) || !"appassets.androidplatform.net".equals(source.getHost())) {
                     callback.invoke(origin, false, false);
                     return;
                 }
-                if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+                if (hasLocationPermission()) {
                     callback.invoke(origin, true, false);
                 } else {
                     locationCallback = callback;
@@ -94,11 +100,27 @@ public class MainActivity extends Activity {
                 }
                 MainActivity.this.filePathCallback = filePath;
                 Intent intent = fileChooserParams.createIntent();
+                Intent chooser = Intent.createChooser(intent, "选择巡检照片");
+                Intent camera = new Intent(MediaStore.ACTION_IMAGE_CAPTURE);
+                cameraOutput = null;
+                if (camera.resolveActivity(getPackageManager()) != null) {
+                    try {
+                        File photo = File.createTempFile("inspection-", ".jpg", getCacheDir());
+                        cameraOutput = FileProvider.getUriForFile(MainActivity.this,
+                                BuildConfig.APPLICATION_ID + ".photos", photo);
+                        camera.putExtra(MediaStore.EXTRA_OUTPUT, cameraOutput);
+                        camera.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+                        chooser.putExtra(Intent.EXTRA_INITIAL_INTENTS, new Intent[]{camera});
+                    } catch (IOException e) {
+                        cameraOutput = null;
+                    }
+                }
                 try {
-                    startActivityForResult(intent, 1001);
+                    startActivityForResult(chooser, 1001);
                 } catch (Exception e) {
+                    filePath.onReceiveValue(null);
                     MainActivity.this.filePathCallback = null;
-                    return false;
+                    return true;
                 }
                 return true;
             }
@@ -119,10 +141,15 @@ public class MainActivity extends Activity {
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (requestCode == 1002 && locationCallback != null) {
-            boolean granted = grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED;
+            boolean granted = hasLocationPermission();
             locationCallback.invoke(locationOrigin, granted, false);
             locationCallback = null;
         }
+    }
+
+    private boolean hasLocationPermission() {
+        return checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+                || checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED;
     }
 
     @Override
@@ -140,6 +167,10 @@ public class MainActivity extends Activity {
                     results = new Uri[]{data.getData()};
                 }
             }
+            if (resultCode == RESULT_OK && results == null && cameraOutput != null) {
+                results = new Uri[]{cameraOutput};
+            }
+            cameraOutput = null;
             if (filePathCallback != null) {
                 filePathCallback.onReceiveValue(results);
                 filePathCallback = null;
@@ -159,6 +190,10 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        if (filePathCallback != null) {
+            filePathCallback.onReceiveValue(null);
+            filePathCallback = null;
+        }
         if (webView != null) {
             webView.destroy();
         }

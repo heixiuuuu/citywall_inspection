@@ -62,5 +62,6 @@ scripts/_apk_out/
 scripts/_gradle.zip
 scripts/_*.png
 android/.gradle/
+android/build/
 android/local.properties
 *.keystore

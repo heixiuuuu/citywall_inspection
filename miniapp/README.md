@@ -10,11 +10,10 @@ uni-app / Vue 3 工程，支持账号密码登录、任务分页查询、现场�
 
 ## Android APK
 
-android 工程使用 WebViewAssetLoader 加载 H5 文件，支持文件选择和定位权限申请。需安装 JDK 17、Android SDK 35 及与 Android Gradle Plugin 8.13.2 兼容的 Gradle，并配置 JAVA_HOME、ANDROID_HOME。
+android 工程使用 WebViewAssetLoader 加载 H5 文件，通过系统相机或文件选择器获取照片，使用 FileProvider 回传拍照文件，并申请定位权限。需安装 JDK 17、Android SDK 35 和 Build Tools 35.0.0，配置 JAVA_HOME、ANDROID_HOME。Gradle Wrapper 固定使用 8.13 并校验分发包哈希。
 
-1. 在 miniapp 执行 `npm run build:h5`。
-2. 将 dist/build/h5 的内容同步至 android/app/src/main/assets/www。
-3. 在 android 执行 `gradle assembleDebug`。
-4. 将 app/build/outputs/apk/debug/app-debug.apk 安装到设备，验证相机、定位、网络及后台恢复。
+在仓库根目录执行 `./scripts/build_android.ps1`，脚本构建 H5、同步资源并生成 android/app/build/outputs/apk/debug/app-debug.apk。H5 已完成构建时可传入 -SkipWebBuild。
+
+安装到设备后，验证登录、系统相机拍照回传、图片上传、定位授权与拒绝、任务草稿恢复和后台恢复。模拟器可验证软件集成，真实定位精度与现场相机效果需用实机核验。
 
 App 资源构建成功不能代替 APK 构建与真机验收。正式签名通过本地 Gradle 属性配置，不将签名文件与密码提交到仓库。

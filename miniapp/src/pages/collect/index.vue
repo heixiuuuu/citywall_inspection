@@ -375,7 +375,7 @@ async function submit() {
 .page {
   min-height: 100vh;
   background: #f5f1e8;
-  padding: 24rpx 32rpx 200rpx;
+  padding: 24rpx 32rpx calc(320rpx + env(safe-area-inset-bottom));
 }
 .return-reason { padding: 24rpx; margin-bottom: 24rpx; color: #9f422d; background: #fff0e9; border-radius: 16rpx; }
 .field {
@@ -472,6 +472,7 @@ async function submit() {
   background: #2f6f63;
 }
 .input {
+  min-height: 88rpx;
   width: 100%;
   border: 1rpx solid #e6e1d5;
   border-radius: 16rpx;
@@ -486,6 +487,8 @@ textarea.input {
   margin-top: 12rpx;
 }
 .input-sm {
+  min-height: 64rpx;
+  box-sizing: border-box;
   flex: 1;
   border: 1rpx solid #e6e1d5;
   border-radius: 10rpx;
@@ -604,6 +607,7 @@ textarea.input {
   background: #fff;
   border-top: 1rpx solid #e6e1d5;
   padding: 20rpx 32rpx;
+  padding-bottom: calc(20rpx + env(safe-area-inset-bottom));
   display: flex;
   flex-direction: column;
   gap: 6rpx;
