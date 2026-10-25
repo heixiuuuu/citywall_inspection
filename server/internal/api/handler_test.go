@@ -72,6 +72,10 @@ func (fakeSite) CreatePoint(_ context.Context, in site.CreatePointInput) (*site.
 
 type fakeTask struct{ failWith error }
 
+func (f *fakeTask) ListAssignees(context.Context, *middleware.Actor) ([]task.Assignee, error) {
+	return []task.Assignee{{ID: 3, DisplayName: "巡检员"}}, nil
+}
+
 func hasRoleTest(a *middleware.Actor, role string) bool {
 	for _, r := range a.Roles {
 		if r == role {

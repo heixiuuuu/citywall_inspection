@@ -102,6 +102,6 @@ cd ../recognizer
 C:\environment\citywall-python312\Scripts\python.exe -m pytest tests -q
 ```
 
-业务服务运行时，可从仓库根执行 scripts/e2e_scenarios.py、scripts/e2e_issue.py、scripts/e2e_report.py、scripts/e2e_idempotency.py 和 scripts/e2e_evidence.py。脚本会写入数据，应仅在隔离测试环境运行，依赖 requests 和 Pillow。可通过 CITY_WALL_API_BASE 指定测试服务，默认 http://127.0.0.1:8080/api/v1。
+业务验收脚本会写入数据，由 verify.ps1 在隔离环境创建所需账号并统一执行。单独执行脚本时必须准备相同的测试数据；e2e_evidence.py 需要额外的 inspector_other 巡检账号，密码为 Insp123。CITY_WALL_API_BASE 指定测试服务，默认 http://127.0.0.1:8080/api/v1。
 
 接口定义见 [OpenAPI](server/api/openapi.yaml)，架构与边界见 [系统架构](docs/architecture.md)。

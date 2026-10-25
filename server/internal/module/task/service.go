@@ -11,6 +11,7 @@ import (
 
 // 领域错误（Handler 映射 HTTP 状态）。
 var (
+	ErrInvalidAssignee = errors.New("task: assignee must be an active inspector")
 	// ErrNotImplemented 占位错误。
 	ErrNotImplemented = errors.New("task: not implemented yet")
 	// ErrStatusConflict 状态或 revision 冲突（409）。
@@ -49,6 +50,7 @@ type CreateInput struct {
 
 // Repository 任务数据访问接口。
 type Repository interface {
+	ListAssignees(ctx context.Context) ([]Assignee, error)
 	InsertTask(ctx context.Context, t *Task) error
 	InsertTaskPoints(ctx context.Context, taskID int64, pointIDs []int64) error
 	GetByID(ctx context.Context, id int64) (*Task, error)
@@ -87,6 +89,7 @@ type ListResult struct {
 
 // Service 任务业务规则。
 type Service interface {
+	ListAssignees(ctx context.Context, actor *middleware.Actor) ([]Assignee, error)
 	// Create 创建草稿任务（管理员）。
 	Create(ctx context.Context, actor *middleware.Actor, in CreateInput) (*Task, error)
 	// Dispatch 派发任务：DRAFT → ASSIGNED，写点位快照（管理员）。
@@ -110,6 +113,31 @@ type service struct {
 	audit       audit.Recorder
 }
 
+type Assignee struct {
+	ID          int64  `json:"id"`
+	DisplayName string `json:"display_name"`
+}
+
+func (s *service) ListAssignees(ctx context.Context, actor *middleware.Actor) ([]Assignee, error) {
+	if !hasRole(actor, "ADMIN") && !hasRole(actor, "REVIEWER") {
+		return nil, ErrForbidden
+	}
+	return s.repo.ListAssignees(ctx)
+}
+
+func (s *service) validateAssignee(ctx context.Context, id int64) error {
+	users, err := s.repo.ListAssignees(ctx)
+	if err != nil {
+		return err
+	}
+	for _, user := range users {
+		if user.ID == id {
+			return nil
+		}
+	}
+	return ErrInvalidAssignee
+}
+
 // NewService 构造任务服务。
 // obs 为任务点记录状态提供者；pointGetter 由 site 模块提供（派发时读取点位当前信息）；
 // rec 为审计记录器（可为 no-op，审计失败不阻断业务）。
@@ -128,6 +156,9 @@ func (s *service) Create(ctx context.Context, actor *middleware.Actor, in Create
 	}
 	if len(in.PointIDs) == 0 {
 		return nil, ErrNoPoints
+	}
+	if err := s.validateAssignee(ctx, in.AssigneeID); err != nil {
+		return nil, err
 	}
 	seen := map[int64]bool{}
 	for _, pid := range in.PointIDs {
@@ -169,6 +200,9 @@ func (s *service) Dispatch(ctx context.Context, actor *middleware.Actor, taskID,
 	}
 	if t.Revision != revision {
 		return nil, ErrStatusConflict
+	}
+	if err := s.validateAssignee(ctx, t.AssigneeID); err != nil {
+		return nil, err
 	}
 	points, err := s.repo.ListPoints(ctx, taskID)
 	if err != nil {

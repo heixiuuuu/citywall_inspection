@@ -28,7 +28,9 @@ def main():
     point = call("POST", "/inspection-points", admin, 201, json=point_payload)["point"]
     call("PUT", f'/inspection-points/{point["id"]}', inspector, 403, json=point_payload)
     call("PUT", f'/inspection-points/{point["id"]}', admin, json={**point_payload, "name": "已维护点位"})
-    denied_task = call("POST", "/tasks", admin, 201, json={"title": "权限验收", "assignee_id": 1, "point_ids": [point["id"]]})["task"]
+    other_inspector = login("inspector_other", "Insp123")
+    other_id = call("GET", "/me", other_inspector)["user"]["id"]
+    denied_task = call("POST", "/tasks", admin, 201, json={"title": "权限验收", "assignee_id": other_id, "point_ids": [point["id"]]})["task"]
     call("POST", f'/tasks/{denied_task["id"]}/dispatch', admin, json={"revision": denied_task["revision"]})
     task_point = call("GET", f'/tasks/{denied_task["id"]}', admin)["points"][0]
     call("POST", "/observations", inspector, 403, json={"source": "TASK", "task_point_id": task_point["id"], "location_text": "其他人的任务"})
@@ -69,6 +71,10 @@ def main():
     private = call("POST", "/observations", admin, 201, json={"source": "VOLUNTARY", "location_text": "其他人的记录"})["observation"]
     call("GET", f'/observations/{private["id"]}', inspector, 403)
     own_task = call("POST", "/tasks", admin, 201, json={"title": "记录定位查询", "assignee_id": 3, "point_ids": [point["id"]]})["task"]
+    assignees = call("GET", "/tasks/assignees", admin)["items"]
+    assert any(user["id"] == 3 for user in assignees) and all(user["id"] != 1 for user in assignees)
+    call("GET", "/tasks/assignees", inspector, 403)
+    call("POST", "/tasks", admin, 400, json={"title": "无效负责人", "assignee_id": 1, "point_ids": [point["id"]]})
     call("POST", f'/tasks/{own_task["id"]}/dispatch', admin, json={"revision": 1})
     own_point = call("GET", f'/tasks/{own_task["id"]}', inspector)["points"][0]
     own_record = call("POST", "/observations", inspector, 201, json={"source": "TASK", "task_point_id": own_point["id"], "location_text": "任务草稿"})["observation"]

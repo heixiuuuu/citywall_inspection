@@ -42,7 +42,7 @@ func writeErr(c *gin.Context, err error) {
 	switch {
 	case err == nil:
 		return
-	case errors.Is(err, site.ErrInvalidInput):
+	case errors.Is(err, site.ErrInvalidInput), errors.Is(err, task.ErrInvalidAssignee):
 		writeError(c, http.StatusBadRequest, "VALIDATION_ERROR", err.Error())
 	case errors.Is(err, site.ErrPointNotFound), errors.Is(err, site.ErrSegmentNotFound):
 		writeError(c, http.StatusNotFound, "NOT_FOUND", err.Error())

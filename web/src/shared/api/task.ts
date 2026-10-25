@@ -1,5 +1,10 @@
 import { request } from './http'
 
+export interface Assignee { id: number; display_name: string }
+export async function fetchAssignees(): Promise<Assignee[]> {
+  return (await request<{items: Assignee[]}>('/tasks/assignees')).items
+}
+
 /** 任务接口（与 server/api/openapi.yaml 契约对齐）。 */
 
 export type TaskStatus =

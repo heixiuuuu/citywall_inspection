@@ -27,7 +27,7 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
-// runMigrations 在测试库执行 001~003 显式迁移（CREATE TABLE IF NOT EXISTS，幂等）。
+// runMigrations 自动应用尚未执行的 SQL 迁移。
 func runMigrations(db *gorm.DB) error {
 	sqlDB, err := db.DB()
 	if err != nil {

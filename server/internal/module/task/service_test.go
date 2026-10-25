@@ -12,12 +12,39 @@ import (
 // ---- fakes ----
 
 type fakeRepo struct {
-	tasks   map[int64]*Task
-	points  map[int64][]TaskPoint
-	nextID  int64
-	pointID int64
-	status  string // 用于模拟非法访问
-	refused error
+	assignees []Assignee
+	tasks     map[int64]*Task
+	points    map[int64][]TaskPoint
+	nextID    int64
+	pointID   int64
+	status    string // 用于模拟非法访问
+	refused   error
+}
+
+func (f *fakeRepo) ListAssignees(context.Context) ([]Assignee, error) {
+	if f.assignees != nil {
+		return f.assignees, nil
+	}
+	return []Assignee{{ID: 3, DisplayName: "巡检员"}}, nil
+}
+
+func TestTaskAssigneeMustRemainActiveInspector(t *testing.T) {
+	repo := &fakeRepo{tasks: map[int64]*Task{}, points: map[int64][]TaskPoint{}}
+	svc := NewService(repo, &fakeObsStatus{}, func(context.Context, int64) (PointSnapshot, error) { return PointSnapshot{}, nil }, audit.NewRecorder(nil))
+	if _, err := svc.Create(context.Background(), admin(), CreateInput{Title: "巡检", AssigneeID: 1, PointIDs: []int64{1}}); !errors.Is(err, ErrInvalidAssignee) {
+		t.Fatalf("err=%v", err)
+	}
+	task, err := svc.Create(context.Background(), admin(), CreateInput{Title: "巡检", AssigneeID: 3, PointIDs: []int64{1}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	repo.assignees = []Assignee{}
+	if _, err := svc.Dispatch(context.Background(), admin(), task.ID, 1); !errors.Is(err, ErrInvalidAssignee) {
+		t.Fatalf("err=%v", err)
+	}
+	if _, err := svc.ListAssignees(context.Background(), inspector()); !errors.Is(err, ErrForbidden) {
+		t.Fatalf("err=%v", err)
+	}
 }
 
 func newFakeRepo() *fakeRepo {

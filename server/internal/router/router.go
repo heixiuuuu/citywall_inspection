@@ -57,6 +57,7 @@ func Router(h Handlers, tm *authn.TokenManager, reqIDHeader string, idemSvc idem
 		taskGroup.POST("", h.Task.Create)
 		taskGroup.POST("/:id/dispatch", idem, h.Task.Dispatch)
 		taskGroup.GET("", h.Task.List)
+		taskGroup.GET("/assignees", h.Task.ListAssignees)
 		taskGroup.GET("/:id", h.Task.Get)
 		taskGroup.POST("/:id/submit", idem, h.Task.SubmitTask)
 		taskGroup.POST("/:id/complete", idem, h.Task.Complete)

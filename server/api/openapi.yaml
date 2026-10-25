@@ -230,6 +230,30 @@ paths:
         '200': { description: data.removed 为 true }
         '409': { $ref: '#/components/responses/Conflict' }
   # ---------- 任务 ----------
+  /api/v1/tasks/assignees:
+    get:
+      tags: [task]
+      summary: 有效巡检员选项（管理员或审核员）
+      responses:
+        '200':
+          description: 仅包含启用且拥有 INSPECTOR 角色的人员，不返回登录凭据或微信标识
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      items:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            id: { type: integer }
+                            display_name: { type: string }
+        '403':
+          description: 无权查询人员选项
   /api/v1/tasks:
     post:
       tags: [task]

@@ -16,7 +16,7 @@
           登 录
         </el-button>
       </el-form>
-      <div class="tip">MVP 演示账号：admin / Admin123（管理员）、reviewer / Review123（审核员）</div>
+      <div class="tip">本地演示账号：admin / Admin123（管理员）、reviewer / Review123（审核员）</div>
     </div>
   </div>
 </template>

@@ -18,6 +18,15 @@ func NewGORMRepository(db *gorm.DB) *GORMRepository {
 	return &GORMRepository{db: db}
 }
 
+func (r *GORMRepository) ListAssignees(ctx context.Context) ([]Assignee, error) {
+	users := make([]Assignee, 0)
+	err := r.db.WithContext(ctx).Table("users").Select("users.id, users.display_name").
+		Joins("JOIN user_roles ON user_roles.user_id = users.id").
+		Where("users.status = ? AND user_roles.role_code = ?", "ACTIVE", "INSPECTOR").
+		Order("users.display_name, users.id").Scan(&users).Error
+	return users, err
+}
+
 func (r *GORMRepository) InsertTask(ctx context.Context, t *Task) error {
 	return r.db.WithContext(ctx).Create(t).Error
 }

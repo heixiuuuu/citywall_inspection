@@ -23,6 +23,20 @@ func NewTaskHandler(svc task.Service) *TaskHandler {
 	return &TaskHandler{service: svc}
 }
 
+func (h *TaskHandler) ListAssignees(c *gin.Context) {
+	actor, ok := middleware.GetActor(c)
+	if !ok {
+		writeError(c, http.StatusUnauthorized, "UNAUTHORIZED", "not authenticated")
+		return
+	}
+	users, err := h.service.ListAssignees(c.Request.Context(), actor)
+	if err != nil {
+		writeErr(c, err)
+		return
+	}
+	writeData(c, http.StatusOK, gin.H{"items": users})
+}
+
 // Create 创建任务草稿（管理员）。响应结构见 openapi.yaml。
 func (h *TaskHandler) Create(c *gin.Context) {
 	actor, ok := middleware.GetActor(c)

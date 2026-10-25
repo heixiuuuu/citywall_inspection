@@ -23,7 +23,7 @@
           <el-tag :type="statusType(row.status)" size="small">{{ statusText(row.status) }}</el-tag>
         </template>
       </el-table-column>
-      <el-table-column prop="assignee_id" label="负责人ID" width="100" />
+      <el-table-column label="负责人" min-width="130"><template #default="{row}">{{ assigneeName(row.assignee_id) }}</template></el-table-column>
       <el-table-column label="截止" width="120">
         <template #default="{ row }">{{ row.due_at ? row.due_at.slice(0, 10) : '—' }}</template>
       </el-table-column>
@@ -59,8 +59,10 @@
         <el-form-item label="标题" required>
           <el-input v-model="createForm.title" placeholder="如：东城墙 2 号段巡检" />
         </el-form-item>
-        <el-form-item label="负责人ID" required>
-          <el-input-number v-model="createForm.assignee_id" :min="1" />
+        <el-form-item label="巡检员" required>
+          <el-select v-model="createForm.assignee_id" filterable placeholder="选择有效巡检员" style="width:100%">
+            <el-option v-for="user in assignees" :key="user.id" :value="user.id" :label="`${user.display_name}（#${user.id}）`" />
+          </el-select>
         </el-form-item>
         <el-form-item label="截止时间">
           <el-date-picker v-model="createForm.due_at" type="datetime" value-format="YYYY-MM-DDTHH:mm:ssZ" />
@@ -88,7 +90,7 @@
           <el-descriptions-item label="状态">
             <el-tag :type="statusType(detail.task.status)" size="small">{{ statusText(detail.task.status) }}</el-tag>
           </el-descriptions-item>
-          <el-descriptions-item label="负责人ID">{{ detail.task.assignee_id }}</el-descriptions-item>
+          <el-descriptions-item label="负责人">{{ assigneeName(detail.task.assignee_id) }}</el-descriptions-item>
           <el-descriptions-item label="版本">{{ detail.task.revision }}</el-descriptions-item>
           <el-descriptions-item label="截止">{{ detail.task.due_at || '—' }}</el-descriptions-item>
           <el-descriptions-item label="说明">{{ detail.task.description || '—' }}</el-descriptions-item>
@@ -112,7 +114,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { fetchTasks, createTask, fetchTask, dispatchTask, completeTask, cancelTask } from '@/shared/api/task'
+import { fetchTasks, createTask, fetchTask, dispatchTask, completeTask, cancelTask, fetchAssignees, type Assignee } from '@/shared/api/task'
 import { fetchPoints, type InspectionPoint } from '@/shared/api/site'
 
 const roles: string[] = JSON.parse(localStorage.getItem('city_wall_roles') ?? '[]')
@@ -129,6 +131,7 @@ const statusFilter = [
 
 const tasks = ref<any[]>([])
 const points = ref<InspectionPoint[]>([])
+const assignees = ref<Assignee[]>([])
 const loading = ref(false)
 const activeStatus = ref('')
 const page = ref(1)
@@ -143,9 +146,9 @@ watch(activeStatus, () => {
 
 const createVisible = ref(false)
 const creating = ref(false)
-const createForm = reactive<{ title: string; assignee_id: number; due_at: string | null; description: string; point_ids: number[] }>({
+const createForm = reactive<{ title: string; assignee_id: number | undefined; due_at: string | null; description: string; point_ids: number[] }>({
   title: '',
-  assignee_id: 1,
+  assignee_id: undefined,
   due_at: null,
   description: '',
   point_ids: [],
@@ -157,7 +160,14 @@ const detail = ref<any>(null)
 onMounted(() => {
   load()
   if (isAdmin.value) loadPoints()
+  if (canReview.value) loadAssignees()
 })
+
+async function loadAssignees() {
+  try { assignees.value = await fetchAssignees() }
+  catch { ElMessage.error('加载巡检员失败') }
+}
+function assigneeName(id: number) { return assignees.value.find(user => user.id === id)?.display_name || `#${id}` }
 
 async function load() {
   loading.value = true
@@ -213,12 +223,13 @@ function statusType(s: string) {
 }
 
 function openCreate() {
+  loadAssignees()
   createVisible.value = true
 }
 
 async function create() {
-  if (!createForm.title || !createForm.point_ids.length) {
-    ElMessage.warning('标题与点位必填')
+  if (!createForm.title || !createForm.assignee_id || !createForm.point_ids.length) {
+    ElMessage.warning('请填写标题并选择巡检员和点位')
     return
   }
   creating.value = true

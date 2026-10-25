@@ -1,13 +1,6 @@
 //go:build integration
 
-// GORM 仓储集成测试（真实 MySQL）。
-//
-// 前置：
-//   1. 本机 MySQL 3306 运行；city_wall_test 库存在且 city_wall 用户可访问；
-//   2. 迁移文件 001~003 已在测试库执行（可复用 cmd/migrate 或手动执行）。
-// 运行：
-//   cd server && go test -tags integration ./internal/module/task/ -v
-// 隔离策略：每个用例在事务中执行，结束回滚，不污染库中数据。
+// CITY_WALL_TEST_DSN 指定测试库，迁移自动执行，各用例使用回滚事务隔离数据。
 package task
 
 import (
@@ -31,7 +24,7 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
-// runMigrations 在测试库执行 001~003 显式迁移（CREATE TABLE IF NOT EXISTS，幂等）。
+// runMigrations 自动应用尚未执行的 SQL 迁移。
 func runMigrations(db *gorm.DB) error {
 	sqlDB, err := db.DB()
 	if err != nil {
