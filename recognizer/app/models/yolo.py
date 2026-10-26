@@ -1,16 +1,4 @@
-"""YOLOv8 真实推理适配器（ultralytics）。
-
-坐标系契约（03 文档第 7 节）：bbox 为「按 EXIF 方向统一后的原图像素坐标」。
-流程：
-  1. 懒加载 ultralytics 模型（首次 detect 时加载，权重缺失/损坏抛 MODEL_UNAVAILABLE）；
-  2. 解码图片 → EXIF 方向归一（ImageOps.exif_transpose）→ RGB；
-  3. 推理：ultralytics 内部做 letterbox，results[0].boxes.xyxy 已映射回传入图尺寸
-     （即 EXIF 归一后的原图坐标系），因此与契约坐标系一致；
-  4. 类别码映射：模型 int 类别 → 业务 class_code（未知标签直接跳过并计数，不静默转“正常”）；
-  5. 置信度阈值过滤。
-
-零检测返回空候选：不自动形成“正常”结论。
-"""
+"""YOLO 输出 EXIF 归一后的原图像素坐标；无候选不代表正常。"""
 from __future__ import annotations
 
 import io
@@ -21,7 +9,7 @@ from threading import Lock
 
 from PIL import Image, ImageOps
 
-from .protocol import DetectOutput, Detector
+from .protocol import DetectOutput
 from ..schemas import BBox, Detection
 
 logger = logging.getLogger(__name__)
@@ -36,31 +24,18 @@ class DetectorError(Exception):
         self.message = message
 
 
-# data.yaml 的 10 类统一映射（与 Go 端 category_code 字典保持一致）。
-DEFAULT_CLASS_NAMES: dict[int, str] = {
-    0: "CRACK",
-    1: "DISCOLOURATION",
-    2: "EFFLORESCENCE",
-    3: "SURFACE_DISSOLUTION",
-    4: "MASONRY_LOSS",
-    5: "FUNGUS",
-    6: "MOSS",
-    7: "PLANT",
-    8: "CORROSION",
-    9: "ARTISTIC",
-}
+CLASS_CODES = frozenset({
+    "CRACK", "DISCOLOURATION", "EFFLORESCENCE", "SURFACE_DISSOLUTION",
+    "MASONRY_LOSS", "FUNGUS", "MOSS", "PLANT", "CORROSION", "ARTISTIC", "W_E",
+})
 
 
 def resolve_weights_path(weights_path: str) -> Path:
-    """把配置里的权重路径解析为绝对路径。
-
-    优先级：绝对路径 → 相对当前工作目录 → 相对仓库根（config 文件上级）
-    → recognizer/models/（旧占位目录）。
-    """
+    """相对路径按当前目录和仓库根查找。"""
     p = Path(weights_path)
     if p.is_absolute():
         return p
-    for base in (Path.cwd(), Path(__file__).resolve().parents[3], Path(__file__).resolve().parents[1] / "models"):
+    for base in (Path.cwd(), Path(__file__).resolve().parents[3]):
         cand = base / weights_path
         if cand.is_file():
             return cand
@@ -73,7 +48,7 @@ class YOLODetector:
 
     weights_path: str
     confidence_threshold: float = 0.35
-    class_names: dict[int, str] = field(default_factory=lambda: dict(DEFAULT_CLASS_NAMES))
+    class_codes: frozenset[str] = CLASS_CODES
     _model: object = field(default=None, repr=False, compare=False)
     _lock: object = field(default_factory=Lock, repr=False, compare=False)
 
@@ -88,7 +63,7 @@ class YOLODetector:
 
             model = YOLO(str(resolved))
             names = getattr(model, "names", {})
-            if not names or any(self.class_names.get(int(index)) != name for index, name in names.items()):
+            if not names or any(name not in self.class_codes for name in names.values()):
                 raise DetectorError("MODEL_UNAVAILABLE", "model category names do not match business category codes")
             logger.info("YOLO model loaded: %s", resolved)
             self._model = model
@@ -127,8 +102,8 @@ class YOLODetector:
                     c_conf = float(conf[i])
                     if c_conf < self.confidence_threshold:
                         continue  # 适配器自身再按阈值过滤，与 predict(conf=) 幂等
-                    code = self.class_names.get(cls_id)
-                    if code is None:
+                    code = names.get(cls_id)
+                    if code not in self.class_codes:
                         unknown_labels += 1
                         continue  # 未知类别跳过，不静默转“正常”
                     ix1, iy1 = max(0, min(width, int(round(x1)))), max(0, min(height, int(round(y1))))

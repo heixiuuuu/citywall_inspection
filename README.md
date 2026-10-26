@@ -66,6 +66,25 @@ C:\environment\citywall-python312\Scripts\python.exe scripts/train_model.py --de
 
 数据转换输出 train / val / test、data.yaml 和 manifest.json。训练输出 best.pt、训练记录和独立测试集 evaluation.json（含逐类指标）；--deploy 才复制权重到推理目录。CUDA 环境使用 --device 0，断点继续可传 --resume data/yolo/runs/运行名/weights/last.pt。模型选择应依据验证集，独立测试集仅用于最终评估。训练与推理代码存在不代表模型准确率已通过验收，参见 [验收边界](docs/acceptance.md)。
 
+已转换 MSD 后，可使用资料目录中的青砖标注补充训练，需安装 7-Zip：
+
+本机 NVIDIA GPU 环境使用 Python 3.12 和已验证的 CUDA 13.0 PyTorch 包；首次建立环境执行：
+
+```powershell
+python -m venv C:\environment\citywall-cuda312
+C:\environment\citywall-cuda312\Scripts\python.exe -m pip install torch==2.14.1 torchvision==0.29.1 --index-url https://download.pytorch.org/whl/cu130
+C:\environment\citywall-cuda312\Scripts\python.exe -m pip install -r recognizer/requirements-yolo.txt
+```
+
+```powershell
+C:\environment\citywall-python312\Scripts\python.exe scripts/prepare_combined_dataset.py
+C:\environment\citywall-cuda312\Scripts\python.exe scripts/train_model.py --data data/yolo/dataset_combined/data.yaml --name combined_n960 --imgsz 960 --epochs 80 --batch 8 --device 0
+```
+
+合并数据保留 MSD 的全部划分；青砖数据保留原训练集，将原验证集按图片哈希分为验证与测试集。同像素图片归为一组，有标注冲突的组整体隔离，明细写入 manifest.json。当前合并后为 1,577 张，训练 1,249 张、验证 175 张、测试 153 张；其中青砖重复副本 72 份、冲突组 42 组共 93 个文件被排除。W_E 保留来源标签，不自动视为 MSD 的表面溶蚀。
+
+data.yaml 提供合并入口，msd.yaml 和 bluebrick.yaml 提供分来源入口。评估现有权重可使用 --evaluate 权重路径、--evaluation-split val 或 test，以及 --evaluation-name 自定义名称；输出对应命名的指标 JSON 和图表，记录权重哈希。新权重的类别顺序从其名称元数据读取，须属于业务类别白名单，不能依靠数字编号猜测病害。
+
 视觉语言模型使用兼容 Chat Completions 的图像输入接口。配置 .env 中的 VLM_BASE_URL（包含 /v1 等服务前缀）、VLM_MODEL 和 VLM_API_KEY 后重建识别容器。支持不要求 API Key 的本地服务。输出保存于识别尝试中，可在管理端审核页面与报告查看。未配置显示 DISABLED，失败显示 FAILED；不会生成代替模型的分析文本。
 
 本地 NVIDIA GPU 可使用 Docker 内的 Ollama 和 Qwen3-VL 2B：

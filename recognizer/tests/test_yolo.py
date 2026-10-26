@@ -18,13 +18,6 @@ def _png_bytes(size=(640, 480), color=(120, 120, 120)) -> bytes:
     return buf.getvalue()
 
 
-class _FakeBox:
-    def __init__(self, xyxy, cls, conf):
-        self.xyxy = [xyxy]
-        self.cls = [cls]
-        self.conf = [conf]
-
-
 class _FakeBoxes:
     def __init__(self, items):
         self.xyxy = [it[0] for it in items]
@@ -59,7 +52,7 @@ def test_detect_maps_boxes_to_original_pixel_coords():
     fake = _FakeModel(
         [_FakeResult(_FakeBoxes([([10.2, 20.7, 300.8, 410.4], 0, 0.91), ([5.0, 6.0, 60.0, 66.0], 3, 0.62)]))]
     )
-    det = YOLODetector("unused.pt", confidence_threshold=0.5, class_names={0: "CRACK", 3: "SURFACE_DISSOLUTION"})
+    det = YOLODetector("unused.pt", confidence_threshold=0.5, class_codes=frozenset({"CRACK", "SURFACE_DISSOLUTION"}))
     det._model = fake  # 注入假模型，跳过加载
 
     out = det.detect(_png_bytes(size=(640, 480)))
@@ -95,9 +88,9 @@ def test_detect_zero_detections_returns_empty_not_normal():
 
 
 def test_detect_skips_unknown_class_codes():
-    # 类别 99 不在映射字典：跳过，不得静默转成“正常”或崩溃。
+    # 未知类别没有名称，不得根据数字编号猜测业务类别。
     fake = _FakeModel([_FakeResult(_FakeBoxes([([0, 0, 50, 50], 99, 0.9)]))])
-    det = YOLODetector("unused.pt", confidence_threshold=0.1, class_names={0: "CRACK"})
+    det = YOLODetector("unused.pt", confidence_threshold=0.1, class_codes=frozenset({"CRACK"}))
     det._model = fake
     out = det.detect(_png_bytes())
     assert out.detections == []
@@ -108,6 +101,22 @@ def test_detect_missing_weights_raises_model_unavailable(tmp_path):
     with pytest.raises(DetectorError) as exc:
         det.detect(_png_bytes())
     assert exc.value.code == "MODEL_UNAVAILABLE"
+
+
+def test_model_class_order_does_not_change_business_meaning():
+    result = _FakeResult(_FakeBoxes([([0, 0, 40, 40], 0, 0.9), ([50, 50, 90, 90], 1, 0.8)]))
+    result.names = {0: "MOSS", 1: "CRACK"}
+    detector = YOLODetector("unused.pt")
+    detector._model = _FakeModel([result])
+    assert [item.class_code for item in detector.detect(_png_bytes()).detections] == ["MOSS", "CRACK"]
+
+
+def test_unknown_model_name_is_not_assigned_by_numeric_index():
+    result = _FakeResult(_FakeBoxes([([0, 0, 40, 40], 0, 0.9)]))
+    result.names = {0: "person"}
+    detector = YOLODetector("unused.pt")
+    detector._model = _FakeModel([result])
+    assert detector.detect(_png_bytes()).detections == []
 
 
 def test_exif_orientation_applied_before_inference():
@@ -128,8 +137,24 @@ def test_exif_orientation_applied_before_inference():
     assert fake.loaded_at == (100, 200)
 
 
-def test_resolve_weights_path_absolute_and_relative():
-    assert resolve_weights_path("C:/code/city_wall/data/yolo/runs/x/weights/best.pt").is_absolute()
-    # 相对路径在仓库根与 recognizer/models 之外不应解析错误（返回原样路径对象）。
+def test_resolve_weights_path_absolute_and_relative(tmp_path):
+    assert resolve_weights_path(str(tmp_path / "best.pt")).is_absolute()
     p = resolve_weights_path("models/whatever.pt")
     assert p.name == "whatever.pt"
+
+
+@pytest.mark.parametrize("names, accepted", [({0: "MOSS", 1: "CRACK"}, True), ({0: "person"}, False)])
+def test_model_load_validates_semantic_names(tmp_path, monkeypatch, names, accepted):
+    import sys
+    from types import SimpleNamespace
+    weights = tmp_path / "model.pt"
+    weights.write_bytes(b"fixture")
+    model = SimpleNamespace(names=names)
+    monkeypatch.setitem(sys.modules, "ultralytics", SimpleNamespace(YOLO=lambda _: model))
+    detector = YOLODetector(str(weights))
+    if accepted:
+        assert detector._load_model() is model
+    else:
+        with pytest.raises(DetectorError) as error:
+            detector._load_model()
+        assert error.value.code == "MODEL_UNAVAILABLE"

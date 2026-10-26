@@ -2,6 +2,7 @@
 import argparse
 import json
 import shutil
+import hashlib
 from pathlib import Path
 
 
@@ -25,7 +26,12 @@ def main():
     mode.add_argument("--resume", type=Path)
     mode.add_argument("--evaluate", type=Path, help="evaluate existing weights without training")
     parser.add_argument("--deploy", action="store_true", help="copy evaluated weights to the inference directory")
+    parser.add_argument("--evaluation-split", choices=("val", "test"), default="test")
+    parser.add_argument("--evaluation-name")
     args = parser.parse_args()
+    args.evaluation_name = args.evaluation_name or args.evaluation_split
+    if not args.evaluation_name or any(not (c.isalnum() or c in "-_") for c in args.evaluation_name):
+        raise ValueError("evaluation name must contain only letters, digits, hyphens and underscores")
     project = Path("data/yolo/runs").resolve()
     output = project / args.name
     if output.exists() and not args.resume and not args.evaluate:
@@ -49,11 +55,15 @@ def main():
         weights = output / "weights" / "best.pt"
         data = Path(model.trainer.args.data).resolve()
         image_size = model.trainer.args.imgsz
-    metrics = YOLO(str(weights)).val(data=str(data), split="test",
+    metrics = YOLO(str(weights)).val(data=str(data), split=args.evaluation_split,
                                   imgsz=image_size, batch=args.batch, device=args.device,
-                                  project=str(output.resolve()), name="test")
-    evaluation = {**metrics.results_dict, "per_class": metrics.summary(), "speed_ms": metrics.speed}
-    (output / "evaluation.json").write_text(json.dumps(evaluation, indent=2, default=json_scalar), encoding="utf-8")
+                                  project=str(output.resolve()), name=args.evaluation_name, exist_ok=True)
+    with weights.open("rb") as stream:
+        weights_hash = hashlib.file_digest(stream, "sha256").hexdigest()
+    evaluation = {**metrics.results_dict, "per_class": metrics.summary(), "speed_ms": metrics.speed,
+                  "dataset": str(data), "split": args.evaluation_split, "imgsz": image_size, "weights_sha256": weights_hash}
+    filename = "evaluation.json" if args.evaluation_name == "test" else f"evaluation-{args.evaluation_name}.json"
+    (output / filename).write_text(json.dumps(evaluation, indent=2, default=json_scalar), encoding="utf-8")
     if args.deploy:
         destination = Path("data/yolo/weights/best.pt")
         destination.parent.mkdir(parents=True, exist_ok=True)
