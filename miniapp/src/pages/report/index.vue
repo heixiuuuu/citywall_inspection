@@ -49,7 +49,7 @@
           <view class="grow">
             <view class="row">
               <view class="chip c-add">补录</view>
-              <input class="input-sm" v-model="it.final_class_code" placeholder="病害类别" />
+              <CategoryPicker v-model="it.final_class_code" />
             </view>
             <input class="input-sm" v-model="it.description" placeholder="补充描述（可选）" />
           </view>
@@ -86,6 +86,7 @@
 import { computed, ref } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
 import LocationCapture from '../../shared/ui/LocationCapture.vue'
+import CategoryPicker from '../../shared/ui/CategoryPicker.vue'
 import {
   createObservation,
   addImage,

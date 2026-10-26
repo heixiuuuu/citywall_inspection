@@ -61,10 +61,10 @@ Python 使用 3.12。建议环境建在 `C:\environment\citywall-python312`：
 python -m venv C:\environment\citywall-python312
 C:\environment\citywall-python312\Scripts\python.exe -m pip install -r recognizer/requirements-yolo.txt
 C:\environment\citywall-python312\Scripts\python.exe scripts/prepare_dataset.py --source C:\a\school\毕设
-C:\environment\citywall-python312\Scripts\python.exe scripts/train_model.py --device cpu
+C:\environment\citywall-python312\Scripts\python.exe scripts/train_model.py --device cpu --deploy
 ```
 
-数据转换输出 train / val / test、data.yaml 和 manifest.json。训练输出 best.pt、训练记录和独立测试集 evaluation.json；耗时取决于设备。训练与推理代码存在不代表模型准确率已通过验收，参见 [验收边界](docs/acceptance.md)。
+数据转换输出 train / val / test、data.yaml 和 manifest.json。训练输出 best.pt、训练记录和独立测试集 evaluation.json（含逐类指标）；--deploy 才复制权重到推理目录。CUDA 环境使用 --device 0，断点继续可传 --resume data/yolo/runs/运行名/weights/last.pt。模型选择应依据验证集，独立测试集仅用于最终评估。训练与推理代码存在不代表模型准确率已通过验收，参见 [验收边界](docs/acceptance.md)。
 
 视觉语言模型使用兼容 Chat Completions 的图像输入接口。配置 .env 中的 VLM_BASE_URL（包含 /v1 等服务前缀）、VLM_MODEL 和 VLM_API_KEY 后重建识别容器。支持不要求 API Key 的本地服务。输出保存于识别尝试中，可在管理端审核页面与报告查看。未配置显示 DISABLED，失败显示 FAILED；不会生成代替模型的分析文本。
 
@@ -103,5 +103,7 @@ C:\environment\citywall-python312\Scripts\python.exe -m pytest tests -q
 ```
 
 业务验收脚本会写入数据，由 verify.ps1 在隔离环境创建所需账号并统一执行。单独执行脚本时必须准备相同的测试数据；e2e_evidence.py 需要额外的 inspector_other 巡检账号，密码为 Insp123。CITY_WALL_API_BASE 指定测试服务，默认 http://127.0.0.1:8080/api/v1。
+
+真实模型联调使用 `scripts/verify_recognition.py --image 图片路径 --require-vision`，需安装测试依赖、部署专用权重并启用视觉模型。脚本创建明确标记的公开数据集演示任务，核验候选、辅助分析、人工复核、任务完成及 PDF 下载，将证据 JSON 和报告保存到 C:\code\tmp\citywall-model-e2e。该用例不代表现场病害判断或模型质量评估。
 
 接口定义见 [OpenAPI](server/api/openapi.yaml)，架构与边界见 [系统架构](docs/architecture.md)。

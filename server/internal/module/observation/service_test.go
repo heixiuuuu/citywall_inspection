@@ -136,6 +136,38 @@ func (f *fakeObsRepo) InsertDetections(_ context.Context, ds []Detection) error 
 func (f *fakeObsRepo) ListDetections(_ context.Context, _ int64) ([]Detection, error) {
 	return f.detect, nil
 }
+
+func (f *fakeObsRepo) DetectionBelongsToImage(_ context.Context, detectionID, imageID int64) (bool, error) {
+	for _, detection := range f.detect {
+		if detection.ID == detectionID {
+			for _, attempt := range f.attempts {
+				if attempt.ID == detection.AttemptID && attempt.ImageID == imageID {
+					return true, nil
+				}
+			}
+		}
+	}
+	return false, nil
+}
+
+func TestConclusionCannotReferenceAnotherImageDetection(t *testing.T) {
+	s, repo := newObsService()
+	tp := int64(1)
+	o, _ := s.Create(context.Background(), inspector(), SourceTask, &tp, "loc")
+	first, _ := s.AddImage(context.Background(), inspector(), o.ID, "image/png", pngBytes(), ImageRoleOverview, "")
+	second, _ := s.AddImage(context.Background(), inspector(), o.ID, "image/png", pngBytes(), ImageRoleDetail, "")
+	repo.attempts = []RecognitionAttempt{{ID: 1, ImageID: first.ID}}
+	repo.detect = []Detection{{ID: 1, AttemptID: 1, ClassCode: "CRACK"}}
+	sourceID := int64(1)
+	input := ConclusionInput{Outcome: OutcomeSuspected, Items: []ConclusionItemIn{{ImageID: second.ID, SourceDetectionID: &sourceID, Decision: "CONFIRM", FinalClassCode: "CRACK"}}}
+	if _, err := s.SaveConclusion(context.Background(), inspector(), o.ID, 1, input); !errors.Is(err, ErrForbidden) {
+		t.Fatalf("err=%v", err)
+	}
+	input.Items[0].ImageID = first.ID
+	if _, err := s.SaveConclusion(context.Background(), inspector(), o.ID, 1, input); err != nil {
+		t.Fatal(err)
+	}
+}
 func (f *fakeObsRepo) NextConclusionNo(_ context.Context, _ int64) (int, error) {
 	return len(f.concl) + 1, nil
 }

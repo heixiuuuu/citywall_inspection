@@ -15,6 +15,7 @@ import (
 
 func TestConcurrentRecognitions(t *testing.T) {
 	s, db, o := persistentObservation(t)
+	s.recognizer = &fakeRecognizer{res: &recognizer.Result{ModelVersion: "test", Detections: []recognizer.Detection{{DetectionID: "d0", ClassCode: "CRACK", Confidence: 0.8, BBox: recognizer.BBox{X1: 0, Y1: 0, X2: 1, Y2: 1}}}}}
 	ctx := context.Background()
 	links, err := s.repo.ListImages(ctx, o.ID)
 	if err != nil {
@@ -41,6 +42,16 @@ func TestConcurrentRecognitions(t *testing.T) {
 	}
 	if len(attempts) != 2 || attempts[0].AttemptNo != 1 || attempts[1].AttemptNo != 2 || attempts[0].Status != AttemptSucceeded || attempts[1].Status != AttemptSucceeded {
 		t.Fatalf("attempts=%+v", attempts)
+	}
+	detections, err := s.repo.ListDetections(ctx, attempts[0].ID)
+	if err != nil || len(detections) != 1 {
+		t.Fatalf("detections=%+v err=%v", detections, err)
+	}
+	if belongs, err := s.repo.DetectionBelongsToImage(ctx, detections[0].ID, links[0].ImageID); err != nil || !belongs {
+		t.Fatalf("belongs=%v err=%v", belongs, err)
+	}
+	if belongs, err := s.repo.DetectionBelongsToImage(ctx, detections[0].ID, links[0].ImageID+1000); err != nil || belongs {
+		t.Fatalf("belongs=%v err=%v", belongs, err)
 	}
 }
 

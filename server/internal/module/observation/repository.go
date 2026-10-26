@@ -30,6 +30,7 @@ type Repository interface {
 	UpdateAttempt(ctx context.Context, a *RecognitionAttempt) error
 	InsertDetections(ctx context.Context, ds []Detection) error
 	ListDetections(ctx context.Context, attemptID int64) ([]Detection, error)
+	DetectionBelongsToImage(ctx context.Context, detectionID, imageID int64) (bool, error)
 
 	NextConclusionNo(ctx context.Context, obsID int64) (int, error)
 	InsertConclusion(ctx context.Context, rev *ConclusionRevision, items []ConclusionItem) error
@@ -183,6 +184,14 @@ func (r *GORMRepository) InsertDetections(ctx context.Context, ds []Detection) e
 		return nil
 	}
 	return r.db.WithContext(ctx).Create(&ds).Error
+}
+
+func (r *GORMRepository) DetectionBelongsToImage(ctx context.Context, detectionID, imageID int64) (bool, error) {
+	var count int64
+	err := r.db.WithContext(ctx).Table("detections").
+		Joins("JOIN recognition_attempts ON recognition_attempts.id = detections.attempt_id").
+		Where("detections.id = ? AND recognition_attempts.image_id = ?", detectionID, imageID).Count(&count).Error
+	return count == 1, err
 }
 
 func (r *GORMRepository) ListDetections(ctx context.Context, attemptID int64) ([]Detection, error) {

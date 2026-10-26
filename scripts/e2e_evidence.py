@@ -28,6 +28,9 @@ def main():
     point = call("POST", "/inspection-points", admin, 201, json=point_payload)["point"]
     call("PUT", f'/inspection-points/{point["id"]}', inspector, 403, json=point_payload)
     call("PUT", f'/inspection-points/{point["id"]}', admin, json={**point_payload, "name": "已维护点位"})
+    call("PUT", f'/inspection-points/{point["id"]}', admin, json={**point_payload, "active": False})
+    call("POST", "/tasks", admin, 400, json={"title": "停用点位", "assignee_id": 3, "point_ids": [point["id"]]})
+    call("PUT", f'/inspection-points/{point["id"]}', admin, json={**point_payload, "name": "已维护点位"})
     other_inspector = login("inspector_other", "Insp123")
     other_id = call("GET", "/me", other_inspector)["user"]["id"]
     denied_task = call("POST", "/tasks", admin, 201, json={"title": "权限验收", "assignee_id": other_id, "point_ids": [point["id"]]})["task"]

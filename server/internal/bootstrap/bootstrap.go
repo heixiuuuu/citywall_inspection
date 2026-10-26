@@ -77,6 +77,9 @@ func New(cfg *config.Config) (*App, error) {
 		if err != nil {
 			return task.PointSnapshot{}, err
 		}
+		if !p.Active {
+			return task.PointSnapshot{}, task.ErrPointNotFound
+		}
 		return task.PointSnapshot{
 			PointID:   p.ID,
 			Name:      p.Name,

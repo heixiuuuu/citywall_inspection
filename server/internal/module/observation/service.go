@@ -103,7 +103,7 @@ type ConclusionInput struct {
 	Outcome      string             `json:"outcome" binding:"required,oneof=NORMAL SUSPECTED UNDETERMINED UNREACHABLE"`
 	Description  string             `json:"description"`
 	PriorityCode string             `json:"priority_code"`
-	Items        []ConclusionItemIn `json:"items"`
+	Items        []ConclusionItemIn `json:"items" binding:"dive"`
 }
 
 // ReviewInput POST /observations/{id}/review 入参。
@@ -477,6 +477,15 @@ func (s *service) saveConclusion(ctx context.Context, actor *middleware.Actor, o
 	for _, it := range in.Items {
 		if !validImage[it.ImageID] {
 			return nil, ErrForbidden
+		}
+		if it.SourceDetectionID != nil {
+			belongs, err := s.repo.DetectionBelongsToImage(ctx, *it.SourceDetectionID, it.ImageID)
+			if err != nil {
+				return nil, err
+			}
+			if !belongs {
+				return nil, ErrForbidden
+			}
 		}
 		items = append(items, ConclusionItem{
 			ImageID:           it.ImageID,
