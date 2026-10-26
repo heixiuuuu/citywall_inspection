@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // Repository 问题数据访问接口。
@@ -31,7 +32,8 @@ type Repository interface {
 
 // GORMRepository 基于 GORM 的实现。
 type GORMRepository struct {
-	db *gorm.DB
+	db            *gorm.DB
+	inTransaction bool
 }
 
 // NewGORMRepository 构造问题仓储。
@@ -45,7 +47,11 @@ func (r *GORMRepository) Insert(ctx context.Context, i *Issue) error {
 
 func (r *GORMRepository) GetByID(ctx context.Context, id int64) (*Issue, error) {
 	var i Issue
-	if err := r.db.WithContext(ctx).First(&i, id).Error; err != nil {
+	query := r.db.WithContext(ctx)
+	if r.inTransaction {
+		query = query.Clauses(clause.Locking{Strength: "UPDATE"})
+	}
+	if err := query.First(&i, id).Error; err != nil {
 		return nil, err
 	}
 	return &i, nil
@@ -149,6 +155,6 @@ func (r *GORMRepository) LinkActionImage(ctx context.Context, actionID, imageID 
 // InTx 在同一事务中执行 fn；事务内写入使用 tx 版仓储。
 func (r *GORMRepository) InTx(ctx context.Context, fn func(Repository) error) error {
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		return fn(&GORMRepository{db: tx})
+		return fn(&GORMRepository{db: tx, inTransaction: true})
 	})
 }

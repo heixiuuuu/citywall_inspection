@@ -135,6 +135,53 @@ func NewService(repo Repository, obs ObservationAccess, images ImageStore, rec a
 	return &service{repo: repo, obsAccess: obs, images: images, audit: rec}
 }
 
+type issueAuditBuffer struct{ events []audit.Event }
+
+func (b *issueAuditBuffer) Record(_ context.Context, event *audit.Event) {
+	copy := *event
+	if event.Revision != nil {
+		revision := *event.Revision
+		copy.Revision = &revision
+	}
+	b.events = append(b.events, copy)
+}
+
+// 业务事务提交后才写审计，避免已回滚的操作留下成功事件。
+func (s *service) withTransaction(ctx context.Context, apply func(*service) (*Issue, error)) (*Issue, error) {
+	var result *Issue
+	pending := &issueAuditBuffer{}
+	err := s.repo.InTx(ctx, func(repo Repository) error {
+		tx := *s
+		tx.repo, tx.audit = repo, pending
+		var err error
+		result, err = apply(&tx)
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+	for idx := range pending.events {
+		s.audit.Record(ctx, &pending.events[idx])
+	}
+	return result, nil
+}
+
+func (s *service) Assign(ctx context.Context, actor *middleware.Actor, id, revision, assigneeID int64, reason string) (*Issue, error) {
+	return s.withTransaction(ctx, func(tx *service) (*Issue, error) { return tx.assign(ctx, actor, id, revision, assigneeID, reason) })
+}
+func (s *service) AddAction(ctx context.Context, actor *middleware.Actor, id, revision int64, in ActionInput) (*Issue, error) {
+	return s.withTransaction(ctx, func(tx *service) (*Issue, error) { return tx.addAction(ctx, actor, id, revision, in) })
+}
+func (s *service) RequestVerification(ctx context.Context, actor *middleware.Actor, id, revision int64, content string) (*Issue, error) {
+	return s.withTransaction(ctx, func(tx *service) (*Issue, error) { return tx.requestVerification(ctx, actor, id, revision, content) })
+}
+func (s *service) Verify(ctx context.Context, actor *middleware.Actor, id, revision int64, decision, reason string) (*Issue, error) {
+	return s.withTransaction(ctx, func(tx *service) (*Issue, error) { return tx.verify(ctx, actor, id, revision, decision, reason) })
+}
+func (s *service) Reopen(ctx context.Context, actor *middleware.Actor, id, revision int64, reason string) (*Issue, error) {
+	return s.withTransaction(ctx, func(tx *service) (*Issue, error) { return tx.reopen(ctx, actor, id, revision, reason) })
+}
+
 func (s *service) List(ctx context.Context, actor *middleware.Actor, in ListInput) (*ListResult, error) {
 	isAdmin := hasAdminOrReviewer(actor)
 	page, pageSize := in.Page, in.PageSize
@@ -185,7 +232,7 @@ func (s *service) Get(ctx context.Context, actor *middleware.Actor, id int64) (*
 	return i, briefs, actions, nil
 }
 
-func (s *service) Assign(ctx context.Context, actor *middleware.Actor, id, revision, assigneeID int64, reason string) (*Issue, error) {
+func (s *service) assign(ctx context.Context, actor *middleware.Actor, id, revision, assigneeID int64, reason string) (*Issue, error) {
 	if !hasRole(actor, "ADMIN") {
 		return nil, ErrForbidden
 	}
@@ -193,6 +240,7 @@ func (s *service) Assign(ctx context.Context, actor *middleware.Actor, id, revis
 	if err != nil {
 		return nil, ErrNotFound
 	}
+	oldStatus := i.Status
 	if i.Status == StatusClosed {
 		return nil, ErrInvalidState
 	}
@@ -234,17 +282,18 @@ func (s *service) Assign(ctx context.Context, actor *middleware.Actor, id, revis
 	i.Status = newStatus
 	s.audit.Record(ctx, &audit.Event{
 		EntityType: "issue", EntityID: id, Action: "assign", ActorID: actor.UserID,
-		OldStatus: statusOf(i, ""), NewStatus: newStatus, Revision: &i.Revision, Reason: reason,
+		OldStatus: oldStatus, NewStatus: newStatus, Revision: &i.Revision, Reason: reason,
 	})
 	return i, nil
 }
 
 // AddAction 追加建议/进展/观察并驱动状态流转（OPEN→IN_PROGRESS、IN_PROGRESS↔MONITORING）。
-func (s *service) AddAction(ctx context.Context, actor *middleware.Actor, id, revision int64, in ActionInput) (*Issue, error) {
+func (s *service) addAction(ctx context.Context, actor *middleware.Actor, id, revision int64, in ActionInput) (*Issue, error) {
 	i, err := s.repo.GetByID(ctx, id)
 	if err != nil {
 		return nil, ErrNotFound
 	}
+	oldStatus := i.Status
 	if !canAct(actor, i) {
 		return nil, ErrForbidden
 	}
@@ -274,7 +323,7 @@ func (s *service) AddAction(ctx context.Context, actor *middleware.Actor, id, re
 			return nil, ErrInvalidState
 		}
 	case ActionRequestVerify:
-		return s.RequestVerification(ctx, actor, id, revision, in.Content)
+		return s.requestVerification(ctx, actor, id, revision, in.Content)
 	}
 	action := &IssueAction{
 		IssueID: id, ActorID: actor.UserID, ActionType: in.ActionType,
@@ -295,17 +344,18 @@ func (s *service) AddAction(ctx context.Context, actor *middleware.Actor, id, re
 	i.Revision++
 	s.audit.Record(ctx, &audit.Event{
 		EntityType: "issue", EntityID: id, Action: "action:" + in.ActionType, ActorID: actor.UserID,
-		OldStatus: statusOf(i, ""), NewStatus: i.Status, Revision: &i.Revision,
+		OldStatus: oldStatus, NewStatus: i.Status, Revision: &i.Revision,
 	})
 	return i, nil
 }
 
 // RequestVerification 责任人提交处理/观察结论，进入待核验。
-func (s *service) RequestVerification(ctx context.Context, actor *middleware.Actor, id, revision int64, content string) (*Issue, error) {
+func (s *service) requestVerification(ctx context.Context, actor *middleware.Actor, id, revision int64, content string) (*Issue, error) {
 	i, err := s.repo.GetByID(ctx, id)
 	if err != nil {
 		return nil, ErrNotFound
 	}
+	oldStatus := i.Status
 	if !canAct(actor, i) {
 		return nil, ErrForbidden
 	}
@@ -330,13 +380,13 @@ func (s *service) RequestVerification(ctx context.Context, actor *middleware.Act
 	i.Revision++
 	s.audit.Record(ctx, &audit.Event{
 		EntityType: "issue", EntityID: id, Action: "request_verify", ActorID: actor.UserID,
-		OldStatus: statusOf(i, ""), NewStatus: StatusPendingVerification, Revision: &i.Revision,
+		OldStatus: oldStatus, NewStatus: StatusPendingVerification, Revision: &i.Revision,
 	})
 	return i, nil
 }
 
 // Verify 审核员核验：PASS → CLOSED；RETURN → IN_PROGRESS。提交人不能自核验。
-func (s *service) Verify(ctx context.Context, actor *middleware.Actor, id, revision int64, decision, reason string) (*Issue, error) {
+func (s *service) verify(ctx context.Context, actor *middleware.Actor, id, revision int64, decision, reason string) (*Issue, error) {
 	if !hasAdminOrReviewer(actor) {
 		return nil, ErrForbidden
 	}
@@ -406,7 +456,7 @@ func (s *service) Verify(ctx context.Context, actor *middleware.Actor, id, revis
 }
 
 // Reopen 关闭后重新打开（有权限的审核员，保留先前关闭记录）。
-func (s *service) Reopen(ctx context.Context, actor *middleware.Actor, id, revision int64, reason string) (*Issue, error) {
+func (s *service) reopen(ctx context.Context, actor *middleware.Actor, id, revision int64, reason string) (*Issue, error) {
 	if !hasAdminOrReviewer(actor) {
 		return nil, ErrForbidden
 	}
@@ -605,8 +655,6 @@ func canAct(actor *middleware.Actor, i *Issue) bool {
 	}
 	return i.AssigneeID != nil && *i.AssigneeID == actor.UserID
 }
-
-func statusOf(i *Issue, _ string) string { return i.Status }
 
 func firstNonEmpty(a, b string) string {
 	if a != "" {

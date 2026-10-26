@@ -61,6 +61,7 @@ try {
     $FixtureSQL = "INSERT INTO users (username, password_hash, display_name, status) SELECT 'inspector_other', password_hash, '其他巡检员', 'ACTIVE' FROM users WHERE username='inspector'; INSERT INTO user_roles (user_id, role_code) SELECT id, 'INSPECTOR' FROM users WHERE username='inspector_other';"
     Invoke-Checked 'docker' ($ComposeArguments + @('exec', '-T', 'mysql', 'mysql', '-uroot', '-pcitywall_test_root', '-D', 'city_wall', '-e', $FixtureSQL))
     Invoke-Checked 'go' @('test', '-tags', 'integration', './internal/module/task', './internal/module/observation', '-count=1') (Join-Path $ProjectRoot 'server')
+    Invoke-Checked 'go' @('test', '-tags', 'integration', './internal/module/issue', '-count=1') (Join-Path $ProjectRoot 'server')
     foreach ($Scenario in @('e2e_scenarios.py', 'e2e_issue.py', 'e2e_idempotency.py', 'e2e_evidence.py', 'e2e_report.py')) {
         Invoke-Checked $Python @((Join-Path $PSScriptRoot $Scenario))
     }
