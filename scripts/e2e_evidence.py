@@ -43,6 +43,26 @@ def main():
     Image.new("RGB", (80, 60), "gray").save(buffer, "PNG")
     image = call("POST", f"/observations/{oid}/images", inspector, 201, files={"image": ("sample.png", buffer.getvalue(), "image/png")}, data={"image_role": "OVERVIEW"})["image"]
     iid = image["id"]
+    exif = Image.Exif()
+    exif[274] = 6
+    rotated = io.BytesIO()
+    Image.new("RGB", (80, 60), "gray").save(rotated, "JPEG", exif=exif)
+    raw = rotated.getvalue()
+    oriented = call("POST", f"/observations/{oid}/images", inspector, 201,
+                    files={"image": ("oriented.jpg", raw, "image/jpeg")}, data={"image_role": "DETAIL"})["image"]
+    original_response = requests.get(BASE + f'/images/{oriented["id"]}/content', headers=inspector, timeout=10)
+    assert original_response.status_code == 200 and original_response.content == raw
+    preview_response = requests.get(BASE + f'/images/{oriented["id"]}/preview', headers=inspector, timeout=10)
+    assert preview_response.status_code == 200
+    preview_image = Image.open(io.BytesIO(preview_response.content))
+    assert preview_image.size == (60, 80) and not preview_image.getexif()
+    for endpoint in ("content", "preview"):
+        response = requests.get(BASE + f'/images/{oriented["id"]}/{endpoint}', headers=other_inspector, timeout=10)
+        assert response.status_code == 403
+    call("POST", f"/observations/{oid}/images", inspector, 422,
+         files={"image": ("invalid.png", b"not an image", "image/png")})
+    call("POST", f"/observations/{oid}/images", inspector, 422,
+         files={"image": ("mismatch.png", raw, "image/png")})
     attempt = call("POST", f"/images/{iid}/recognitions", inspector, json={})["attempt"]
     assert attempt["status"] in ("SUCCEEDED", "FAILED")
     evidence = call("GET", f"/observations/{oid}", inspector)["evidence"]

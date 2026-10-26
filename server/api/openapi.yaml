@@ -705,6 +705,23 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+  /api/v1/images/{id}/preview:
+    get:
+      tags: [observation]
+      summary: 受控照片预览（应用 EXIF 方向，与识别坐标系一致）
+      description: 原始文件仍由 content 接口提供；预览保留完整像素尺寸且不含 EXIF 元数据。
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        '200':
+          description: 方向标准化的 JPEG 或 PNG
+          content:
+            image/jpeg: {}
+            image/png: {}
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
   /api/v1/images/{id}/recognitions:
     post:
       tags: [observation]

@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 
 	"citywall/server/internal/config"
+	"citywall/server/internal/infrastructure/imageutil"
 )
 
 var (
@@ -51,13 +52,15 @@ func New(cfg config.StorageConfig) (*LocalStorage, error) {
 }
 
 // SaveImage 落盘并返回相对 key（如 3f2a...c1.jpg）。
-// 初始化阶段提供最小实现；后续按 04 文档补 EXIF 方向、孤儿文件清理等。
 func (s *LocalStorage) SaveImage(data []byte, mediaType string) (string, error) {
 	if !s.allowed(mediaType) {
 		return "", ErrUnsupportedMediaType
 	}
 	if int64(len(data)) > s.cfg.MaxImageBytes {
 		return "", ErrImageTooLarge
+	}
+	if _, err := imageutil.Decode(data, mediaType); err != nil {
+		return "", err
 	}
 
 	rel := randKey(mediaType)

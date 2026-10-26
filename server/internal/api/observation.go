@@ -3,10 +3,12 @@ package api
 import (
 	"context"
 	"errors"
+	"io"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
 
+	"citywall/server/internal/infrastructure/imageutil"
 	"citywall/server/internal/middleware"
 	"citywall/server/internal/module/observation"
 )
@@ -105,8 +107,8 @@ func (h *ObservationHandler) AddImage(c *gin.Context) {
 	}
 	defer f.Close()
 
-	buf := make([]byte, fileHeader.Size)
-	if _, err := f.Read(buf); err != nil {
+	buf, err := io.ReadAll(f)
+	if err != nil {
 		writeErr(c, err)
 		return
 	}
@@ -130,6 +132,14 @@ func (h *ObservationHandler) AddImage(c *gin.Context) {
 
 // GetImageContent 受控图片流（鉴权后返回）。
 func (h *ObservationHandler) GetImageContent(c *gin.Context) {
+	h.getImage(c, false)
+}
+
+func (h *ObservationHandler) GetImagePreview(c *gin.Context) {
+	h.getImage(c, true)
+}
+
+func (h *ObservationHandler) getImage(c *gin.Context, preview bool) {
 	actor, ok := middleware.GetActor(c)
 	if !ok {
 		writeError(c, http.StatusUnauthorized, "UNAUTHORIZED", "not authenticated")
@@ -146,6 +156,20 @@ func (h *ObservationHandler) GetImageContent(c *gin.Context) {
 		return
 	}
 	defer rc.Close()
+	if preview {
+		data, err := io.ReadAll(rc)
+		if err != nil {
+			writeErr(c, err)
+			return
+		}
+		preview, err := imageutil.Preview(data, img.MediaType)
+		if err != nil {
+			writeErr(c, err)
+			return
+		}
+		c.Data(http.StatusOK, preview.MediaType, preview.Data)
+		return
+	}
 	c.DataFromReader(http.StatusOK, img.ByteSize, img.MediaType, rc, nil)
 }
 

@@ -22,7 +22,7 @@
           <view class="title">现场照片</view>
           <view v-if="!images.length" class="muted">暂无照片</view>
           <view v-for="image in images" :key="image.imageId" class="item">
-            <image v-if="image.localPath" :src="image.localPath" mode="widthFix" class="photo" @tap="preview(image.localPath)" />
+            <DetectionImage v-if="image.localPath" :src="image.localPath" :boxes="latestDetections(image.imageId)" @preview="preview" />
             <view v-else class="muted">图片加载失败</view>
             <view class="muted">{{ image.role === 'OVERVIEW' ? '概览' : '细节' }} #{{ image.imageId }}</view>
           </view>
@@ -34,8 +34,8 @@
           <view v-for="attempt in evidence.attempts" :key="attempt.id" class="item">
             <view>图片 #{{ attempt.image_id }} · 第 {{ attempt.attempt_no }} 次 · {{ attempt.status === 'SUCCEEDED' ? '识别成功' : attempt.status === 'FAILED' ? '识别失败' : '识别中' }}</view>
             <view class="muted">{{ attempt.model_version || attempt.error_code || '—' }}</view>
-            <view v-for="detection in evidence.detections.filter(item => item.attempt_id === attempt.id)" :key="detection.id" class="candidate">
-              {{ detection.class_code }} · {{ (detection.confidence * 100).toFixed(1) }}%<view class="muted">原图坐标 ({{ detection.x1 }}, {{ detection.y1 }})—({{ detection.x2 }}, {{ detection.y2 }})</view>
+            <view v-for="(detection, index) in evidence.detections.filter(item => item.attempt_id === attempt.id)" :key="detection.id" class="candidate">
+              {{ index + 1 }} · {{ categoryLabel(detection.class_code) }} · {{ (detection.confidence * 100).toFixed(1) }}%<view class="muted">原图坐标 ({{ detection.x1 }}, {{ detection.y1 }})—({{ detection.x2 }}, {{ detection.y2 }})</view>
             </view>
             <view v-if="analysis(attempt)?.status === 'SUCCEEDED'" class="analysis">
               <view>{{ analysis(attempt).description }}</view>
@@ -75,6 +75,8 @@ import { onLoad, onShow, onReachBottom, onUnload } from '@dcloudio/uni-app'
 import { listObservations, loadObservation } from '../../shared/api/observation'
 import { statusText } from '../../shared/ui/status'
 import { formatTime } from '../../shared/ui/time'
+import DetectionImage from '../../shared/ui/DetectionImage.vue'
+import { categoryLabel } from '../../shared/ui/categories'
 import { getUser } from '../../shared/auth/auth'
 const filters = [{value: '', label: '全部'}, {value: 'DRAFT', label: '草稿'}, {value: 'SUBMITTED', label: '待审核'}, {value: 'RETURNED', label: '已退回'}, {value: 'ACCEPTED', label: '已通过'}, {value: 'REJECTED', label: '已驳回'}]
 const records = ref([])
@@ -134,6 +136,11 @@ function continueEditing() {
   uni.navigateTo({ url: `/pages/${target}/index?observationId=${record.id}` })
 }
 function preview(current) { uni.previewImage({ current, urls: images.value.map(image => image.localPath).filter(Boolean) }) }
+function latestDetections(imageId) {
+  const attempts = evidence.value?.attempts.filter(item => item.image_id === imageId) || []
+  const latest = attempts[attempts.length - 1]
+  return evidence.value?.detections.filter(item => item.attempt_id === latest?.id) || []
+}
 function analysis(attempt) { try { return JSON.parse(attempt.analysis_json || 'null') } catch { return null } }
 function outcomeText(value) { return { NORMAL: '正常', SUSPECTED: '疑似病害', UNDETERMINED: '不确定', UNREACHABLE: '无法到达' }[value] || value }
 function decisionText(value) { return { ACCEPT: '审核通过', RETURN: '退回补正', REJECT: '拒绝', CONFIRM: '确认', MODIFY: '修改', ADD: '补录' }[value] || value }

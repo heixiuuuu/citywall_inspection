@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	_ "golang.org/x/image/webp"
 	"image"
 	_ "image/jpeg"
 	_ "image/png"
@@ -865,7 +866,7 @@ func sha256Hex(b []byte) string {
 func imageSize(data []byte) (int, int) {
 	cfg, _, err := image.DecodeConfig(bytes.NewReader(data))
 	if err != nil {
-		return 0, 0 // TODO(init): webp 等格式尺寸探测后续补齐，不阻断上传。
+		return 0, 0
 	}
 	return cfg.Width, cfg.Height
 }

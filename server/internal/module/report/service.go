@@ -1,14 +1,9 @@
 package report
 
 import (
-	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	_ "golang.org/x/image/webp"
-	"image"
-	_ "image/jpeg"
-	"image/png"
 	"io"
 	"log"
 	"os"
@@ -16,6 +11,7 @@ import (
 	"time"
 
 	"citywall/server/internal/config"
+	"citywall/server/internal/infrastructure/imageutil"
 	"citywall/server/internal/middleware"
 	"citywall/server/internal/module/audit"
 )
@@ -219,23 +215,14 @@ func (s *service) generate(ctx context.Context, actor *middleware.Actor, rep *Re
 			if err != nil {
 				return "", 0, 0, "", nil, err
 			}
-			w, h := decodeImageSize(data)
-			mediaType := guessMediaType(key)
-			if mediaType == "image/webp" {
-				decoded, _, decodeErr := image.Decode(bytes.NewReader(data))
-				if decodeErr != nil {
-					return "", 0, 0, "", nil, decodeErr
-				}
-				var converted bytes.Buffer
-				if err := png.Encode(&converted, decoded); err != nil {
-					return "", 0, 0, "", nil, err
-				}
-				data = converted.Bytes()
-				mediaType = "image/png"
+			preview, err := imageutil.Preview(data, guessMediaType(key))
+			if err != nil {
+				return "", 0, 0, "", nil, err
 			}
-			ext := "jpg"
-			if mediaType == "image/png" {
-				ext = "png"
+			data = preview.Data
+			w, h, mediaType, ext := preview.Width, preview.Height, preview.MediaType, "png"
+			if mediaType == "image/jpeg" {
+				ext = "jpg"
 			}
 			var b [8]byte
 			if _, err := rand.Read(b[:]); err != nil {
@@ -339,17 +326,6 @@ func guessMediaType(key string) string {
 	}
 	return "image/jpeg"
 }
-
-// decodeImageSize 解码图片像素尺寸（无法解码时返回 0）。
-func decodeImageSize(data []byte) (int, int) {
-	cfg, _, err := image.DecodeConfig(bytesReader(data))
-	if err != nil {
-		return 0, 0
-	}
-	return cfg.Width, cfg.Height
-}
-
-func bytesReader(b []byte) *bytes.Reader { return bytes.NewReader(b) }
 
 func itoa64(n int64) string {
 	if n == 0 {

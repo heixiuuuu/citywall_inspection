@@ -103,7 +103,7 @@ export async function reviewObservation(id: number, payload: ReviewPayload): Pro
 /** 受控图片内容：带 token 拉取后转 blob URL（禁止直接暴露存储路径）。 */
 export async function loadImageBlob(imageId: number): Promise<string> {
   const token = localStorage.getItem('city_wall_token') ?? ''
-  const resp = await fetch(`${import.meta.env.VITE_API_BASE ?? '/api/v1'}/images/${imageId}/content`, {
+  const resp = await fetch(`${import.meta.env.VITE_API_BASE ?? '/api/v1'}/images/${imageId}/preview`, {
     headers: { Authorization: `Bearer ${token}` },
   })
   if (!resp.ok) throw new Error(`load image ${resp.status}`)

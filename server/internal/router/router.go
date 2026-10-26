@@ -78,6 +78,7 @@ func Router(h Handlers, tm *authn.TokenManager, reqIDHeader string, idemSvc idem
 
 		imgGroup := v1.Group("/images", authed)
 		imgGroup.GET("/:id/content", h.Observation.GetImageContent)
+		imgGroup.GET("/:id/preview", h.Observation.GetImagePreview)
 		imgGroup.POST("/:id/recognitions", h.Observation.Recognize)
 
 		// 审核队列。

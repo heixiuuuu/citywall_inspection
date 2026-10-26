@@ -6,6 +6,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"citywall/server/internal/infrastructure/imageutil"
+	"citywall/server/internal/infrastructure/storage"
 	"citywall/server/internal/middleware"
 	"citywall/server/internal/module/audit"
 	"citywall/server/internal/module/issue"
@@ -42,6 +44,12 @@ func writeErr(c *gin.Context, err error) {
 	switch {
 	case err == nil:
 		return
+	case errors.Is(err, storage.ErrUnsupportedMediaType):
+		writeError(c, http.StatusUnsupportedMediaType, "UNSUPPORTED_MEDIA_TYPE", err.Error())
+	case errors.Is(err, storage.ErrImageTooLarge):
+		writeError(c, http.StatusRequestEntityTooLarge, "IMAGE_TOO_LARGE", err.Error())
+	case errors.Is(err, imageutil.ErrInvalidImage):
+		writeError(c, http.StatusUnprocessableEntity, "INVALID_IMAGE", err.Error())
 	case errors.Is(err, site.ErrInvalidInput), errors.Is(err, task.ErrInvalidAssignee):
 		writeError(c, http.StatusBadRequest, "VALIDATION_ERROR", err.Error())
 	case errors.Is(err, site.ErrPointNotFound), errors.Is(err, site.ErrSegmentNotFound):

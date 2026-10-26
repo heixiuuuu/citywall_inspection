@@ -1,6 +1,6 @@
 param(
     [string]$Python = 'C:\environment\citywall-python312\Scripts\python.exe',
-    [int]$MySQLPort = 13306,
+    [int]$MySQLPort = 13307,
     [int]$APIPort = 18080,
     [int]$WebPort = 15173,
     [switch]$SkipBuildChecks

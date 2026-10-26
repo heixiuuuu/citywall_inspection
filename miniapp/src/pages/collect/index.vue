@@ -10,6 +10,8 @@
           v-for="(img, i) in images"
           :key="img.localId"
           class="img-cell"
+          :class="{ selected: selectedImageId === img.imageId }"
+          @tap="selectedImageId = img.imageId"
         >
           <image :src="img.localPath" mode="aspectFill" class="img" />
           <view class="del" @tap.stop="removeImage(i)">×</view>
@@ -46,17 +48,26 @@
       </view>
     </view>
 
-    <view class="field" v-if="detections.length">
+    <view class="field" v-if="selectedImage">
       <view class="field-label">
         视觉识别 <text class="faint">候选仅作参考，不替代人工结论</text>
       </view>
+      <DetectionImage v-if="selectedImage.localPath" :src="selectedImage.localPath" :boxes="detections" @preview="previewImage" />
+      <view v-else class="detect-note">照片预览加载失败，请返回记录后重试。</view>
       <view class="detect-note">
-        检测到 {{ detections.length }} 个候选 · 模型 {{ modelVersion || 'yolo_baseline_001' }}
+        {{ selectedImage.role === 'OVERVIEW' ? '概览' : '细节' }} #{{ selectedImageId }} · {{ attempt ? (attempt.status === 'SUCCEEDED' ? `候选 ${detections.length} 个` : attempt.status === 'FAILED' ? '识别失败' : '识别中') : '尚未识别' }}
+        <view v-if="attempt">{{ attempt.model_version || attempt.error_code }} · 未检出不代表正常</view>
+      </view>
+      <button class="btn-ghost" :disabled="recognizing" :loading="recognizing" @tap="runRecognition">{{ recognizing ? '正在识别' : '识别当前照片' }}</button>
+      <view v-if="visionAnalysis?.status === 'SUCCEEDED'" class="detect-note analysis">
+        <view>{{ visionAnalysis.description }}</view>
+        <view>可能成因：{{ visionAnalysis.possible_causes.join('；') || '无法判断' }}</view>
+        <view>复查建议：{{ visionAnalysis.recommendations.join('；') || '需人工复查' }}</view>
+        <view class="faint">辅助分析须经人工复核。</view>
       </view>
       <view class="detect-list">
-        <view v-for="d in detections" :key="d.id" class="detect-item">
-          <view class="chip brick">{{ d.class_code }} {{ d.confidence.toFixed(2) }}</view>
-          <text class="faint">框 ({{ d.x1 }},{{ d.y1 }})-({{ d.x2 }},{{ d.y2 }})</text>
+        <view v-for="(d, index) in detections" :key="d.id" class="detect-item">
+          <view class="chip brick">{{ index + 1 }} · {{ categoryLabel(d.class_code) }} {{ (d.confidence * 100).toFixed(1) }}%</view>
           <view class="row">
             <button size="mini" @tap="useCandidate(d, 'CONFIRM')">确认</button>
             <button size="mini" @tap="useCandidate(d, 'MODIFY')">修改类别</button>
@@ -101,10 +112,6 @@
       <textarea class="input" v-model="overallNote" placeholder="补充说明（可选）" />
     </view>
 
-    <view class="field">
-      <button class="btn-ghost" :loading="recognizing" @tap="runRecognition">触发视觉识别</button>
-    </view>
-
     <view class="bottombar">
       <button class="btn-ghost" :loading="submitting" @tap="saveDraft">保存草稿</button>
       <button class="btn-primary" :loading="submitting" @tap="submit">提交记录</button>
@@ -115,9 +122,12 @@
 
 <script setup>
 import { computed, ref } from 'vue'
-import { onLoad } from '@dcloudio/uni-app'
+import { onLoad, onUnload } from '@dcloudio/uni-app'
 import LocationCapture from '../../shared/ui/LocationCapture.vue'
 import CategoryPicker from '../../shared/ui/CategoryPicker.vue'
+import DetectionImage from '../../shared/ui/DetectionImage.vue'
+import { categoryLabel } from '../../shared/ui/categories'
+import { loadImageContent } from '../../shared/api/request'
 import {
   createObservation,
   addImage,
@@ -148,18 +158,21 @@ const outcome = ref(null)
 const overall = ref('SUSPECTED')
 const overallNote = ref('')
 const conclusionItems = ref([])
-const detections = ref([])
-const modelVersion = ref('')
+const selectedImageId = ref(null)
+const recognitionByImage = ref({})
+const selectedImage = computed(() => images.value.find(image => image.imageId === selectedImageId.value))
+const attempt = computed(() => recognitionByImage.value[selectedImageId.value]?.attempt)
+const detections = computed(() => recognitionByImage.value[selectedImageId.value]?.detections || [])
+const visionAnalysis = computed(() => { try { return JSON.parse(attempt.value?.analysis_json || 'null') } catch { return null } })
 const recognizing = ref(false)
 const submitting = ref(false)
-const lastDetectionImageId = ref(null)
 const returnReason = ref('')
 
 function useCandidate(detection, decision) {
-  const image = images.value.find(i => i.imageId === lastDetectionImageId.value)
+  const image = images.value.find(i => i.imageId === selectedImageId.value)
   const existing = conclusionItems.value.findIndex(i => i.source_detection_id === detection.id)
   const item = {
-    imageId: lastDetectionImageId.value, thumb: image?.localPath || '',
+    imageId: selectedImageId.value, thumb: image?.localPath || '',
     source_detection_id: detection.id, decision, final_class_code: detection.class_code,
     final_box_json: JSON.stringify({ x1: detection.x1, y1: detection.y1, x2: detection.x2, y2: detection.y2 }),
     description: '',
@@ -232,12 +245,10 @@ async function loadExisting(id) {
         .filter(item => item.conclusion_revision_id === latest.id && images.value.some(image => image.imageId === item.image_id))
         .map(item => ({ ...item, imageId: item.image_id, thumb: images.value.find(image => image.imageId === item.image_id)?.localPath || '' }))
     }
-    const attempt = evidence.attempts[evidence.attempts.length - 1]
-    if (attempt) {
-      lastDetectionImageId.value = attempt.image_id
-      modelVersion.value = attempt.model_version
-      detections.value = evidence.detections.filter(item => item.attempt_id === attempt.id)
+    for (const attempt of evidence.attempts) {
+      recognitionByImage.value[attempt.image_id] = { attempt, detections: evidence.detections.filter(item => item.attempt_id === attempt.id) }
     }
+    selectedImageId.value = images.value[0]?.imageId || null
     if (record.status === 'RETURNED') returnReason.value = evidence.reviews[evidence.reviews.length - 1]?.reason || '请补充现场信息'
   } catch {
     uni.showToast({ title: '加载已有记录失败', icon: 'none' })
@@ -257,9 +268,11 @@ function chooseImage() {
       }
       const role = images.value.some(image => image.role === 'OVERVIEW') ? 'DETAIL' : 'OVERVIEW'
       addImage(obs.value.id, localPath, role)
-        .then((r) => {
+        .then(async (r) => {
           const image = r.data.image
-          images.value.push({ localId: `img_${Date.now()}`, localPath, imageId: image.id, role })
+          const previewPath = await loadImageContent(image.id).catch(() => '')
+          images.value.push({ localId: `img_${image.id}`, localPath: previewPath, imageId: image.id, role })
+          selectedImageId.value = image.id
           if (role === 'OVERVIEW') {
             // 概览图就绪后自动做一次识别作为候选参考。
             runRecognitionOn(image.id)
@@ -279,28 +292,29 @@ async function removeImage(i) {
     await deleteImage(obs.value.id, image.imageId)
     images.value.splice(i, 1)
     conclusionItems.value = conclusionItems.value.filter(item => item.imageId !== image.imageId)
-    if (lastDetectionImageId.value === image.imageId) { lastDetectionImageId.value = null; detections.value = [] }
+    delete recognitionByImage.value[image.imageId]
+    if (selectedImageId.value === image.imageId) selectedImageId.value = images.value[0]?.imageId || null
+    releaseImage(image.localPath)
   } catch { uni.showToast({ title: '照片移除失败', icon: 'none' }) }
 }
 
 async function runRecognition() {
-  if (!lastDetectionImageId.value) {
-    uni.showToast({ title: '请先上传概览图', icon: 'none' })
+  if (!selectedImageId.value) {
+    uni.showToast({ title: '请先选择照片', icon: 'none' })
     return
   }
-  runRecognitionOn(lastDetectionImageId.value)
+  runRecognitionOn(selectedImageId.value)
 }
 
 async function runRecognitionOn(imageId) {
-  lastDetectionImageId.value = imageId
+  if (recognizing.value) return
   recognizing.value = true
   try {
     const res = await recognize(imageId)
     const attempt = res.data.attempt
     const dets = res.data.detections || []
-    lastDetectionImageId.value = imageId
-    detections.value = dets
-    modelVersion.value = attempt.model_version
+    if (!images.value.some(image => image.imageId === imageId)) return
+    recognitionByImage.value[imageId] = { attempt, detections: dets }
     if (attempt.status === 'FAILED') {
       uni.showToast({ title: `识别失败：${attempt.error_code || '未知错误'}`, icon: 'none' })
     } else if (!dets.length) {
@@ -318,7 +332,7 @@ function decisionText(d) {
 }
 
 function addConclusion() {
-  const firstImg = images.value.find((i) => i.role === 'OVERVIEW') || images.value[0]
+  const firstImg = selectedImage.value || images.value[0]
   conclusionItems.value.push({
     imageId: firstImg ? firstImg.imageId : null,
     thumb: firstImg ? firstImg.localPath : '',
@@ -327,6 +341,14 @@ function addConclusion() {
     description: '',
   })
 }
+
+function previewImage(current) { uni.previewImage({ current, urls: images.value.map(image => image.localPath).filter(Boolean) }) }
+function releaseImage(path) {
+  // #ifdef H5
+  if (path?.startsWith('blob:')) URL.revokeObjectURL(path)
+  // #endif
+}
+onUnload(() => images.value.forEach(image => releaseImage(image.localPath)))
 
 function removeConclusion(i) {
   conclusionItems.value.splice(i, 1)
@@ -417,6 +439,8 @@ async function submit() {
   overflow: hidden;
   background: #e9e4d8;
 }
+.img-cell.selected { box-shadow: inset 0 0 0 4rpx #2f6f63; }
+.img-cell.selected .img { opacity: .8; }
 .img-cell.add {
   display: flex;
   align-items: center;
@@ -597,7 +621,8 @@ textarea.input {
 .detect-item {
   display: flex;
   gap: 16rpx;
-  align-items: center;
+  align-items: flex-start;
+  flex-direction: column;
   padding: 14rpx 0;
   border-bottom: 1rpx solid #e6e1d5;
 }

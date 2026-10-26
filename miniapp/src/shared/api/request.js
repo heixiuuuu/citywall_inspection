@@ -112,7 +112,7 @@ export function loadImageContent(imageId) {
   if (!token) return Promise.reject(new Error('no token'))
   return new Promise((resolve, reject) => {
     uni.downloadFile({
-      url: `${getBaseUrl()}/images/${imageId}/content`,
+      url: `${getBaseUrl()}/images/${imageId}/preview`,
       header: { Authorization: `Bearer ${token}` },
       success(res) {
         if (res.statusCode === 200) resolve(res.tempFilePath)
