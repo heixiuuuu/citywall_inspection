@@ -88,6 +88,7 @@ def main():
              {"new_issues": [{"title": "e2e 受理问题-裂缝", "priority_code": "PROCESS",
                               "description": "联调自动创建", "priority_reason": "需处理"}]})
     iid_issue = a["data"]["admit"]["created_issue_ids"][0]
+    assert a["data"]["admit"]["linked_issue_ids"] == []
     print(f"== created issue#{iid_issue}")
 
     # 幂等：重复受理返回已受理，不重复建问题
@@ -103,10 +104,13 @@ def main():
     call("POST", f"/issues/{iid_issue}/verify", reviewer, {"revision": 5, "decision": "PASS", "reason": "核验通过"})
     d = call("GET", f"/issues/{iid_issue}", admin)
     assert d["data"]["issue"]["status"] == "CLOSED"
+    assert d["data"]["issue"]["closed_at"] and d["data"]["issue"]["close_reason"] == "核验通过"
     print(f"== issue#{iid_issue} CLOSED（主链路完成）")
 
     # ---- 5. 重开 + 退回链路：reopen → 进展 → 申请 → RETURN 退回 → 再进展 → PASS 关闭 ----
     call("POST", f"/issues/{iid_issue}/reopen", reviewer, {"revision": 6, "reason": "复查发现扩展"})
+    reopened = call("GET", f"/issues/{iid_issue}", admin)["data"]["issue"]
+    assert reopened["closed_at"] is None and reopened["close_reason"] == ""
     call("POST", f"/issues/{iid_issue}/actions", inspector,
          {"revision": 7, "action_type": "PROGRESS", "content": "二次处理"})
     call("POST", f"/issues/{iid_issue}/request-verification", inspector, {"revision": 8, "content": "二次申请"})
@@ -122,6 +126,7 @@ def main():
     call("POST", f"/issues/{iid_issue}/verify", reviewer, {"revision": 12, "decision": "PASS", "reason": "证据充分"})
     d3 = call("GET", f"/issues/{iid_issue}", admin)
     assert d3["data"]["issue"]["status"] == "CLOSED"
+    assert d3["data"]["issue"]["closed_at"] and d3["data"]["issue"]["close_reason"] == "证据充分"
     print(f"== issue#{iid_issue} CLOSED（退回后重新关闭）")
 
     # ---- 6. 权限与冲突 ----

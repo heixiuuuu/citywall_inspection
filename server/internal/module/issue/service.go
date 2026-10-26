@@ -16,16 +16,16 @@ import (
 
 // 领域错误（Handler 映射 HTTP 状态）。
 var (
-	ErrNotFound        = errors.New("issue: not found")
-	ErrForbidden       = errors.New("issue: forbidden")
-	ErrInvalidState    = errors.New("issue: invalid state for operation")
-	ErrStatusConflict  = errors.New("issue: status or revision conflict")
-	ErrSelfVerify      = errors.New("issue: cannot verify own submitted verification")
-	ErrReasonRequired  = errors.New("issue: reason required")
-	ErrAssigneeSelf    = errors.New("issue: cannot assign to self as verifier")
-	ErrAdmitEmpty      = errors.New("issue: admit requires new issues, linked issues or no-issue reason")
+	ErrNotFound         = errors.New("issue: not found")
+	ErrForbidden        = errors.New("issue: forbidden")
+	ErrInvalidState     = errors.New("issue: invalid state for operation")
+	ErrStatusConflict   = errors.New("issue: status or revision conflict")
+	ErrSelfVerify       = errors.New("issue: cannot verify own submitted verification")
+	ErrReasonRequired   = errors.New("issue: reason required")
+	ErrAssigneeSelf     = errors.New("issue: cannot assign to self as verifier")
+	ErrAdmitEmpty       = errors.New("issue: admit requires new issues, linked issues or no-issue reason")
 	ErrAdmitNotAccepted = errors.New("issue: observation not accepted or already admitted")
-	ErrActionImageMiss = errors.New("issue: action not found")
+	ErrActionImageMiss  = errors.New("issue: action not found")
 )
 
 // ObservationAccess 由 observation 模块实现：受理时校验记录状态并取审核决定。
@@ -36,13 +36,13 @@ type ObservationAccess interface {
 
 // NewIssueInput 受理时新建问题。
 type NewIssueInput struct {
-	Title          string  `json:"title" binding:"required"`
-	SegmentID      *int64  `json:"segment_id"`
-	PointID        *int64  `json:"point_id"`
-	LocationText   string  `json:"location_text"`
-	Description    string  `json:"description"`
-	PriorityCode   string  `json:"priority_code" binding:"required,oneof=WATCH PROCESS URGENT"`
-	PriorityReason string  `json:"priority_reason"`
+	Title          string `json:"title" binding:"required"`
+	SegmentID      *int64 `json:"segment_id"`
+	PointID        *int64 `json:"point_id"`
+	LocationText   string `json:"location_text"`
+	Description    string `json:"description"`
+	PriorityCode   string `json:"priority_code" binding:"required,oneof=WATCH PROCESS URGENT"`
+	PriorityReason string `json:"priority_reason"`
 }
 
 // AdmitInput 受理输入（新建 / 关联 / 不立项三选一或组合）。
@@ -82,13 +82,13 @@ type ListResult struct {
 
 // ObservationBrief 关联记录摘要（供详情展示来源）。
 type ObservationBrief struct {
-	ObservationID int64  `json:"observation_id"`
-	Source        string `json:"source"`
-	Outcome       string `json:"outcome"`
-	ReporterID    int64  `json:"reporter_id"`
-	LocationText  string `json:"location_text"`
-	Status        string `json:"status"`
-	LinkReason    string `json:"link_reason"`
+	ObservationID int64     `json:"observation_id"`
+	Source        string    `json:"source"`
+	Outcome       string    `json:"outcome"`
+	ReporterID    int64     `json:"reporter_id"`
+	LocationText  string    `json:"location_text"`
+	Status        string    `json:"status"`
+	LinkReason    string    `json:"link_reason"`
 	LinkedAt      time.Time `json:"linked_at"`
 }
 
@@ -107,12 +107,12 @@ type Service interface {
 
 // ActionImage 动作附件元数据（由 ImageStore 注册）。
 type ActionImage struct {
-	ID            int64  `json:"id"`
-	MediaType     string `json:"media_type"`
-	ByteSize      int64  `json:"byte_size"`
-	Width         int    `json:"width"`
-	Height        int    `json:"height"`
-	URL           string `json:"url"`
+	ID        int64  `json:"id"`
+	MediaType string `json:"media_type"`
+	ByteSize  int64  `json:"byte_size"`
+	Width     int    `json:"width"`
+	Height    int    `json:"height"`
+	URL       string `json:"url"`
 }
 
 // ImageStore 图片落盘与注册（由 infrastructure/storage + images 表实现注入）。
@@ -124,10 +124,10 @@ type ImageStore interface {
 }
 
 type service struct {
-	repo        Repository
-	obsAccess   ObservationAccess
-	images      ImageStore
-	audit       audit.Recorder
+	repo      Repository
+	obsAccess ObservationAccess
+	images    ImageStore
+	audit     audit.Recorder
 }
 
 // NewService 构造问题服务。
@@ -379,7 +379,12 @@ func (s *service) Verify(ctx context.Context, actor *middleware.Actor, id, revis
 	if err := s.repo.InsertAction(ctx, action); err != nil {
 		return nil, err
 	}
-	n, err := s.repo.UpdateStatus(ctx, id, revision, next)
+	var n int64
+	if next == StatusClosed {
+		n, err = s.repo.Close(ctx, id, revision, reason)
+	} else {
+		n, err = s.repo.UpdateStatus(ctx, id, revision, next)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -430,6 +435,8 @@ func (s *service) Reopen(ctx context.Context, actor *middleware.Actor, id, revis
 		return nil, ErrStatusConflict
 	}
 	i.Status = StatusOpen
+	i.ClosedAt = nil
+	i.CloseReason = ""
 	i.Revision++
 	s.audit.Record(ctx, &audit.Event{
 		EntityType: "issue", EntityID: id, Action: "reopen", ActorID: actor.UserID,
@@ -505,18 +512,18 @@ func (s *service) AdmitFromObservation(ctx context.Context, actor *middleware.Ac
 		for _, e := range existing {
 			ids = append(ids, e.IssueID)
 		}
-		return &AdmitResult{LinkedIssueIDs: ids, AlreadyAdmitted: true}, nil
+		return &AdmitResult{CreatedIssueIDs: []int64{}, LinkedIssueIDs: ids, AlreadyAdmitted: true}, nil
 	}
 	if len(in.NewIssues) == 0 && len(in.LinkIssueIDs) == 0 && in.NoIssueReason == "" {
 		return nil, ErrAdmitEmpty
 	}
-	var createdIDs, linkedIDs []int64
+	createdIDs, linkedIDs := []int64{}, []int64{}
 	err = s.repo.InTx(ctx, func(tx Repository) error {
 		for _, ni := range in.NewIssues {
 			iss := &Issue{
 				Title: ni.Title, SegmentID: ni.SegmentID, PointID: ni.PointID,
 				LocationText: firstNonEmpty(ni.LocationText, info.LocationText),
-				Description: ni.Description,
+				Description:  ni.Description,
 				PriorityCode: ni.PriorityCode, PriorityReason: ni.PriorityReason,
 				Status: StatusUnassigned, Revision: 1, OpenedAt: time.Now().UTC(),
 			}

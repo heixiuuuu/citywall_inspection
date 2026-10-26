@@ -32,7 +32,7 @@
       <el-table-column prop="location_text" label="位置" min-width="160" show-overflow-tooltip />
       <el-table-column prop="assignee_id" label="责任人ID" width="100" />
       <el-table-column label="开启" width="120">
-        <template #default="{ row }">{{ row.opened_at.slice(0, 10) }}</template>
+        <template #default="{ row }">{{ formatDateTime(row.opened_at) }}</template>
       </el-table-column>
       <el-table-column label="操作" width="120" fixed="right">
         <template #default="{ row }">
@@ -64,7 +64,7 @@
           <el-descriptions-item label="位置" :span="2">{{ detail.issue.location_text }}</el-descriptions-item>
           <el-descriptions-item label="描述" :span="2">{{ detail.issue.description || '—' }}</el-descriptions-item>
           <el-descriptions-item v-if="detail.issue.priority_reason" label="优先级依据" :span="2">{{ detail.issue.priority_reason }}</el-descriptions-item>
-          <el-descriptions-item v-if="detail.issue.closed_at" label="关闭时间">{{ detail.issue.closed_at.slice(0, 10) }}</el-descriptions-item>
+          <el-descriptions-item v-if="detail.issue.closed_at" label="关闭时间">{{ formatDateTime(detail.issue.closed_at) }}</el-descriptions-item>
           <el-descriptions-item v-if="detail.issue.close_reason" label="关闭原因" :span="2">{{ detail.issue.close_reason }}</el-descriptions-item>
           <el-descriptions-item label="版本">{{ detail.issue.revision }}</el-descriptions-item>
         </el-descriptions>
@@ -77,13 +77,13 @@
           </el-table-column>
           <el-table-column prop="link_reason" label="关联原因" min-width="120" />
           <el-table-column prop="linked_at" label="关联时间" min-width="150">
-            <template #default="{ row }">{{ row.linked_at?.slice(0, 16) }}</template>
+            <template #default="{ row }">{{ formatDateTime(row.linked_at) }}</template>
           </el-table-column>
         </el-table>
 
         <h4 class="subtitle">处置时间线</h4>
         <el-timeline class="timeline">
-          <el-timeline-item v-for="a in detail.actions" :key="a.id" :timestamp="a.created_at.slice(0, 16)">
+          <el-timeline-item v-for="a in detail.actions" :key="a.id" :timestamp="formatDateTime(a.created_at)">
             <div class="action-line">
               <el-tag size="small" effect="plain">{{ ACTION_TYPE_TEXT[a.action_type] ?? a.action_type }}</el-tag>
               <span class="action-actor">操作人 #{{ a.actor_id }}</span>
@@ -98,7 +98,8 @@
           <el-button v-if="canAct && canAction" type="success" @click="openAction">提交进展/观察</el-button>
           <el-button v-if="canAct && canRequestVerify" type="warning" @click="openRequestVerify">申请核验</el-button>
           <el-button v-if="canVerify" type="danger" @click="openVerify">核验</el-button>
-          <el-button v-if="canVerify && isClosed" type="danger" @click="openReopen">重新打开</el-button>
+          <el-button v-if="canReview && isClosed" type="danger" @click="openReopen">重新打开</el-button>
+          <span v-if="awaitingOtherReviewer" class="action-actor">需由另一名审核员核验</span>
         </div>
       </div>
     </el-drawer>
@@ -179,6 +180,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
+import { formatDateTime } from '@/shared/ui/time'
 import {
   fetchIssues,
   fetchIssue,
@@ -227,7 +229,8 @@ const busy = ref(false)
 const canAssign = computed(() => detail.value && ['UNASSIGNED', 'OPEN', 'IN_PROGRESS', 'MONITORING'].includes(detail.value.issue.status))
 const canAction = computed(() => detail.value && ['OPEN', 'IN_PROGRESS', 'MONITORING'].includes(detail.value.issue.status))
 const canRequestVerify = computed(() => detail.value && ['IN_PROGRESS', 'MONITORING'].includes(detail.value.issue.status))
-const canVerify = computed(() => detail.value && canReview.value && detail.value.issue.status === 'PENDING_VERIFICATION')
+const awaitingOtherReviewer = computed(() => detail.value?.issue.status === 'PENDING_VERIFICATION' && [...detail.value.actions].reverse().find(action => action.action_type === 'REQUEST_VERIFY')?.actor_id === myId)
+const canVerify = computed(() => detail.value && canReview.value && detail.value.issue.status === 'PENDING_VERIFICATION' && !awaitingOtherReviewer.value)
 const isClosed = computed(() => detail.value?.issue.status === 'CLOSED')
 // 责任人本人或管理员/审核员可操作（与 Go 侧 canAct 一致）。
 const canAct = computed(() => {
@@ -375,19 +378,18 @@ async function doVerify() {
 // ---- 重开 ----
 async function openReopen() {
   const d = detail.value!
-  const { value } = await import('element-plus').then(({ ElMessageBox }) =>
-    ElMessageBox.prompt('填写重新打开原因', '重新打开问题', {
-      type: 'warning',
-      inputType: 'textarea',
-      inputValidator: (v: string) => (v ? true : '原因必填'),
-    }),
-  )
   try {
-    await reopenIssue(d.issue.id, d.issue.revision, value)
+    const { ElMessageBox } = await import('element-plus')
+    const { value } = await ElMessageBox.prompt('填写重新打开原因', '重新打开问题', {
+      type: 'warning', inputType: 'textarea',
+      confirmButtonText: '重新打开', cancelButtonText: '取消',
+      inputValidator: (v: string) => (v?.trim() ? true : '原因必填'),
+    })
+    await reopenIssue(d.issue.id, d.issue.revision, value.trim())
     ElMessage.success('已重新打开')
     refresh()
   } catch (e: any) {
-    if (e !== 'cancel') ElMessage.error(e?.message || '操作失败')
+    if (e !== 'cancel' && e !== 'close') ElMessage.error(e?.message || '操作失败')
   }
 }
 

@@ -47,9 +47,10 @@
       <el-table-column label="提交时间" width="170">
         <template #default="{ row }">{{ formatDateTime(row.submitted_at || row.created_at) }}</template>
       </el-table-column>
-      <el-table-column label="操作" width="120" fixed="right">
+      <el-table-column label="操作" width="160" fixed="right">
         <template #default="{ row }">
           <el-button link type="primary" @click="openDetail(row)">查看</el-button>
+          <el-button v-if="row.status === 'ACCEPTED'" link type="primary" @click="openAdmission(row.id)">受理</el-button>
         </template>
       </el-table-column>
     </el-table>
@@ -82,11 +83,13 @@
         <ObservationEvidence v-if="detailVisible" :observation-id="detail.id" />
       </div>
     </el-drawer>
+    <IssueAdmission v-model="admitVisible" :observation-id="admitRecordId" />
   </div>
 </template>
 
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
+import IssueAdmission from '@/shared/ui/IssueAdmission.vue'
 import ObservationEvidence from '@/shared/ui/ObservationEvidence.vue'
 import { formatDateTime } from '@/shared/ui/time'
 import { ElMessage } from 'element-plus'
@@ -106,6 +109,9 @@ const filter = reactive<{ status: string; source: string; task_id: number | unde
 })
 const dateRange = ref<[string, string] | null>(null)
 
+const admitVisible = ref(false)
+const admitRecordId = ref(0)
+function openAdmission(id: number) { admitRecordId.value = id; admitVisible.value = true }
 const detailVisible = ref(false)
 const detail = ref<Observation | null>(null)
 

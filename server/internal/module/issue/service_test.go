@@ -14,11 +14,11 @@ import (
 // ---- fake repository ----
 
 type fakeIssueRepo struct {
-	issues      map[int64]*Issue
-	nextID      int64
-	obsLinks    []IssueObservation
-	actions     []IssueAction
-	actionImgs  []IssueActionImage
+	issues     map[int64]*Issue
+	nextID     int64
+	obsLinks   []IssueObservation
+	actions    []IssueAction
+	actionImgs []IssueActionImage
 }
 
 func newFakeRepo() *fakeIssueRepo {
@@ -69,6 +69,10 @@ func (f *fakeIssueRepo) UpdateStatus(_ context.Context, id, fromRevision int64, 
 		return 0, nil
 	}
 	i.Status = status
+	if status == StatusOpen {
+		i.ClosedAt = nil
+		i.CloseReason = ""
+	}
 	i.Revision++
 	return 1, nil
 }
@@ -84,6 +88,16 @@ func (f *fakeIssueRepo) UpdateAssignee(_ context.Context, id, fromRevision int64
 	i.AssigneeID = &assigneeID
 	i.Revision++
 	return 1, nil
+}
+
+func (f *fakeIssueRepo) Close(ctx context.Context, id, fromRevision int64, reason string) (int64, error) {
+	n, err := f.UpdateStatus(ctx, id, fromRevision, StatusClosed)
+	if err == nil && n == 1 {
+		now := time.Now().UTC()
+		f.issues[id].ClosedAt = &now
+		f.issues[id].CloseReason = reason
+	}
+	return n, err
 }
 
 func (f *fakeIssueRepo) InsertAction(_ context.Context, a *IssueAction) error {
@@ -175,9 +189,11 @@ func mkIssue(repo *fakeIssueRepo) int64 {
 	return i.ID
 }
 
-func admin() *middleware.Actor { return &middleware.Actor{UserID: 1, Roles: []string{"ADMIN"}} }
+func admin() *middleware.Actor    { return &middleware.Actor{UserID: 1, Roles: []string{"ADMIN"}} }
 func reviewer() *middleware.Actor { return &middleware.Actor{UserID: 2, Roles: []string{"REVIEWER"}} }
-func inspector(id int64) *middleware.Actor { return &middleware.Actor{UserID: id, Roles: []string{"INSPECTOR"}} }
+func inspector(id int64) *middleware.Actor {
+	return &middleware.Actor{UserID: id, Roles: []string{"INSPECTOR"}}
+}
 
 // ---- tests ----
 
@@ -312,7 +328,7 @@ func TestAdmitFromObservation(t *testing.T) {
 		NewIssues: []NewIssueInput{
 			{Title: "南门段裂缝", LocationText: "南门段东侧", PriorityCode: PriorityProcess, PriorityReason: "现场确认"},
 		},
-		LinkIssueIDs: []int64{},
+		LinkIssueIDs:  []int64{},
 		NoIssueReason: "",
 	})
 	if err != nil {
@@ -320,6 +336,9 @@ func TestAdmitFromObservation(t *testing.T) {
 	}
 	if len(res.CreatedIssueIDs) != 1 {
 		t.Fatalf("expected 1 created issue, got %d", len(res.CreatedIssueIDs))
+	}
+	if res.LinkedIssueIDs == nil {
+		t.Fatal("empty linked issue list must serialize as an array")
 	}
 	// 再次受理 → 幂等返回已有关联。
 	res2, err := svc.AdmitFromObservation(context.Background(), reviewer(), 100, AdmitInput{
@@ -330,6 +349,9 @@ func TestAdmitFromObservation(t *testing.T) {
 	}
 	if !res2.AlreadyAdmitted || len(res2.LinkedIssueIDs) != 1 {
 		t.Fatalf("expected already admitted, got %+v", res2)
+	}
+	if res2.CreatedIssueIDs == nil {
+		t.Fatal("empty created issue list must serialize as an array")
 	}
 	// 空受理被拒（未受理的记录）。
 	if _, err := svc.AdmitFromObservation(context.Background(), reviewer(), 101, AdmitInput{}); !errors.Is(err, ErrAdmitEmpty) {

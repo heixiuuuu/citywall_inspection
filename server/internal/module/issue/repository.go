@@ -2,6 +2,7 @@ package issue
 
 import (
 	"context"
+	"time"
 
 	"gorm.io/gorm"
 )
@@ -14,6 +15,7 @@ type Repository interface {
 	CountIssues(ctx context.Context, actorID int64, isAdmin bool, status string) (int64, error)
 
 	UpdateStatus(ctx context.Context, id, fromRevision int64, status string) (int64, error)
+	Close(ctx context.Context, id, fromRevision int64, reason string) (int64, error)
 	UpdateAssignee(ctx context.Context, id, fromRevision int64, assigneeID int64) (int64, error)
 
 	InsertAction(ctx context.Context, a *IssueAction) error
@@ -80,10 +82,20 @@ func (r *GORMRepository) CountIssues(ctx context.Context, actorID int64, isAdmin
 }
 
 func (r *GORMRepository) UpdateStatus(ctx context.Context, id, fromRevision int64, status string) (int64, error) {
+	updates := map[string]any{"status": status, "revision": gorm.Expr("revision + 1")}
+	if status == StatusOpen {
+		updates["closed_at"], updates["close_reason"] = nil, ""
+	}
 	res := r.db.WithContext(ctx).
 		Model(&Issue{}).
 		Where("id = ? AND revision = ?", id, fromRevision).
-		Updates(map[string]any{"status": status, "revision": gorm.Expr("revision + 1")})
+		Updates(updates)
+	return res.RowsAffected, res.Error
+}
+
+func (r *GORMRepository) Close(ctx context.Context, id, fromRevision int64, reason string) (int64, error) {
+	res := r.db.WithContext(ctx).Model(&Issue{}).Where("id = ? AND revision = ?", id, fromRevision).
+		Updates(map[string]any{"status": StatusClosed, "revision": gorm.Expr("revision + 1"), "closed_at": time.Now().UTC(), "close_reason": reason})
 	return res.RowsAffected, res.Error
 }
 
