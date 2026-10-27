@@ -13,12 +13,13 @@ import (
 
 	"citywall/server/internal/infrastructure/database"
 	"citywall/server/internal/module/audit"
+	"citywall/server/internal/module/observation"
 	mysqldriver "github.com/go-sql-driver/mysql"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
 )
 
-func persistentIssue(t *testing.T, status string) (*service, *gorm.DB, *Issue) {
+func issueTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	dsn := os.Getenv("CITY_WALL_TEST_DSN")
 	if dsn == "" {
@@ -40,6 +41,12 @@ func persistentIssue(t *testing.T, status string) (*service, *gorm.DB, *Issue) {
 	if err := database.Migrate(sqlDB, filepath.Join("..", "..", "..", "migrations")); err != nil {
 		t.Fatal(err)
 	}
+	return db
+}
+
+func persistentIssue(t *testing.T, status string) (*service, *gorm.DB, *Issue) {
+	t.Helper()
+	db := issueTestDB(t)
 	assignee := int64(3)
 	i := &Issue{Title: "事务验证", Status: status, PriorityCode: PriorityWatch, AssigneeID: &assignee, Revision: 1, OpenedAt: time.Now().UTC()}
 	if status == StatusUnassigned {
@@ -266,5 +273,118 @@ func TestIssueAuditFollowsCommittedState(t *testing.T) {
 	}
 	if len(recorder.events) != 1 || recorder.events[0].OldStatus != StatusOpen || recorder.events[0].NewStatus != StatusInProgress {
 		t.Fatalf("audit events=%+v", recorder.events)
+	}
+}
+
+type storedAdmissionAccess struct{ db *gorm.DB }
+
+func (a storedAdmissionAccess) AcceptedAdmissionInfo(ctx context.Context, id int64) (*observation.AcceptedInfo, error) {
+	var record observation.Observation
+	if err := a.db.WithContext(ctx).First(&record, id).Error; err != nil {
+		return nil, err
+	}
+	return &observation.AcceptedInfo{LocationText: record.LocationText, ReviewDecisionID: 1, SegmentID: record.SegmentID, PointID: record.PointID}, nil
+}
+func persistentAdmission(t *testing.T) (*service, *gorm.DB, *observation.Observation) {
+	t.Helper()
+	db := issueTestDB(t)
+	record := &observation.Observation{Source: observation.SourceVoluntary, ReporterID: 3, Status: observation.ObsAccepted, Revision: 1, LocationText: "受理测试"}
+	if err := db.Create(record).Error; err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		var ids []int64
+		db.Model(&IssueObservation{}).Where("observation_id = ?", record.ID).Pluck("issue_id", &ids)
+		db.Where("observation_id = ?", record.ID).Delete(&IssueObservation{})
+		if len(ids) > 0 {
+			db.Where("id IN ?", ids).Delete(&Issue{})
+		}
+		db.Delete(record)
+	})
+	return NewService(NewGORMRepository(db), storedAdmissionAccess{db}, nil, audit.NewRecorder(nil)).(*service), db, record
+}
+func TestConcurrentAdmissionDoesNotDuplicateIssues(t *testing.T) {
+	s, db, record := persistentAdmission(t)
+	type outcome struct {
+		result *AdmitResult
+		err    error
+	}
+	start := make(chan struct{})
+	results := make(chan outcome, 2)
+	for range 2 {
+		go func() {
+			<-start
+			result, err := s.AdmitFromObservation(context.Background(), admin(), record.ID, AdmitInput{NewIssues: []NewIssueInput{{Title: "受理测试", PriorityCode: PriorityWatch}}})
+			results <- outcome{result, err}
+		}()
+	}
+	close(start)
+	created, replayed := 0, 0
+	for range 2 {
+		result := <-results
+		if result.err != nil {
+			t.Fatal(result.err)
+		}
+		created += len(result.result.CreatedIssueIDs)
+		if result.result.AlreadyAdmitted {
+			replayed++
+		}
+	}
+	var links int64
+	db.Model(&IssueObservation{}).Where("observation_id = ?", record.ID).Count(&links)
+	var saved observation.Observation
+	db.First(&saved, record.ID)
+	if created != 1 || replayed != 1 || links != 1 || saved.AdmittedAt == nil || saved.AdmittedBy == nil {
+		t.Fatalf("created=%d replayed=%d links=%d record=%+v", created, replayed, links, saved)
+	}
+}
+func TestNoIssueAdmissionPersistsAndReplays(t *testing.T) {
+	s, db, record := persistentAdmission(t)
+	recorder := &issueAuditBuffer{}
+	s.audit = recorder
+	reason := strings.Repeat("人工复核后不立项。", 80)
+	first, err := s.AdmitFromObservation(context.Background(), admin(), record.ID, AdmitInput{NoIssueReason: reason})
+	if err != nil || first.NoIssueReason != reason {
+		t.Fatalf("result=%+v err=%v", first, err)
+	}
+	result, err := s.AdmitFromObservation(context.Background(), admin(), record.ID, AdmitInput{NewIssues: []NewIssueInput{{Title: "重复请求", PriorityCode: PriorityWatch}}})
+	if err != nil || !result.AlreadyAdmitted || result.NoIssueReason != first.NoIssueReason || len(result.CreatedIssueIDs) != 0 {
+		t.Fatalf("result=%+v err=%v", result, err)
+	}
+	var saved observation.Observation
+	db.First(&saved, record.ID)
+	var count int64
+	db.Model(&IssueObservation{}).Where("observation_id = ?", record.ID).Count(&count)
+	if saved.AdmittedAt == nil || saved.NoIssueReason != first.NoIssueReason || count != 0 {
+		t.Fatalf("record=%+v links=%d", saved, count)
+	}
+	if len(recorder.events) != 1 || len([]rune(recorder.events[0].Reason)) > 512 {
+		t.Fatalf("audit=%+v", recorder.events)
+	}
+
+}
+func TestAdmissionRollsBackIfResultCannotBeSaved(t *testing.T) {
+	s, db, record := persistentAdmission(t)
+	recorder := &issueAuditBuffer{}
+	s.audit = recorder
+	callback := "test:fail_admission"
+	if err := db.Callback().Update().Before("gorm:update").Register(callback, func(tx *gorm.DB) {
+		if tx.Statement.Table == "observations" {
+			tx.AddError(errors.New("admission persistence unavailable"))
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Callback().Update().Remove(callback) })
+	_, err := s.AdmitFromObservation(context.Background(), admin(), record.ID, AdmitInput{NewIssues: []NewIssueInput{{Title: "回滚测试", PriorityCode: PriorityWatch}}})
+	if err == nil {
+		t.Fatal("expected failure")
+	}
+	var count int64
+	db.Model(&Issue{}).Where("title = ?", "回滚测试").Count(&count)
+	var saved observation.Observation
+	db.First(&saved, record.ID)
+	if count != 0 || saved.AdmittedAt != nil || len(recorder.events) != 0 {
+		t.Fatalf("issues=%d record=%+v audit=%d", count, saved, len(recorder.events))
 	}
 }

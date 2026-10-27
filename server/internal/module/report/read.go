@@ -240,7 +240,7 @@ func (s *snapshotRepository) assembleObservations(ctx context.Context, obs []Obs
 			ID: o.ID, Source: o.Source, TaskPointID: o.TaskPointID, ReporterID: o.ReporterID,
 			LocationText: o.LocationText, Latitude: o.Latitude, Longitude: o.Longitude,
 			AccuracyM: o.AccuracyM, DistanceM: o.DistanceM, Status: o.Status, Outcome: o.InspectionOutcome,
-			SubmittedAt: o.SubmittedAt, ReviewedAt: o.ReviewedAt,
+			SubmittedAt: o.SubmittedAt, ReviewedAt: o.ReviewedAt, AdmittedAt: o.AdmittedAt, AdmittedBy: o.AdmittedBy, NoIssueReason: o.NoIssueReason,
 		}
 		v.LocationAbnormal = locationAbnormal(*o)
 		views = append(views, v)
@@ -513,6 +513,9 @@ func mergeUnique(a, b []int64) []int64 {
 
 // 复用 observation 模块模型做只读查询（不导入避免环依赖；定义同构行结构）。
 type Observation struct {
+	AdmittedAt        *time.Time
+	AdmittedBy        *int64
+	NoIssueReason     string
 	ID                int64
 	Source            string
 	TaskPointID       *int64

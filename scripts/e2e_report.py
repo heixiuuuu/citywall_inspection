@@ -1,4 +1,5 @@
 # 阶段四 报告模块 API 联调：任务报告 / 范围报告 / 台账 / 下载
+import pymupdf
 import requests
 import os
 import sys
@@ -37,11 +38,22 @@ def main():
     requests.put(f"{BASE}/observations/{oid}/conclusion", headers=inspector, json={"revision": 1, "outcome": "NORMAL", "description": "现场复核：未见明显表面异常。", "items": []}, timeout=10).raise_for_status()
     requests.post(f"{BASE}/observations/{oid}/submit", headers=inspector, json={"revision": 2}, timeout=10).raise_for_status()
     requests.post(f"{BASE}/observations/{oid}/review", headers=H, json={"revision": 3, "decision": "ACCEPT", "disposition": "照片与人工结论已复核"}, timeout=10).raise_for_status()
+    admission_reason = "人工复核未见明显异常，不立项并保留巡检记录。"
+    response = requests.post(f"{BASE}/observations/{oid}/admit", headers=H, json={"no_issue_reason": admission_reason}, timeout=10)
+    response.raise_for_status()
+    replay = requests.post(f"{BASE}/observations/{oid}/admit", headers=H, json={"new_issues": [{"title": "重复请求", "priority_code": "WATCH"}]}, timeout=10)
+    replay.raise_for_status()
+    assert replay.json()["data"]["admit"]["already_admitted"] and replay.json()["data"]["admit"]["no_issue_reason"] == admission_reason
+    record = requests.get(f"{BASE}/observations/{oid}", headers=H, timeout=10).json()["data"]["evidence"]["observation"]
+    assert record["admitted_at"] and record["no_issue_reason"] == admission_reason
     r = check("create task report", requests.post(f"{BASE}/reports/task/{task_id}", headers=H), 201)
     rid = r.json()["data"]["report"]["id"]
     check("get report", requests.get(f"{BASE}/reports/{rid}", headers=H))
     r = check("download pdf", requests.get(f"{BASE}/reports/{rid}/file", headers=H), 200)
     assert r.headers.get("Content-Type") == "application/pdf"
+    with pymupdf.open(stream=r.content, filetype="pdf") as document:
+        text = "".join(page.get_text() for page in document)
+    assert "不立项" in text and admission_reason in text
     with open(OUT, "wb") as f:
         f.write(r.content)
     print(f"== PDF saved: {OUT} ({len(r.content)} bytes)")

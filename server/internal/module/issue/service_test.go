@@ -14,6 +14,7 @@ import (
 // ---- fake repository ----
 
 type fakeIssueRepo struct {
+	admissions map[int64]*observation.Observation
 	issues     map[int64]*Issue
 	nextID     int64
 	obsLinks   []IssueObservation
@@ -22,7 +23,7 @@ type fakeIssueRepo struct {
 }
 
 func newFakeRepo() *fakeIssueRepo {
-	return &fakeIssueRepo{issues: map[int64]*Issue{}, nextID: 1}
+	return &fakeIssueRepo{admissions: map[int64]*observation.Observation{}, issues: map[int64]*Issue{}, nextID: 1}
 }
 
 func (f *fakeIssueRepo) Insert(_ context.Context, i *Issue) error {
@@ -140,6 +141,20 @@ func (f *fakeIssueRepo) ListByObservation(_ context.Context, observationID int64
 		}
 	}
 	return out, nil
+}
+
+func (f *fakeIssueRepo) LockObservation(_ context.Context, id int64) (*observation.Observation, error) {
+	if record := f.admissions[id]; record != nil {
+		return record, nil
+	}
+	record := &observation.Observation{ID: id, Status: observation.ObsAccepted}
+	f.admissions[id] = record
+	return record, nil
+}
+func (f *fakeIssueRepo) MarkAdmitted(_ context.Context, id, actorID int64, reason string, at time.Time) error {
+	record := f.admissions[id]
+	record.AdmittedAt, record.AdmittedBy, record.NoIssueReason = &at, &actorID, reason
+	return nil
 }
 
 func (f *fakeIssueRepo) LinkActionImage(_ context.Context, actionID, imageID int64) error {

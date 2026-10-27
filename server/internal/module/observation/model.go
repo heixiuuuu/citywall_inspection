@@ -88,6 +88,9 @@ type Observation struct {
 	Revision          int64      `gorm:"column:revision" json:"revision"`
 	SubmittedAt       *time.Time `gorm:"column:submitted_at" json:"submitted_at"`
 	ReviewedAt        *time.Time `gorm:"column:reviewed_at" json:"reviewed_at"`
+	AdmittedAt        *time.Time `gorm:"column:admitted_at" json:"admitted_at"`
+	AdmittedBy        *int64     `gorm:"column:admitted_by" json:"admitted_by"`
+	NoIssueReason     string     `gorm:"column:no_issue_reason" json:"no_issue_reason"`
 	CreatedAt         time.Time  `gorm:"column:created_at" json:"created_at"`
 	UpdatedAt         time.Time  `gorm:"column:updated_at" json:"updated_at"`
 }

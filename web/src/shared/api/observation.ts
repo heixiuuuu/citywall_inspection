@@ -22,6 +22,9 @@ export interface Observation {
   revision: number
   submitted_at: string | null
   reviewed_at: string | null
+  admitted_at: string | null
+  admitted_by: number | null
+  no_issue_reason: string
   created_at: string
 }
 

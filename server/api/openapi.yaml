@@ -958,6 +958,7 @@ paths:
     post:
       tags: [issue]
       summary: 现场记录受理（新建问题/关联已有问题/无问题说明，管理员/审核员，幂等）
+      description: 在记录锁内保存受理结果。已受理的记录重复请求返回既有结果，不重复建问题或改写不立项原因。不立项说明不能与立项或关联混用。
       security: [{ bearerAuth: [] }]
       parameters:
         - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
@@ -1260,6 +1261,9 @@ components:
         revision: { type: integer }
         submitted_at: { type: [string, 'null'], format: date-time }
         reviewed_at: { type: [string, 'null'], format: date-time }
+        admitted_at: { type: [string, 'null'], format: date-time }
+        admitted_by: { type: [integer, 'null'] }
+        no_issue_reason: { type: string, description: 不立项时保存的人工说明 }
     Image:
       type: object
       properties:

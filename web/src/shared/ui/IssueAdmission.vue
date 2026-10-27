@@ -104,7 +104,8 @@ async function submitAdmit() {
           : { no_issue_reason: admitForm.value.no_issue_reason }
     const res = await admitObservation(props.observationId, payload)
     const a = res.admit
-    if (a.already_admitted) ElMessage.info('该记录已受理（返回已有关联）')
+    if (a.already_admitted) ElMessage.info(a.no_issue_reason ? `该记录已不立项：${a.no_issue_reason}` : '该记录已受理（返回已有关联）')
+    else if (a.no_issue_reason) ElMessage.success('已记录不立项原因')
     else ElMessage.success(`受理完成：新建 ${a.created_issue_ids?.length ?? 0} 个，关联 ${a.linked_issue_ids?.length ?? 0} 个`)
     visible.value = false
     emit('admitted')

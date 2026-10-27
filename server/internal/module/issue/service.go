@@ -7,6 +7,8 @@ import (
 	"image"
 	_ "image/jpeg"
 	_ "image/png"
+	"sort"
+	"strings"
 	"time"
 
 	"citywall/server/internal/middleware"
@@ -24,6 +26,7 @@ var (
 	ErrReasonRequired   = errors.New("issue: reason required")
 	ErrAssigneeSelf     = errors.New("issue: cannot assign to self as verifier")
 	ErrAdmitEmpty       = errors.New("issue: admit requires new issues, linked issues or no-issue reason")
+	ErrAdmitInvalid     = errors.New("issue: invalid admission input")
 	ErrAdmitNotAccepted = errors.New("issue: observation not accepted or already admitted")
 	ErrActionImageMiss  = errors.New("issue: action not found")
 )
@@ -47,8 +50,8 @@ type NewIssueInput struct {
 
 // AdmitInput 受理输入（新建 / 关联 / 不立项三选一或组合）。
 type AdmitInput struct {
-	NewIssues     []NewIssueInput `json:"new_issues"`
-	LinkIssueIDs  []int64         `json:"link_issue_ids"`
+	NewIssues     []NewIssueInput `json:"new_issues" binding:"dive"`
+	LinkIssueIDs  []int64         `json:"link_issue_ids" binding:"dive,gt=0"`
 	NoIssueReason string          `json:"no_issue_reason"`
 }
 
@@ -552,47 +555,43 @@ func (s *service) AdmitFromObservation(ctx context.Context, actor *middleware.Ac
 	if err != nil {
 		return nil, err
 	}
-	// 已有关联 → 幂等返回现状。
-	existing, err := s.repo.ListByObservation(ctx, obsID)
-	if err != nil {
-		return nil, err
-	}
-	if len(existing) > 0 {
-		ids := make([]int64, 0, len(existing))
-		for _, e := range existing {
-			ids = append(ids, e.IssueID)
-		}
-		return &AdmitResult{CreatedIssueIDs: []int64{}, LinkedIssueIDs: ids, AlreadyAdmitted: true}, nil
-	}
-	if len(in.NewIssues) == 0 && len(in.LinkIssueIDs) == 0 && in.NoIssueReason == "" {
-		return nil, ErrAdmitEmpty
-	}
-	createdIDs, linkedIDs := []int64{}, []int64{}
+	result := &AdmitResult{CreatedIssueIDs: []int64{}, LinkedIssueIDs: []int64{}}
+	pending := &issueAuditBuffer{}
 	err = s.repo.InTx(ctx, func(tx Repository) error {
-		for _, ni := range in.NewIssues {
-			iss := &Issue{
-				Title: ni.Title, SegmentID: ni.SegmentID, PointID: ni.PointID,
-				LocationText: firstNonEmpty(ni.LocationText, info.LocationText),
-				Description:  ni.Description,
-				PriorityCode: ni.PriorityCode, PriorityReason: ni.PriorityReason,
-				Status: StatusUnassigned, Revision: 1, OpenedAt: time.Now().UTC(),
-			}
-			if err := tx.Insert(ctx, iss); err != nil {
-				return err
-			}
-			if err := tx.LinkObservation(ctx, &IssueObservation{
-				IssueID: iss.ID, ObservationID: obsID, ReviewDecisionID: info.ReviewDecisionID,
-				LinkReason: "受理新建", LinkedBy: actor.UserID, LinkedAt: time.Now().UTC(),
-			}); err != nil {
-				return err
-			}
-			createdIDs = append(createdIDs, iss.ID)
-			s.audit.Record(ctx, &audit.Event{
-				EntityType: "issue", EntityID: iss.ID, Action: "admit_create", ActorID: actor.UserID,
-				NewStatus: StatusUnassigned, Reason: "from observation " + itoa(obsID),
-			})
+		record, err := tx.LockObservation(ctx, obsID)
+		if err != nil {
+			return err
 		}
-		for _, lid := range in.LinkIssueIDs {
+		if record.Status != observation.ObsAccepted {
+			return ErrAdmitNotAccepted
+		}
+		if record.AdmittedAt != nil {
+			links, err := tx.ListByObservation(ctx, obsID)
+			if err != nil {
+				return err
+			}
+			for _, link := range links {
+				result.LinkedIssueIDs = append(result.LinkedIssueIDs, link.IssueID)
+			}
+			result.AlreadyAdmitted, result.NoIssueReason = true, record.NoIssueReason
+			return nil
+		}
+		reason := strings.TrimSpace(in.NoIssueReason)
+		if len(in.NewIssues) == 0 && len(in.LinkIssueIDs) == 0 && reason == "" {
+			return ErrAdmitEmpty
+		}
+		if reason != "" && (len(in.NewIssues) > 0 || len(in.LinkIssueIDs) > 0) {
+			return ErrAdmitInvalid
+		}
+		ids := append([]int64{}, in.LinkIssueIDs...)
+		sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+		for idx, lid := range ids {
+			if lid <= 0 {
+				return ErrAdmitInvalid
+			}
+			if idx > 0 && ids[idx-1] == lid {
+				continue
+			}
 			iss, err := tx.GetByID(ctx, lid)
 			if err != nil {
 				return ErrNotFound
@@ -600,28 +599,55 @@ func (s *service) AdmitFromObservation(ctx context.Context, actor *middleware.Ac
 			if iss.Status == StatusClosed {
 				return ErrInvalidState
 			}
-			if err := tx.LinkObservation(ctx, &IssueObservation{
-				IssueID: lid, ObservationID: obsID, ReviewDecisionID: info.ReviewDecisionID,
-				LinkReason: "关联已有问题", LinkedBy: actor.UserID, LinkedAt: time.Now().UTC(),
-			}); err != nil {
+			if err := tx.LinkObservation(ctx, &IssueObservation{IssueID: lid, ObservationID: obsID, ReviewDecisionID: info.ReviewDecisionID,
+				LinkReason: "关联已有问题", LinkedBy: actor.UserID, LinkedAt: time.Now().UTC()}); err != nil {
 				return err
 			}
-			linkedIDs = append(linkedIDs, lid)
-			s.audit.Record(ctx, &audit.Event{
-				EntityType: "issue", EntityID: lid, Action: "admit_link", ActorID: actor.UserID,
-				Reason: "from observation " + itoa(obsID),
-			})
+			result.LinkedIssueIDs = append(result.LinkedIssueIDs, lid)
+			pending.Record(ctx, &audit.Event{EntityType: "issue", EntityID: lid, Action: "admit_link", ActorID: actor.UserID, Reason: "from observation " + itoa(obsID)})
 		}
+		for _, ni := range in.NewIssues {
+			if strings.TrimSpace(ni.Title) == "" || (ni.PriorityCode != PriorityWatch && ni.PriorityCode != PriorityProcess && ni.PriorityCode != PriorityUrgent) {
+				return ErrAdmitInvalid
+			}
+			segmentID, pointID := ni.SegmentID, ni.PointID
+			if segmentID == nil {
+				segmentID = info.SegmentID
+			}
+			if pointID == nil {
+				pointID = info.PointID
+			}
+			iss := &Issue{Title: strings.TrimSpace(ni.Title), SegmentID: segmentID, PointID: pointID,
+				LocationText: firstNonEmpty(ni.LocationText, info.LocationText), Description: ni.Description,
+				PriorityCode: ni.PriorityCode, PriorityReason: ni.PriorityReason, Status: StatusUnassigned, Revision: 1, OpenedAt: time.Now().UTC()}
+			if err := tx.Insert(ctx, iss); err != nil {
+				return err
+			}
+			if err := tx.LinkObservation(ctx, &IssueObservation{IssueID: iss.ID, ObservationID: obsID, ReviewDecisionID: info.ReviewDecisionID,
+				LinkReason: "受理新建", LinkedBy: actor.UserID, LinkedAt: time.Now().UTC()}); err != nil {
+				return err
+			}
+			result.CreatedIssueIDs = append(result.CreatedIssueIDs, iss.ID)
+			pending.Record(ctx, &audit.Event{EntityType: "issue", EntityID: iss.ID, Action: "admit_create", ActorID: actor.UserID, NewStatus: StatusUnassigned, Reason: "from observation " + itoa(obsID)})
+		}
+		if err := tx.MarkAdmitted(ctx, obsID, actor.UserID, reason, time.Now().UTC()); err != nil {
+			return err
+		}
+		result.NoIssueReason = reason
+		auditReason := reason
+		if len([]rune(auditReason)) > 512 {
+			auditReason = "不立项，完整说明见现场记录"
+		}
+		pending.Record(ctx, &audit.Event{EntityType: "observation", EntityID: obsID, Action: "admit", ActorID: actor.UserID, Reason: auditReason})
 		return nil
 	})
 	if err != nil {
 		return nil, err
 	}
-	s.audit.Record(ctx, &audit.Event{
-		EntityType: "observation", EntityID: obsID, Action: "admit", ActorID: actor.UserID,
-		Reason: in.NoIssueReason,
-	})
-	return &AdmitResult{CreatedIssueIDs: createdIDs, LinkedIssueIDs: linkedIDs, NoIssueReason: in.NoIssueReason}, nil
+	for idx := range pending.events {
+		s.audit.Record(ctx, &pending.events[idx])
+	}
+	return result, nil
 }
 
 func hasAdminOrReviewer(actor *middleware.Actor) bool {

@@ -76,7 +76,7 @@ func writeErr(c *gin.Context, err error) {
 		errors.Is(err, observation.ErrMissingOverview), errors.Is(err, observation.ErrMissingConclusion),
 		errors.Is(err, observation.ErrMissingLocation), errors.Is(err, observation.ErrReturnReasonRequired),
 		errors.Is(err, observation.ErrRejectOnlyVoluntary), errors.Is(err, issue.ErrReasonRequired),
-		errors.Is(err, issue.ErrAdmitEmpty), errors.Is(err, issue.ErrAdmitNotAccepted),
+		errors.Is(err, issue.ErrAdmitEmpty), errors.Is(err, issue.ErrAdmitInvalid), errors.Is(err, issue.ErrAdmitNotAccepted),
 		errors.Is(err, issue.ErrActionImageMiss), errors.Is(err, report.ErrInvalidScope):
 		writeError(c, http.StatusBadRequest, "VALIDATION_ERROR", err.Error())
 	default:

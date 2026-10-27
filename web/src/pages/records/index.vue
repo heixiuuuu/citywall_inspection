@@ -34,6 +34,7 @@
           <el-tag :type="statusType(row.status)" size="small">{{ statusText(row.status) }}</el-tag>
         </template>
       </el-table-column>
+      <el-table-column label="受理" width="100"><template #default="{ row }">{{ row.admitted_at ? (row.no_issue_reason ? '不立项' : '已受理') : row.status === 'ACCEPTED' ? '待受理' : '—' }}</template></el-table-column>
       <el-table-column prop="reporter_id" label="上报人" width="80" />
       <el-table-column label="点位" width="110">
         <template #default="{ row }">{{ row.task_point_id ?? (row.point_id ?? '—') }}</template>
@@ -50,7 +51,7 @@
       <el-table-column label="操作" width="160" fixed="right">
         <template #default="{ row }">
           <el-button link type="primary" @click="openDetail(row)">查看</el-button>
-          <el-button v-if="row.status === 'ACCEPTED'" link type="primary" @click="openAdmission(row.id)">受理</el-button>
+          <el-button v-if="row.status === 'ACCEPTED' && !row.admitted_at" link type="primary" @click="openAdmission(row.id)">受理</el-button>
         </template>
       </el-table-column>
     </el-table>
@@ -83,7 +84,7 @@
         <ObservationEvidence v-if="detailVisible" :observation-id="detail.id" />
       </div>
     </el-drawer>
-    <IssueAdmission v-model="admitVisible" :observation-id="admitRecordId" />
+    <IssueAdmission v-model="admitVisible" :observation-id="admitRecordId" @admitted="load" />
   </div>
 </template>
 

@@ -1,6 +1,7 @@
 package issue
 
 import (
+	"citywall/server/internal/module/observation"
 	"context"
 	"time"
 
@@ -24,6 +25,8 @@ type Repository interface {
 	LinkObservation(ctx context.Context, link *IssueObservation) error
 	ListObservations(ctx context.Context, issueID int64) ([]IssueObservation, error)
 	ListByObservation(ctx context.Context, observationID int64) ([]IssueObservation, error)
+	LockObservation(ctx context.Context, observationID int64) (*observation.Observation, error)
+	MarkAdmitted(ctx context.Context, observationID, actorID int64, reason string, at time.Time) error
 	LinkActionImage(ctx context.Context, actionID, imageID int64) error
 
 	// InTx 在同一事务中执行 fn（用于受理等原子写入）。
@@ -143,6 +146,17 @@ func (r *GORMRepository) ListByObservation(ctx context.Context, observationID in
 		Where("observation_id = ?", observationID).
 		Order("linked_at ASC").
 		Find(&items).Error
+}
+
+func (r *GORMRepository) LockObservation(ctx context.Context, observationID int64) (*observation.Observation, error) {
+	var record observation.Observation
+	err := r.db.WithContext(ctx).Clauses(clause.Locking{Strength: "UPDATE"}).First(&record, observationID).Error
+	return &record, err
+}
+
+func (r *GORMRepository) MarkAdmitted(ctx context.Context, observationID, actorID int64, reason string, at time.Time) error {
+	return r.db.WithContext(ctx).Model(&observation.Observation{}).Where("id = ?", observationID).
+		Updates(map[string]any{"admitted_at": at, "admitted_by": actorID, "no_issue_reason": reason}).Error
 }
 
 func (r *GORMRepository) LinkActionImage(ctx context.Context, actionID, imageID int64) error {

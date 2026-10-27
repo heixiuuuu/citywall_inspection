@@ -3,6 +3,8 @@
     <el-alert v-if="error" :title="error" type="error" :closable="false" />
     <template v-if="evidence">
       <p>经纬度：{{ evidence.observation.latitude ?? '—' }}, {{ evidence.observation.longitude ?? '—' }} · 精度 {{ evidence.observation.accuracy_m ?? '—' }} m</p>
+      <p v-if="evidence.observation.admitted_at">受理：{{ evidence.observation.no_issue_reason ? `不立项 · ${evidence.observation.no_issue_reason}` : '已立项或关联问题' }} · {{ formatDateTime(evidence.observation.admitted_at) }}</p>
+      <p v-else-if="evidence.observation.status === 'ACCEPTED'" class="hint">受理：尚未受理</p>
       <h4>现场照片与检测框</h4>
       <p class="hint">候选仅供复核。未检出不能代替人工判断，置信度不表示严重程度。</p>
       <article v-for="img in images" :key="img.id">
@@ -54,6 +56,7 @@
   </section>
 </template>
 <script setup lang="ts">
+import { formatDateTime } from '@/shared/ui/time'
 import { onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { fetchEvidence, fetchObservationImages, loadImageBlob, type Evidence, type ObservationImageMeta, type VisionAnalysis } from '@/shared/api/observation'
 const props = defineProps<{ observationId: number }>()

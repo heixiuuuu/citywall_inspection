@@ -1,2 +1,3 @@
 -r ../recognizer/requirements.txt
 requests>=2.32,<3
+PyMuPDF>=1.26,<3

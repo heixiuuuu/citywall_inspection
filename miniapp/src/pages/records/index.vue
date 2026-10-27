@@ -11,6 +11,11 @@
           <view class="muted" v-if="evidence.observation.latitude != null">位置 {{ evidence.observation.latitude }}, {{ evidence.observation.longitude }} · 精度 {{ evidence.observation.accuracy_m ?? '—' }} m</view>
           <button v-if="canEdit" class="primary" @tap="continueEditing">{{ evidence.observation.status === 'RETURNED' ? '补正并重新提交' : '继续编辑草稿' }}</button>
         </view>
+        <view v-if="evidence.observation.admitted_at" class="card">
+          <view class="title">受理结果</view>
+          <view class="line">{{ evidence.observation.no_issue_reason ? `不立项：${evidence.observation.no_issue_reason}` : '已立项或关联问题' }}</view>
+          <view class="muted">{{ formatTime(evidence.observation.admitted_at) }}</view>
+        </view>
         <view class="card" v-if="evidence.reviews.length">
           <view class="title">审核意见</view>
           <view v-for="review in evidence.reviews" :key="review.id" class="item">

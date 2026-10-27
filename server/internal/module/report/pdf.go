@@ -23,6 +23,7 @@ type pdfWriter struct {
 const (
 	pdfMargin  = 20.0 // mm
 	lineHeight = 5.0  // mm
+	sectionGap = 2.0
 )
 
 var reportLocation = time.FixedZone("Asia/Shanghai", 8*60*60)
@@ -158,7 +159,9 @@ func (w *pdfWriter) labelValue(label, value string, labelSize float64, maxW floa
 
 // section 小节标题与分隔线。
 func (w *pdfWriter) section(title string) {
-	w.ensure(lineHeight + 4)
+	w.ensure(sectionGap + lineHeight + 4)
+	w.y += sectionGap
+	w.pdf.SetY(w.y)
 	w.pdf.SetDrawColor(120, 120, 120)
 	w.pdf.SetLineWidth(0.3)
 	w.pdf.Line(w.left, w.y-1, w.pageW-pdfMargin, w.y-1)
@@ -307,6 +310,7 @@ func renderTaskPDF(src *TaskSource, opts renderOpts) ([]byte, error) {
 		if o.Review != nil {
 			w.text(fmt.Sprintf("审核：%s ｜ %s ｜ %s", o.Review.Decision, o.Review.Disposition, o.Review.Reason), 9, 3)
 		}
+		w.admission(o)
 	}
 	for _, point := range src.Points {
 		if point.Observation != nil {
@@ -369,6 +373,7 @@ func renderRangePDF(src *RangeSource, opts renderOpts) ([]byte, error) {
 		if o.Review != nil {
 			w.text(fmt.Sprintf("审核：%s ｜ %s", o.Review.Decision, o.Review.Reason), 9, 3)
 		}
+		w.admission(&o)
 	}
 
 	for _, observation := range src.Observations {
@@ -390,6 +395,20 @@ func renderRangePDF(src *RangeSource, opts renderOpts) ([]byte, error) {
 		return nil, err
 	}
 	return buf.Bytes(), nil
+}
+
+func (w *pdfWriter) admission(o *ObservationView) {
+	if o.AdmittedAt == nil {
+		if o.Status == "ACCEPTED" {
+			w.text("受理：尚未受理", 9, 3)
+		}
+		return
+	}
+	result := "已立项或关联问题"
+	if o.NoIssueReason != "" {
+		result = "不立项：" + o.NoIssueReason
+	}
+	w.text("受理："+result+" ｜ "+timeStr(o.AdmittedAt), 9, 3)
 }
 
 func timeStr(t *time.Time) string {

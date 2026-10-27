@@ -70,6 +70,9 @@ type ReviewView struct {
 
 // ObservationView 现场记录完整视图。
 type ObservationView struct {
+	AdmittedAt       *time.Time       `json:"admitted_at"`
+	AdmittedBy       *int64           `json:"admitted_by"`
+	NoIssueReason    string           `json:"no_issue_reason"`
 	ID               int64            `json:"id"`
 	Source           string           `json:"source"`
 	TaskPointID      *int64           `json:"task_point_id"`
