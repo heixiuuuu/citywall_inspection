@@ -318,15 +318,7 @@ func renderTaskPDF(src *TaskSource, opts renderOpts) ([]byte, error) {
 		}
 	}
 
-	w.section("关联问题")
-	if len(src.Issues) == 0 {
-		w.text("无关联问题", 10, 0)
-	} else {
-		for _, is := range src.Issues {
-			w.text(fmt.Sprintf("#%d %s ｜ 优先级 %s ｜ 状态 %s ｜ 关闭原因 %s",
-				is.ID, is.Title, is.PriorityCode, is.Status, is.CloseReason), 9, 0)
-		}
-	}
+	w.issues(src.Issues)
 	w.text("", 9, 0)
 	w.text("本报告为生成时刻数据快照，后续问题状态变化不影响本报告。", 8, 0)
 	var buf bytes.Buffer
@@ -380,14 +372,7 @@ func renderRangePDF(src *RangeSource, opts renderOpts) ([]byte, error) {
 		w.photos(observation.Images, opts)
 	}
 
-	w.section("关联问题")
-	if len(src.Issues) == 0 {
-		w.text("无关联问题", 10, 0)
-	} else {
-		for _, is := range src.Issues {
-			w.text(fmt.Sprintf("#%d %s ｜ %s ｜ %s", is.ID, is.Title, is.PriorityCode, is.Status), 9, 0)
-		}
-	}
+	w.issues(src.Issues)
 	w.text("", 9, 0)
 	w.text("本报告为生成时刻数据快照，后续问题状态变化不影响本报告。", 8, 0)
 	var buf bytes.Buffer
@@ -395,6 +380,56 @@ func renderRangePDF(src *RangeSource, opts renderOpts) ([]byte, error) {
 		return nil, err
 	}
 	return buf.Bytes(), nil
+}
+
+func (w *pdfWriter) issues(issues []IssueLinkView) {
+	w.section("关联问题与处置进展")
+	if len(issues) == 0 {
+		w.text("无关联问题", 10, 0)
+		return
+	}
+	statuses := map[string]string{"UNASSIGNED": "待分配", "OPEN": "已分配", "IN_PROGRESS": "处理中", "MONITORING": "观察中", "PENDING_VERIFICATION": "待核验", "CLOSED": "已关闭"}
+	priorities := map[string]string{"WATCH": "关注", "PROCESS": "需处理", "URGENT": "尽快核实"}
+	actions := map[string]string{"ASSIGN": "指派", "ADVICE": "处理建议", "PROGRESS": "处理进展", "OBSERVE": "观察记录", "REQUEST_VERIFY": "申请核验", "VERIFY_PASS": "核验通过", "VERIFY_RETURN": "核验退回", "REOPEN": "重新打开"}
+	label := func(code string, names map[string]string) string {
+		if name := names[code]; name != "" {
+			return name
+		}
+		return code
+	}
+	for _, issue := range issues {
+		heading := fmt.Sprintf("#%d %s ｜ 优先级 %s ｜ 状态 %s", issue.ID, issue.Title, label(issue.PriorityCode, priorities), label(issue.Status, statuses))
+		w.ensure(float64(len(w.splitLines(heading, 10, w.pageW-2*pdfMargin))+1) * lineHeight)
+		w.text(heading, 10, 0)
+		assignee := issue.AssigneeName
+		if assignee == "" {
+			if issue.AssigneeID != nil {
+				assignee = fmt.Sprintf("用户 #%d", *issue.AssigneeID)
+			} else {
+				assignee = "尚未指派"
+			}
+		}
+		w.text("责任人："+assignee, 9, 3)
+		if issue.ClosedAt != nil {
+			w.text("关闭："+timeStr(issue.ClosedAt)+" ｜ "+issue.CloseReason, 9, 3)
+		}
+		if len(issue.Actions) == 0 {
+			w.text("暂无处置记录", 9, 3)
+		}
+		for _, action := range issue.Actions {
+			actor := action.ActorName
+			if actor == "" {
+				actor = fmt.Sprintf("用户 #%d", action.ActorID)
+			}
+			heading := timeStr(&action.CreatedAt) + " ｜ " + label(action.ActionType, actions) + " ｜ " + actor
+			w.ensure(float64(len(w.splitLines(heading, 9, w.pageW-2*pdfMargin-3))+1) * lineHeight)
+			w.text(heading, 9, 3)
+			w.text(action.Content, 9, 6)
+			if action.PlannedFollowUpAt != nil {
+				w.text("计划复查："+timeStr(action.PlannedFollowUpAt), 9, 6)
+			}
+		}
+	}
 }
 
 func (w *pdfWriter) admission(o *ObservationView) {

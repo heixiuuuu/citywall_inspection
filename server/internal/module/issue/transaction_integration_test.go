@@ -8,12 +8,14 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"citywall/server/internal/infrastructure/database"
 	"citywall/server/internal/module/audit"
 	"citywall/server/internal/module/observation"
+	reporting "citywall/server/internal/module/report"
 	mysqldriver "github.com/go-sql-driver/mysql"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
@@ -446,5 +448,60 @@ func TestIssuePreservesLinkedObservationSource(t *testing.T) {
 	}
 	if briefs[0].Source != observation.SourceVoluntary || briefs[0].LocationText != record.LocationText || briefs[0].ReporterID != record.ReporterID || briefs[0].Status != observation.ObsAccepted {
 		t.Fatalf("wrong provenance: %+v", briefs[0])
+	}
+}
+
+func TestReportSnapshotKeepsOneDatabaseView(t *testing.T) {
+	_, db, issue := persistentIssue(t, StatusOpen)
+	start := time.Date(2040, 1, 1, 0, 0, 0, 0, time.UTC)
+	if err := db.Model(issue).Update("opened_at", start.Add(time.Hour)).Error; err != nil {
+		t.Fatal(err)
+	}
+	readStarted, resume := make(chan struct{}), make(chan struct{})
+	var once, released sync.Once
+	defer released.Do(func() { close(resume) })
+	callback := "test:pause_report_snapshot"
+	if err := db.Callback().Query().After("gorm:query").Register(callback, func(tx *gorm.DB) {
+		if tx.Statement.Table == "observations" {
+			once.Do(func() { close(readStarted); <-resume })
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Callback().Query().Remove(callback) })
+	source := reporting.NewSnapshotSource(db)
+	var captured *reporting.RangeSource
+	done := make(chan error, 1)
+	go func() {
+		var err error
+		captured, err = source.LoadRange(context.Background(), start, start.Add(24*time.Hour))
+		done <- err
+	}()
+	select {
+	case <-readStarted:
+	case err := <-done:
+		t.Fatalf("snapshot did not reach observation query: %v", err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("snapshot read timed out")
+	}
+	err := db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&Issue{}).Where("id = ?", issue.ID).Updates(map[string]any{"status": StatusInProgress, "revision": 2}).Error; err != nil {
+			return err
+		}
+		return tx.Create(&IssueAction{IssueID: issue.ID, ActorID: 3, ActionType: ActionProgress, Content: "快照读取后的进展", CreatedAt: start.Add(2 * time.Hour)}).Error
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	released.Do(func() { close(resume) })
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if len(captured.Issues) != 1 || captured.Issues[0].Status != StatusOpen || len(captured.Issues[0].Actions) != 0 {
+		t.Fatalf("mixed snapshot: %+v", captured.Issues)
+	}
+	current, err := source.LoadRange(context.Background(), start, start.Add(24*time.Hour))
+	if err != nil || len(current.Issues) != 1 || current.Issues[0].Status != StatusInProgress || len(current.Issues[0].Actions) != 1 {
+		t.Fatalf("current=%+v err=%v", current, err)
 	}
 }

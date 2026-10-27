@@ -2,6 +2,7 @@ package report
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"strconv"
@@ -50,6 +51,26 @@ type pointRow struct {
 }
 
 func (s *snapshotRepository) LoadTask(ctx context.Context, taskID int64) (*TaskSource, error) {
+	var result *TaskSource
+	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var err error
+		result, err = (&snapshotRepository{db: tx}).loadTask(ctx, taskID)
+		return err
+	}, &sql.TxOptions{Isolation: sql.LevelRepeatableRead, ReadOnly: true})
+	return result, err
+}
+
+func (s *snapshotRepository) LoadRange(ctx context.Context, start, end time.Time) (*RangeSource, error) {
+	var result *RangeSource
+	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var err error
+		result, err = (&snapshotRepository{db: tx}).loadRange(ctx, start, end)
+		return err
+	}, &sql.TxOptions{Isolation: sql.LevelRepeatableRead, ReadOnly: true})
+	return result, err
+}
+
+func (s *snapshotRepository) loadTask(ctx context.Context, taskID int64) (*TaskSource, error) {
 	var t taskRow
 	err := s.db.WithContext(ctx).Table("tasks").
 		Select("tasks.id, tasks.title, tasks.assignee_id, u.display_name AS assignee_name, "+
@@ -142,7 +163,7 @@ func (s *snapshotRepository) LoadTask(ctx context.Context, taskID int64) (*TaskS
 	return src, nil
 }
 
-func (s *snapshotRepository) LoadRange(ctx context.Context, start, end time.Time) (*RangeSource, error) {
+func (s *snapshotRepository) loadRange(ctx context.Context, start, end time.Time) (*RangeSource, error) {
 	var obsIDs []int64
 	err := s.db.WithContext(ctx).Table("observations").
 		Where("submitted_at >= ? AND submitted_at <= ?", start, end).
@@ -414,30 +435,31 @@ func (s *snapshotRepository) loadIssues(ctx context.Context, ids []int64) ([]Iss
 	if len(ids) == 0 {
 		return nil, nil
 	}
-	var rows []struct {
-		ID           int64
-		Title        string
-		Status       string
-		PriorityCode string
-		AssigneeID   *int64
-		OpenedAt     time.Time
-		ClosedAt     *time.Time
-		CloseReason  string
-	}
-	err := s.db.WithContext(ctx).Table("issues").
-		Select("id, title, status, priority_code, assignee_id, opened_at, closed_at, COALESCE(close_reason,'') AS close_reason").
-		Where("id IN ?", ids).Order("opened_at ASC").Scan(&rows).Error
+	rows := []IssueLinkView{}
+	err := s.db.WithContext(ctx).Table("issues AS i").
+		Select("i.id, i.title, i.status, i.priority_code, i.assignee_id, COALESCE(u.display_name,'') AS assignee_name, i.opened_at, i.closed_at, COALESCE(i.close_reason,'') AS close_reason").
+		Joins("LEFT JOIN users u ON u.id = i.assignee_id").Where("i.id IN ?", ids).Order("i.opened_at, i.id").Scan(&rows).Error
 	if err != nil {
 		return nil, err
 	}
-	out := make([]IssueLinkView, 0, len(rows))
-	for _, r := range rows {
-		out = append(out, IssueLinkView{
-			ID: r.ID, Title: r.Title, Status: r.Status, PriorityCode: r.PriorityCode,
-			AssigneeID: r.AssigneeID, OpenedAt: r.OpenedAt, ClosedAt: r.ClosedAt, CloseReason: r.CloseReason,
-		})
+	actions := []IssueActionView{}
+	err = s.db.WithContext(ctx).Table("issue_actions AS a").
+		Select("a.id, a.issue_id, a.actor_id, COALESCE(u.display_name,'') AS actor_name, a.action_type, a.content, a.planned_follow_up_at, a.created_at").
+		Joins("LEFT JOIN users u ON u.id = a.actor_id").Where("a.issue_id IN ?", ids).Order("a.created_at, a.id").Scan(&actions).Error
+	if err != nil {
+		return nil, err
 	}
-	return out, nil
+	index := map[int64]int{}
+	for idx := range rows {
+		rows[idx].Actions = []IssueActionView{}
+		index[rows[idx].ID] = idx
+	}
+	for _, action := range actions {
+		if idx, ok := index[action.IssueID]; ok {
+			rows[idx].Actions = append(rows[idx].Actions, action)
+		}
+	}
+	return rows, nil
 }
 
 // ---------- 工具 ----------

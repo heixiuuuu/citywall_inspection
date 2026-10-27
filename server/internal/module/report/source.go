@@ -93,16 +93,29 @@ type ObservationView struct {
 	LocationAbnormal string           `json:"location_abnormal"` // 定位异常说明（distance/accuracy 超限）
 }
 
+type IssueActionView struct {
+	ID                int64      `json:"id"`
+	IssueID           int64      `json:"issue_id"`
+	ActorID           int64      `json:"actor_id"`
+	ActorName         string     `json:"actor_name"`
+	ActionType        string     `json:"action_type"`
+	Content           string     `json:"content"`
+	PlannedFollowUpAt *time.Time `json:"planned_follow_up_at"`
+	CreatedAt         time.Time  `json:"created_at"`
+}
+
 // IssueLinkView 关联问题摘要。
 type IssueLinkView struct {
-	ID           int64      `json:"id"`
-	Title        string     `json:"title"`
-	Status       string     `json:"status"`
-	PriorityCode string     `json:"priority_code"`
-	AssigneeID   *int64     `json:"assignee_id"`
-	OpenedAt     time.Time  `json:"opened_at"`
-	ClosedAt     *time.Time `json:"closed_at"`
-	CloseReason  string     `json:"close_reason"`
+	AssigneeName string            `json:"assignee_name"`
+	Actions      []IssueActionView `json:"actions" gorm:"-"`
+	ID           int64             `json:"id"`
+	Title        string            `json:"title"`
+	Status       string            `json:"status"`
+	PriorityCode string            `json:"priority_code"`
+	AssigneeID   *int64            `json:"assignee_id"`
+	OpenedAt     time.Time         `json:"opened_at"`
+	ClosedAt     *time.Time        `json:"closed_at"`
+	CloseReason  string            `json:"close_reason"`
 }
 
 // PointView 任务点视图（含覆盖状态与关联记录）。
