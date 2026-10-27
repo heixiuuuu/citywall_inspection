@@ -70,7 +70,13 @@
         </el-descriptions>
 
         <h4 class="subtitle">关联现场记录</h4>
-        <el-table :data="detail.observations" size="small" stripe>
+        <p v-if="canReview && detail.observations.length" class="action-actor">展开记录可查看现场照片、识别候选及人工复核。</p>
+        <el-table :data="detail.observations" row-key="observation_id" size="small" stripe>
+          <el-table-column v-if="canReview" type="expand">
+            <template #default="{ row }">
+              <ObservationEvidence :observation-id="row.observation_id" />
+            </template>
+          </el-table-column>
           <el-table-column prop="observation_id" label="记录ID" width="90" />
           <el-table-column prop="source" label="来源" width="90">
             <template #default="{ row }">{{ row.source === 'VOLUNTARY' ? '主动上报' : row.source === 'TASK' ? '任务巡检' : '来源未知' }}</template>
@@ -89,6 +95,7 @@
               <span class="action-actor">操作人 #{{ a.actor_id }}</span>
             </div>
             <div class="action-content">{{ a.content }}</div>
+            <div v-if="a.planned_follow_up_at" class="action-follow-up">计划复查：{{ formatDateTime(a.planned_follow_up_at) }}</div>
           </el-timeline-item>
         </el-timeline>
 
@@ -183,6 +190,7 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { formatDateTime } from '@/shared/ui/time'
+import ObservationEvidence from '@/shared/ui/ObservationEvidence.vue'
 import {
   fetchIssues,
   fetchIssue,
@@ -327,7 +335,7 @@ async function doAction() {
     await addIssueAction(d.issue.id, d.issue.revision, {
       action_type: actionForm.action_type,
       content: actionForm.content,
-      planned_follow_up_at: actionForm.planned_follow_up_at ?? undefined,
+      planned_follow_up_at: actionForm.action_type === 'OBSERVE' ? actionForm.planned_follow_up_at ?? undefined : undefined,
     })
     ElMessage.success('已提交')
     actionVisible.value = false
@@ -461,6 +469,11 @@ async function refresh() {
   font-size: 13px;
   color: #444;
   white-space: pre-wrap;
+}
+.action-follow-up {
+  margin-top: 4px;
+  font-size: 13px;
+  color: #444;
 }
 .ops {
   margin-top: 20px;
