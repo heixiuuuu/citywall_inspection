@@ -1,4 +1,4 @@
-import { request } from './http'
+import { authenticatedFetch, request } from './http'
 import type { Task, TaskPoint, CreateTaskPayload } from './task'
 
 /** 现场记录与审核接口。 */
@@ -117,11 +117,8 @@ export async function reviewObservation(id: number, payload: ReviewPayload): Pro
 
 /** 受控图片内容：带 token 拉取后转 blob URL（禁止直接暴露存储路径）。 */
 export async function loadImageBlob(imageId: number): Promise<string> {
-  const token = localStorage.getItem('city_wall_token') ?? ''
-  const resp = await fetch(`${import.meta.env.VITE_API_BASE ?? '/api/v1'}/images/${imageId}/preview`, {
-    headers: { Authorization: `Bearer ${token}` },
-  })
-  if (!resp.ok) throw new Error(`load image ${resp.status}`)
+  const resp = await authenticatedFetch(`/images/${imageId}/preview`)
+  if (!resp.ok) throw new Error(resp.status === 401 ? '登录已失效，请重新登录' : `照片加载失败（HTTP ${resp.status}）`)
   const blob = await resp.blob()
   return URL.createObjectURL(blob)
 }

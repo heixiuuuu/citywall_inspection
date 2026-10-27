@@ -5,6 +5,7 @@
         <div class="logo">台州府城墙</div>
         <div class="slogan">古城墙病害巡检系统 · PC 管理端</div>
       </div>
+      <el-alert v-if="route.query.expired === '1'" title="登录已失效，请重新登录后继续。" type="warning" :closable="false" show-icon class="session-notice" />
       <el-form :model="form" label-position="top" @submit.prevent="submit">
         <el-form-item label="账号">
           <el-input v-model="form.username" placeholder="admin / reviewer" />
@@ -71,6 +72,9 @@ async function submit() {
 }
 .brand {
   margin-bottom: 28px;
+}
+.session-notice {
+  margin-bottom: 20px;
 }
 .logo {
   font-size: 22px;

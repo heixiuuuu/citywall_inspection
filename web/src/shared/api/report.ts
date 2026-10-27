@@ -1,4 +1,4 @@
-import { request } from './http'
+import { authenticatedFetch, request } from './http'
 
 /** 报告接口：生成（任务/时间范围）、台账、重试与受控 PDF 下载。 */
 
@@ -61,11 +61,8 @@ export async function retryReport(id: number): Promise<Report> {
 
 /** 受控 PDF 下载：带 token 拉取后转 blob URL（禁止直接暴露存储路径）。 */
 export async function loadReportBlob(id: number): Promise<{ blobUrl: string; fileName: string; size: number }> {
-  const token = localStorage.getItem('city_wall_token') ?? ''
-  const resp = await fetch(`${import.meta.env.VITE_API_BASE ?? '/api/v1'}/reports/${id}/file`, {
-    headers: { Authorization: `Bearer ${token}` },
-  })
-  if (!resp.ok) throw new Error(`download report ${resp.status}`)
+  const resp = await authenticatedFetch(`/reports/${id}/file`)
+  if (!resp.ok) throw new Error(resp.status === 401 ? '登录已失效，请重新登录' : `报告下载失败（HTTP ${resp.status}）`)
   const blob = await resp.blob()
   const disposition = resp.headers.get('Content-Disposition') ?? ''
   const m = disposition.match(/filename="?([^";]+)"?/)
