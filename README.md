@@ -53,7 +53,7 @@ npm run build:app
 
 ## 识别与模型实验
 
-YOLO 权重放在 `data/yolo/weights/best.pt`。缺失权重时返回 MODEL_UNAVAILABLE，保留失败尝试，巡检员可继续人工填写。系统不使用通用物体识别权重冒充城墙病害模型。
+当前检测采用类别分工：主权重位于 `data/yolo/weights/best.pt`，裂缝、泛碱和苔藓的专项权重位于 `data/yolo/weights/specialist.pt`，成员哈希保存在同目录 manifest.json。缺失任一所需权重时返回 MODEL_UNAVAILABLE，保留失败尝试，巡检员可继续人工填写。系统不使用通用物体识别权重冒充城墙病害模型。
 
 Python 使用 3.12。建议环境建在 `C:\environment\citywall-python312`：
 

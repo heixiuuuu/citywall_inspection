@@ -162,3 +162,15 @@ def test_model_load_validates_semantic_names(tmp_path, monkeypatch, names, accep
         with pytest.raises(DetectorError) as error:
             detector._load_model()
         assert error.value.code == "MODEL_UNAVAILABLE"
+
+
+def test_model_must_provide_required_specialist_categories(tmp_path, monkeypatch):
+    import sys
+    from types import SimpleNamespace
+    weights = tmp_path / "model.pt"
+    weights.write_bytes(b"fixture")
+    monkeypatch.setitem(sys.modules, "ultralytics", SimpleNamespace(YOLO=lambda _: SimpleNamespace(names={0: "PLANT"})))
+    detector = YOLODetector(str(weights), required_class_codes=frozenset({"CRACK"}))
+    with pytest.raises(DetectorError) as error:
+        detector._load_model()
+    assert error.value.code == "MODEL_UNAVAILABLE"

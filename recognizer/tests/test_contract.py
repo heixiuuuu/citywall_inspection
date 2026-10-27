@@ -46,6 +46,19 @@ def test_healthz() -> None:
     assert resp.json()["status"] == "ok"
 
 
+def test_missing_specialist_returns_failure_instead_of_partial_detections(tmp_path, monkeypatch):
+    from app.api import routes
+    from app.models.fixed import FixedDetector
+    from app.models.routed import ClassRoutedDetector
+    from app.models.yolo import YOLODetector
+    detector = ClassRoutedDetector(FixedDetector(detections=[]), YOLODetector(str(tmp_path / "missing.pt")), frozenset({"CRACK"}))
+    monkeypatch.setattr(routes._service, "_detector", detector)
+    response = _post()
+    assert response.status_code == 503
+    assert response.json()["error"]["code"] == "MODEL_UNAVAILABLE"
+    assert "detections" not in response.json()
+
+
 def test_recognition_success_contract() -> None:
     resp = _post()
     assert resp.status_code == 200

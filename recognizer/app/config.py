@@ -25,6 +25,8 @@ class RecognitionConfig:
     detector_mode: str = "yolo"
     weights_path: str = "data/yolo/weights/best.pt"
     confidence_threshold: float = 0.35
+    specialist_weights_path: str = ""
+    specialist_class_codes: list[str] = field(default_factory=list)
     max_image_bytes: int = 10 * 1024 * 1024
     allowed_formats: list[str] = field(default_factory=lambda: ["jpeg", "png", "webp"])
 
@@ -97,6 +99,8 @@ def load_settings() -> Settings:
         s.internal.require_token = True
     if s.recognition.detector_mode not in ("dev", "yolo"):
         raise ValueError("detector_mode must be dev or yolo")
+    if bool(s.recognition.specialist_weights_path) != bool(s.recognition.specialist_class_codes):
+        raise ValueError("specialist weights and class codes must be configured together")
     return s
 
 

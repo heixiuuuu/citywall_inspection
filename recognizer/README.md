@@ -14,4 +14,8 @@
 
 检测采用串行模型访问，避免并发调用共享模型状态；耗时操作在线程池执行。模型缺失、加载失败、推理失败使用明确错误码。分析失败不会删除 YOLO 候选。
 
+specialist_weights_path 和 specialist_class_codes 同时配置时，指定类别仅采用专项权重输出，其余类别采用主权重输出。当前专项类别为裂缝、泛碱和苔藓，两组输出使用同一原图坐标系，统一重新编号。两次模型调用共同串行执行；任一模型不可用或坐标系不一致时识别失败，不静默切换模型。专项权重必须包含所配置的全部类别，健康接口的 weights_available 同时检查两份权重文件。
+
+当前 model_version 为 yolo_routed_msd_001，主权重位于 data/yolo/weights/best.pt，专项权重位于 data/yolo/weights/specialist.pt，成员哈希与类别分工保存在 data/yolo/weights/manifest.json。输入尺寸分别来自权重中的训练配置，主模型 640、专项模型 960，置信度均为 0.35。
+
 latency_ms 记录图像检查、检测及可选视觉分析的总耗时。视觉服务返回空内容或缺少有效描述时，辅助分析标记为 FAILED，已生成的检测候选继续返回。

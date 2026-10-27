@@ -49,6 +49,7 @@ class YOLODetector:
     weights_path: str
     confidence_threshold: float = 0.35
     class_codes: frozenset[str] = CLASS_CODES
+    required_class_codes: frozenset[str] = field(default_factory=frozenset)
     _model: object = field(default=None, repr=False, compare=False)
     _lock: object = field(default_factory=Lock, repr=False, compare=False)
 
@@ -65,6 +66,8 @@ class YOLODetector:
             names = getattr(model, "names", {})
             if not names or any(name not in self.class_codes for name in names.values()):
                 raise DetectorError("MODEL_UNAVAILABLE", "model category names do not match business category codes")
+            if not self.required_class_codes <= set(names.values()):
+                raise DetectorError("MODEL_UNAVAILABLE", "model does not provide all required category codes")
             logger.info("YOLO model loaded: %s", resolved)
             self._model = model
             return model
