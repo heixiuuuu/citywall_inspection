@@ -64,7 +64,7 @@ C:\environment\citywall-python312\Scripts\python.exe scripts/prepare_dataset.py 
 C:\environment\citywall-python312\Scripts\python.exe scripts/train_model.py --data data/yolo/dataset_msd_oriented/data.yaml --name msd_oriented_baseline --device cpu --evaluation-split val
 ```
 
-数据转换输出 train / val / test、data.yaml 和 manifest.json。训练输出 best.pt、训练记录和独立测试集 evaluation.json（含逐类指标）；--deploy 才复制权重到推理目录。CUDA 环境使用 --device 0，断点继续可传 --resume data/yolo/runs/运行名/weights/last.pt。模型选择应依据验证集，独立测试集仅用于最终评估。训练与推理代码存在不代表模型准确率已通过验收，参见 [验收边界](docs/acceptance.md)。
+数据转换输出 train / val / test、data.yaml 和 manifest.json。训练输出 best.pt、训练记录和独立测试集 evaluation.json（含逐类指标）；--deploy 仅复制权重到主模型路径，不更新专项权重。发布时须按 conf/recognizer.json 准备全部成员，并同步 model_version 与权重清单中的哈希和类别分工。CUDA 环境使用 --device 0，断点继续可传 --resume data/yolo/runs/运行名/weights/last.pt。模型选择应依据验证集，独立测试集仅用于最终评估。训练与推理代码存在不代表模型准确率已通过验收，参见 [验收边界](docs/acceptance.md)。
 
 标注尺寸与编码尺寸一致时保留原坐标；只有 EXIF 方向归一后的尺寸与标注完全一致时才采用归一图片，不通过缩放猜测标注。输出 JPEG 不携带方向标签。当前完整转换得到 1,076 张图片，其中 134 张进行了方向归一；原有 942 张的图片字节、标签和划分保持一致。输出目录已有 data.yaml 时拒绝覆盖。
 
