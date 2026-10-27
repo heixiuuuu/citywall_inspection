@@ -248,7 +248,7 @@ func renderTaskPDF(src *TaskSource, opts renderOpts) ([]byte, error) {
 	w.section("任务信息")
 	w.labelValue("负责人：", src.AssigneeName, 10, 500)
 	w.labelValue("期限：", timeStr(src.DueAt), 10, 500)
-	w.labelValue("状态：", src.Status, 10, 500)
+	w.labelValue("状态：", reportLabel(src.Status), 10, 500)
 	if src.DispatchedAt != nil {
 		w.labelValue("派发时间：", timeStr(src.DispatchedAt), 10, 170)
 	}
@@ -279,31 +279,11 @@ func renderTaskPDF(src *TaskSource, opts renderOpts) ([]byte, error) {
 		}
 		o := p.Observation
 		w.text(fmt.Sprintf("记录 #%d ｜ 状态 %s ｜ 现场结论 %s ｜ 提交 %s",
-			o.ID, o.Status, o.Outcome, timeStr(o.SubmittedAt)), 9, 3)
+			o.ID, reportLabel(o.Status), reportLabel(o.Outcome), timeStr(o.SubmittedAt)), 9, 3)
 		if o.LocationAbnormal != "" {
 			w.text("定位异常："+o.LocationAbnormal, 9, 3)
 		}
-		for _, a := range o.Attempts {
-			w.analysis(a.AnalysisJSON)
-			if len(a.Detections) == 0 {
-				w.text(fmt.Sprintf("图片 #%d 识别尝试 %d：%s（模型 %s，无候选）", a.ImageID, a.AttemptNo, a.Status, a.ModelVersion), 9, 3)
-				continue
-			}
-			w.text(fmt.Sprintf("图片 #%d 识别尝试 %d：%s（模型 %s，候选 %d 个）", a.ImageID, a.AttemptNo, a.Status, a.ModelVersion, len(a.Detections)), 9, 3)
-			for _, d := range a.Detections {
-				w.text(fmt.Sprintf("  候选 %s 置信度 %.3f 框(%d,%d,%d,%d)", d.ClassCode, d.Confidence, d.X1, d.Y1, d.X2, d.Y2), 9, 6)
-			}
-		}
-		for _, c := range o.Conclusions {
-			if len(c.Items) == 0 {
-				w.text(fmt.Sprintf("人工结论 v%d：%s（%s）", c.RevisionNo, c.Outcome, c.Description), 9, 3)
-				continue
-			}
-			w.text(fmt.Sprintf("人工结论 v%d：%s", c.RevisionNo, c.Outcome), 9, 3)
-			for _, it := range c.Items {
-				w.text(fmt.Sprintf("  图片 #%d %s → %s：%s", it.ImageID, it.Decision, it.FinalClassCode, it.Description), 9, 6)
-			}
-		}
+		w.findings(o)
 		w.reviews(o)
 		w.admission(o)
 	}
@@ -340,8 +320,8 @@ func renderRangePDF(src *RangeSource, opts renderOpts) ([]byte, error) {
 
 	w.section("记录明细")
 	for idx, o := range src.Observations {
-		heading := fmt.Sprintf("记录 %d ｜ #%d ｜ %s ｜ %s", idx+1, o.ID, o.Source, o.LocationText)
-		status := fmt.Sprintf("状态 %s ｜ 结论 %s ｜ 提交 %s", o.Status, o.Outcome, timeStr(o.SubmittedAt))
+		heading := fmt.Sprintf("记录 %d ｜ #%d ｜ %s ｜ %s", idx+1, o.ID, reportLabel(o.Source), o.LocationText)
+		status := fmt.Sprintf("状态 %s ｜ 结论 %s ｜ 提交 %s", reportLabel(o.Status), reportLabel(o.Outcome), timeStr(o.SubmittedAt))
 		lines := len(w.splitLines(heading, 11, w.pageW-2*pdfMargin)) + len(w.splitLines(status, 9, w.pageW-2*pdfMargin-3)) + 1
 		w.ensure(float64(lines) * lineHeight)
 		w.text(heading, 11, 0)
@@ -349,13 +329,7 @@ func renderRangePDF(src *RangeSource, opts renderOpts) ([]byte, error) {
 		if o.LocationAbnormal != "" {
 			w.text("定位异常："+o.LocationAbnormal, 9, 3)
 		}
-		for _, a := range o.Attempts {
-			w.analysis(a.AnalysisJSON)
-			w.text(fmt.Sprintf("图片 #%d 识别 %d：%s（模型 %s，候选 %d）", a.ImageID, a.AttemptNo, a.Status, a.ModelVersion, len(a.Detections)), 9, 3)
-		}
-		for _, c := range o.Conclusions {
-			w.text(fmt.Sprintf("人工结论 v%d：%s（%d 项）", c.RevisionNo, c.Outcome, len(c.Items)), 9, 3)
-		}
+		w.findings(&o)
 		w.reviews(&o)
 		w.admission(&o)
 	}
@@ -372,6 +346,40 @@ func renderRangePDF(src *RangeSource, opts renderOpts) ([]byte, error) {
 		return nil, err
 	}
 	return buf.Bytes(), nil
+}
+
+func (w *pdfWriter) findings(o *ObservationView) {
+	for _, a := range o.Attempts {
+		w.text(fmt.Sprintf("图片 #%d 识别尝试 %d：%s（模型 %s，候选 %d 个）", a.ImageID, a.AttemptNo, reportLabel(a.Status), a.ModelVersion, len(a.Detections)), 9, 3)
+		if a.ErrorCode != "" {
+			w.text("识别错误："+a.ErrorCode, 9, 6)
+		}
+		for _, d := range a.Detections {
+			w.text(fmt.Sprintf("候选 %s 置信度 %.3f 框(%d,%d,%d,%d)", reportLabel(d.ClassCode), d.Confidence, d.X1, d.Y1, d.X2, d.Y2), 9, 6)
+		}
+		w.analysis(a.AnalysisJSON)
+	}
+	for _, c := range o.Conclusions {
+		w.text(fmt.Sprintf("人工结论第 %d 版：%s", c.RevisionNo, reportLabel(c.Outcome)), 9, 3)
+		if c.Description != "" {
+			w.text("现场描述："+c.Description, 9, 6)
+		}
+		if c.PriorityCode != "" {
+			w.text("人工建议优先级："+reportLabel(c.PriorityCode), 9, 6)
+		}
+		for _, item := range c.Items {
+			w.text(fmt.Sprintf("图片 #%d %s → %s：%s", item.ImageID, reportLabel(item.Decision), reportLabel(item.FinalClassCode), item.Description), 9, 6)
+			var box struct {
+				X1 float64 `json:"x1"`
+				Y1 float64 `json:"y1"`
+				X2 float64 `json:"x2"`
+				Y2 float64 `json:"y2"`
+			}
+			if json.Unmarshal([]byte(item.FinalBoxJSON), &box) == nil && box.X2 > box.X1 && box.Y2 > box.Y1 {
+				w.text(fmt.Sprintf("人工定位框(%g,%g,%g,%g)", box.X1, box.Y1, box.X2, box.Y2), 9, 9)
+			}
+		}
+	}
 }
 
 func (w *pdfWriter) issues(issues []IssueLinkView, opts renderOpts) {
