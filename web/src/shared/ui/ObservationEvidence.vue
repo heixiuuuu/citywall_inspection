@@ -11,7 +11,7 @@
         <div class="image-toolbar">
           <span>{{ img.role === 'OVERVIEW' ? '概览' : '细节' }} #{{ img.id }}</span>
           <el-select v-if="attemptsFor(img.id).length" v-model="selected[img.id]" style="width: 260px" size="small">
-            <el-option v-for="a in attemptsFor(img.id)" :key="a.id" :value="a.id" :label="`第 ${a.attempt_no} 次 · ${a.model_version || a.status}`" />
+            <el-option v-for="a in attemptsFor(img.id)" :key="a.id" :value="a.id" :label="`第 ${a.attempt_no} 次 · ${a.model_version || attemptLabel(a.status)}`" />
           </el-select>
           <span v-else class="hint">尚未识别</span>
         </div>
@@ -20,12 +20,12 @@
           <svg v-if="sizes[img.id]" :viewBox="`0 0 ${sizes[img.id][0]} ${sizes[img.id][1]}`" preserveAspectRatio="none">
             <g v-for="d in detectionsFor(img.id)" :key="d.id">
               <rect :x="d.x1" :y="d.y1" :width="d.x2-d.x1" :height="d.y2-d.y1" fill="none" stroke="#ffd54f" stroke-width="2" vector-effect="non-scaling-stroke" />
-              <text :x="d.x1" :y="Math.max(18, d.y1-5)" fill="#ffd54f" stroke="#222" stroke-width="0.6" paint-order="stroke" :font-size="Math.max(14, sizes[img.id][0]/45)">{{ d.class_code }} {{ (d.confidence*100).toFixed(1) }}%</text>
+              <text :x="d.x1" :y="Math.max(18, d.y1-5)" fill="#ffd54f" stroke="#222" stroke-width="0.6" paint-order="stroke" :font-size="Math.max(14, sizes[img.id][0]/45)">{{ categoryLabel(d.class_code) }} {{ (d.confidence*100).toFixed(1) }}%</text>
             </g>
           </svg>
         </div>
         <el-alert v-else title="照片加载失败" type="warning" :closable="false" />
-        <p v-if="attemptFor(img.id)" class="hint">{{ attemptFor(img.id)?.status }} {{ attemptFor(img.id)?.error_code }} · 候选 {{ detectionsFor(img.id).length }} 个</p>
+        <p v-if="attemptFor(img.id)" class="hint">{{ attemptLabel(attemptFor(img.id)?.status) }} {{ attemptFor(img.id)?.error_code }} · 候选 {{ detectionsFor(img.id).length }} 个</p>
         <div v-if="analysisFor(img.id)" class="analysis">
           <h4>视觉语言模型辅助分析</h4>
           <template v-if="analysisFor(img.id)?.status === 'SUCCEEDED'">
@@ -40,23 +40,28 @@
       <el-empty v-if="!images.length" description="暂无现场照片" :image-size="50" />
       <h4>人工结论与修订</h4>
       <article v-for="c in evidence.conclusions" :key="c.id" class="conclusion">
-        <strong>第 {{ c.revision_no }} 版 · {{ c.outcome }}</strong>
+        <strong>第 {{ c.revision_no }} 版 · {{ outcomeLabel(c.outcome) }}</strong>
         <p>{{ c.description || '未填写描述' }}</p>
         <el-table :data="evidence.items.filter(i => i.conclusion_revision_id === c.id)" size="small">
           <el-table-column prop="image_id" label="图片" width="65" />
-          <el-table-column prop="decision" label="判定" width="90" />
-          <el-table-column prop="final_class_code" label="类别" min-width="120" />
+          <el-table-column label="判定" width="90"><template #default="{ row }">{{ decisionLabel(row.decision) }}</template></el-table-column>
+          <el-table-column label="类别" min-width="120"><template #default="{ row }">{{ categoryLabel(row.final_class_code) }}</template></el-table-column>
           <el-table-column prop="description" label="说明" min-width="150" />
         </el-table>
       </article>
       <el-empty v-if="!evidence.conclusions.length" description="暂无人工结论" :image-size="50" />
       <h4 v-if="evidence.reviews.length">审核记录</h4>
-      <p v-for="r in evidence.reviews" :key="r.id">{{ r.decision }} · {{ r.reason || r.disposition || '无附加说明' }}</p>
+      <article v-for="r in evidence.reviews" :key="r.id">
+        <p>{{ reviewLabel(r.decision) }} · {{ formatDateTime(r.created_at) }}</p>
+        <p v-if="r.disposition">处置意见：{{ r.disposition }}</p>
+        <p v-if="r.reason">审核原因：{{ r.reason }}</p>
+      </article>
     </template>
   </section>
 </template>
 <script setup lang="ts">
 import { formatDateTime } from '@/shared/ui/time'
+import { categoryLabel, outcomeLabel, reviewLabel, decisionLabel, attemptLabel } from './labels'
 import { onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { fetchEvidence, fetchObservationImages, loadImageBlob, type Evidence, type ObservationImageMeta, type VisionAnalysis } from '@/shared/api/observation'
 const props = defineProps<{ observationId: number }>()

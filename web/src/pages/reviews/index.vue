@@ -63,6 +63,7 @@
 </template>
 
 <script setup lang="ts">
+import { outcomeLabel as outcomeText, observationStatusLabel } from '@/shared/ui/labels'
 import { onMounted, ref } from 'vue'
 import ObservationEvidence from '@/shared/ui/ObservationEvidence.vue'
 import { formatDateTime } from '@/shared/ui/time'
@@ -94,16 +95,6 @@ async function load() {
   }
 }
 
-function outcomeText(o: string | null) {
-  return (
-    {
-      NORMAL: '正常',
-      SUSPECTED: '疑似病害',
-      UNDETERMINED: '不确定',
-      UNREACHABLE: '不可达',
-    }[o ?? ''] ?? '—'
-  )
-}
 
 async function openReview(row: any) {
   current.value = row
@@ -126,7 +117,7 @@ async function submitReview() {
         ? { revision: current.value.revision, decision: decision.value, disposition: reason.value }
         : { revision: current.value.revision, decision: decision.value, reason: reason.value }
     const updated = await reviewObservation(current.value.id, payload)
-    ElMessage.success(`已${decision.value === 'ACCEPT' ? '通过' : decision.value === 'RETURN' ? '退回' : '驳回'}（状态 ${updated.status}）`)
+    ElMessage.success(`记录状态：${observationStatusLabel(updated.status)}`)
     reviewVisible.value = false
     if (decision.value === 'ACCEPT') {
       openAdmit(current.value.id)

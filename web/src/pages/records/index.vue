@@ -43,7 +43,7 @@
         <template #default="{ row }">{{ row.location_text || `${row.latitude?.toFixed(5) ?? ''},${row.longitude?.toFixed(5) ?? ''}` }}</template>
       </el-table-column>
       <el-table-column label="结论" width="100">
-        <template #default="{ row }">{{ row.inspection_outcome || '—' }}</template>
+        <template #default="{ row }">{{ outcomeLabel(row.inspection_outcome) }}</template>
       </el-table-column>
       <el-table-column label="提交时间" width="170">
         <template #default="{ row }">{{ formatDateTime(row.submitted_at || row.created_at) }}</template>
@@ -78,7 +78,7 @@
             {{ detail.latitude != null && detail.longitude != null ? `${detail.latitude.toFixed(6)}, ${detail.longitude.toFixed(6)}` : '—' }}
           </el-descriptions-item>
           <el-descriptions-item label="定位精度">{{ detail.accuracy_m ? `${detail.accuracy_m} m` : '—' }}</el-descriptions-item>
-          <el-descriptions-item label="现场结论">{{ detail.inspection_outcome || '—' }}</el-descriptions-item>
+          <el-descriptions-item label="现场结论">{{ outcomeLabel(detail.inspection_outcome) }}</el-descriptions-item>
           <el-descriptions-item label="版本">{{ detail.revision }}</el-descriptions-item>
         </el-descriptions>
         <ObservationEvidence v-if="detailVisible" :observation-id="detail.id" />
@@ -90,6 +90,7 @@
 
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
+import { outcomeLabel, observationStatusLabel as statusText } from '@/shared/ui/labels'
 import IssueAdmission from '@/shared/ui/IssueAdmission.vue'
 import ObservationEvidence from '@/shared/ui/ObservationEvidence.vue'
 import { formatDateTime } from '@/shared/ui/time'
@@ -154,9 +155,6 @@ function reset() {
   search()
 }
 
-function statusText(s: string) {
-  return { DRAFT: '草稿', SUBMITTED: '待审核', RETURNED: '已退回', ACCEPTED: '已通过', REJECTED: '已驳回' }[s] ?? s
-}
 function statusType(s: string) {
   return ({ DRAFT: 'info', SUBMITTED: 'danger', RETURNED: 'warning', ACCEPTED: 'success', REJECTED: 'info' }[s] ?? 'info') as 'info' | 'danger' | 'warning' | 'success'
 }
