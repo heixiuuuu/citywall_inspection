@@ -78,6 +78,27 @@ def main():
     call("DELETE", f"/observations/{oid}/images/{iid}", inspector, 409)
     call("POST", f"/images/{iid}/recognitions", inspector, 409, json={})
     assert len(call("GET", f"/observations/{oid}", inspector)["evidence"]["attempts"]) == 1
+    call("GET", f"/observations/{oid}", other_inspector, 403)
+    issue_id = call("POST", f"/observations/{oid}/admit", admin,
+                    json={"new_issues": [{"title": "责任人证据权限验收", "priority_code": "WATCH"}]})["admit"]["created_issue_ids"][0]
+    issue = call("POST", f"/issues/{issue_id}/assign", admin,
+                 json={"revision": 1, "assignee_id": other_id})["issue"]
+    linked = call("GET", f"/observations/{oid}", other_inspector)["evidence"]
+    assert linked["observation"]["id"] == oid and linked["reviews"][0]["decision"] == "ACCEPT"
+    assert any(meta["id"] == iid for meta in call("GET", f"/observations/{oid}/images", other_inspector)["images"])
+    read_original = requests.get(BASE + f"/images/{iid}/content", headers=other_inspector, timeout=10)
+    assert read_original.status_code == 200 and read_original.content == buffer.getvalue()
+    read_preview = requests.get(BASE + f'/images/{oriented["id"]}/preview', headers=other_inspector, timeout=10)
+    assert read_preview.status_code == 200 and Image.open(io.BytesIO(read_preview.content)).size == (60, 80)
+    call("PATCH", f"/observations/{oid}", other_inspector, 403, json={"revision": linked["observation"]["revision"], "location_text": "越权修改"})
+    call("POST", f"/images/{iid}/recognitions", other_inspector, 403, json={})
+    own_records = call("GET", "/observations?page_size=100", other_inspector)["items"]
+    assert all(record["id"] != oid for record in own_records)
+    call("POST", f"/issues/{issue_id}/assign", admin, json={"revision": issue["revision"], "assignee_id": 3})
+    call("GET", f"/observations/{oid}", other_inspector, 403)
+    call("GET", f"/observations/{oid}/images", other_inspector, 403)
+    assert requests.get(BASE + f"/images/{iid}/content", headers=other_inspector, timeout=10).status_code == 403
+    assert requests.get(BASE + f'/images/{oriented["id"]}/preview', headers=other_inspector, timeout=10).status_code == 403
     draft = call("POST", "/observations", inspector, 201, json={"source": "VOLUNTARY", "location_text": "移除照片验收"})["observation"]
     removable = call("POST", f'/observations/{draft["id"]}/images', inspector, 201, files={"image": ("sample.png", buffer.getvalue(), "image/png")})["image"]
     call("DELETE", f'/observations/{draft["id"]}/images/{removable["id"]}', inspector)
@@ -93,6 +114,7 @@ def main():
     assert returned["conclusions"][-1]["description"] == "保留待补正描述"
     private = call("POST", "/observations", admin, 201, json={"source": "VOLUNTARY", "location_text": "其他人的记录"})["observation"]
     call("GET", f'/observations/{private["id"]}', inspector, 403)
+    call("GET", f'/observations/{private["id"]}', other_inspector, 403)
     own_task = call("POST", "/tasks", admin, 201, json={"title": "记录定位查询", "assignee_id": 3, "point_ids": [point["id"]]})["task"]
     assignees = call("GET", "/tasks/assignees", admin)["items"]
     assert any(user["id"] == 3 for user in assignees) and all(user["id"] != 1 for user in assignees)

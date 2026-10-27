@@ -15,15 +15,16 @@ import (
 // ---- fakes ----
 
 type fakeObsRepo struct {
-	obs       map[int64]*Observation
-	images    map[int64]*Image
-	links     map[int64][]ObservationImage
-	attempts  []RecognitionAttempt
-	detect    []Detection
-	concl     []ConclusionRevision
-	subs      []ObservationSubmission
-	decisions []ReviewDecision
-	next      int64
+	obs          map[int64]*Observation
+	images       map[int64]*Image
+	links        map[int64][]ObservationImage
+	attempts     []RecognitionAttempt
+	detect       []Detection
+	concl        []ConclusionRevision
+	subs         []ObservationSubmission
+	decisions    []ReviewDecision
+	next         int64
+	issueReaders map[int64][]int64
 }
 
 func (f *fakeObsRepo) Transaction(ctx context.Context, operation func(Repository) error) error {
@@ -296,7 +297,55 @@ func (f *fakeObsRepo) ObservationByImage(_ context.Context, imageID int64) (*Obs
 
 func (f *fakeObsRepo) CanReadImage(ctx context.Context, imageID, actorID int64, reviewer bool) (bool, error) {
 	o, err := f.ObservationByImage(ctx, imageID)
-	return err == nil && (reviewer || o.ReporterID == actorID), nil
+	if err != nil {
+		return false, nil
+	}
+	return f.CanReadObservation(ctx, o.ID, actorID, reviewer)
+}
+
+func (f *fakeObsRepo) CanReadObservation(_ context.Context, observationID, actorID int64, reviewer bool) (bool, error) {
+	o := f.obs[observationID]
+	if o == nil {
+		return false, nil
+	}
+	if reviewer || o.ReporterID == actorID {
+		return true, nil
+	}
+	if o.Status == ObsAccepted {
+		for _, id := range f.issueReaders[observationID] {
+			if id == actorID {
+				return true, nil
+			}
+		}
+	}
+	return false, nil
+}
+
+func TestIssueAssigneeHasReadOnlyAcceptedEvidence(t *testing.T) {
+	s, repo := newObsService()
+	o := &Observation{ReporterID: 1, Source: SourceVoluntary, Status: ObsDraft, Revision: 1}
+	if err := repo.Insert(context.Background(), o); err != nil {
+		t.Fatal(err)
+	}
+	repo.issueReaders = map[int64][]int64{o.ID: {3}}
+	ctx := context.Background()
+	if _, err := s.Evidence(ctx, inspector(), o.ID); !errors.Is(err, ErrForbidden) {
+		t.Fatalf("draft: %v", err)
+	}
+	o.Status = ObsAccepted
+	if _, err := s.Evidence(ctx, inspector(), o.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.ListImages(ctx, inspector(), o.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Update(ctx, inspector(), o.ID, 1, PatchInput{LocationText: "修改来源"}); !errors.Is(err, ErrForbidden) {
+		t.Fatalf("write: %v", err)
+	}
+	delete(repo.issueReaders, o.ID)
+	if _, err := s.Evidence(ctx, inspector(), o.ID); !errors.Is(err, ErrForbidden) {
+		t.Fatalf("revoked: %v", err)
+	}
 }
 
 type fakeStorage struct{ keys []string }

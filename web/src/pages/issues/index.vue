@@ -70,9 +70,9 @@
         </el-descriptions>
 
         <h4 class="subtitle">关联现场记录</h4>
-        <p v-if="canReview && detail.observations.length" class="action-actor">展开记录可查看现场照片、识别候选及人工复核。</p>
+        <p v-if="canAct && detail.observations.length" class="action-actor">展开记录可查看现场照片、识别候选及人工复核。</p>
         <el-table :data="detail.observations" row-key="observation_id" size="small" stripe>
-          <el-table-column v-if="canReview" type="expand">
+          <el-table-column v-if="canAct" type="expand">
             <template #default="{ row }">
               <ObservationEvidence :observation-id="row.observation_id" />
             </template>

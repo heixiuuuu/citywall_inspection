@@ -20,7 +20,11 @@ func (s *service) Evidence(ctx context.Context, actor *middleware.Actor, id int6
 	if err != nil {
 		return nil, ErrNotFound
 	}
-	if o.ReporterID != actor.UserID && !isAdminOrReviewer(actor) {
+	allowed, err := s.repo.CanReadObservation(ctx, id, actor.UserID, isAdminOrReviewer(actor))
+	if err != nil {
+		return nil, err
+	}
+	if !allowed {
 		return nil, ErrForbidden
 	}
 	evidence, err := s.repo.LoadEvidence(ctx, id)

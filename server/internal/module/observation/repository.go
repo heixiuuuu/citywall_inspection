@@ -22,6 +22,7 @@ type Repository interface {
 
 	InsertImage(ctx context.Context, img *Image) error
 	GetImage(ctx context.Context, id int64) (*Image, error)
+	CanReadObservation(ctx context.Context, observationID, actorID int64, reviewer bool) (bool, error)
 	CanReadImage(ctx context.Context, imageID, actorID int64, reviewer bool) (bool, error)
 	LinkImage(ctx context.Context, obsID, imageID int64, role string) error
 	ListImages(ctx context.Context, obsID int64) ([]ObservationImage, error)
@@ -136,14 +137,25 @@ func (r *GORMRepository) GetImage(ctx context.Context, id int64) (*Image, error)
 	return &img, nil
 }
 
+const observationReadAccess = `(? OR o.reporter_id = ? OR (o.status = 'ACCEPTED' AND
+	EXISTS(SELECT 1 FROM issue_observations io JOIN issues i ON i.id = io.issue_id
+		WHERE io.observation_id = o.id AND i.assignee_id = ?)))`
+
+func (r *GORMRepository) CanReadObservation(ctx context.Context, observationID, actorID int64, reviewer bool) (bool, error) {
+	var count int64
+	err := r.db.WithContext(ctx).Table("observations AS o").Where("o.id = ?", observationID).
+		Where(observationReadAccess, reviewer, actorID, actorID).Count(&count).Error
+	return count > 0, err
+}
+
 func (r *GORMRepository) CanReadImage(ctx context.Context, imageID, actorID int64, reviewer bool) (bool, error) {
 	var allowed bool
 	err := r.db.WithContext(ctx).Raw(`SELECT
 		EXISTS(SELECT 1 FROM observation_images oi JOIN observations o ON o.id = oi.observation_id
-			WHERE oi.image_id = ? AND (? OR o.reporter_id = ?))
+			WHERE oi.image_id = ? AND `+observationReadAccess+`)
 		OR EXISTS(SELECT 1 FROM issue_action_images ai JOIN issue_actions a ON a.id = ai.issue_action_id
 			JOIN issues i ON i.id = a.issue_id WHERE ai.image_id = ? AND (? OR i.assignee_id = ?))`,
-		imageID, reviewer, actorID, imageID, reviewer, actorID).Scan(&allowed).Error
+		imageID, reviewer, actorID, actorID, imageID, reviewer, actorID).Scan(&allowed).Error
 	return allowed, err
 }
 

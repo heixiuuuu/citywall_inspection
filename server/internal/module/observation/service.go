@@ -776,13 +776,17 @@ type ImageMeta struct {
 	URL       string `json:"url"`
 }
 
-// ListImages 返回记录关联图片元数据（负责人本人或管理员/审核员；越权 → ErrForbidden）。
+// ListImages 按现场记录读取权限返回关联图片元数据。
 func (s *service) ListImages(ctx context.Context, actor *middleware.Actor, obsID int64) ([]ImageMeta, error) {
-	o, err := s.repo.GetByID(ctx, obsID)
+	_, err := s.repo.GetByID(ctx, obsID)
 	if err != nil {
 		return nil, ErrNotFound
 	}
-	if o.ReporterID != actor.UserID && !isAdminOrReviewer(actor) {
+	allowed, err := s.repo.CanReadObservation(ctx, obsID, actor.UserID, isAdminOrReviewer(actor))
+	if err != nil {
+		return nil, err
+	}
+	if !allowed {
 		return nil, ErrForbidden
 	}
 	links, err := s.repo.ListImages(ctx, obsID)
