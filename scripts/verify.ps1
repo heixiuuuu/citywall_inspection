@@ -47,6 +47,7 @@ try {
         Invoke-Checked 'go' @('test', './...') (Join-Path $ProjectRoot 'server')
         Invoke-Checked 'go' @('vet', './...') (Join-Path $ProjectRoot 'server')
         Invoke-Checked $Python @('-m', 'pytest', 'tests', '-q') (Join-Path $ProjectRoot 'recognizer')
+        Invoke-Checked $Python @('-m', 'pytest', 'scripts/tests', '-q')
         foreach ($Frontend in @('web', 'miniapp')) {
             Invoke-Checked 'npm' @('ci') (Join-Path $ProjectRoot $Frontend)
         }

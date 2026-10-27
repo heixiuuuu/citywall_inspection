@@ -60,11 +60,13 @@ Python 使用 3.12。建议环境建在 `C:\environment\citywall-python312`：
 ```powershell
 python -m venv C:\environment\citywall-python312
 C:\environment\citywall-python312\Scripts\python.exe -m pip install -r recognizer/requirements-yolo.txt
-C:\environment\citywall-python312\Scripts\python.exe scripts/prepare_dataset.py --source C:\a\school\毕设
-C:\environment\citywall-python312\Scripts\python.exe scripts/train_model.py --device cpu --deploy
+C:\environment\citywall-python312\Scripts\python.exe scripts/prepare_dataset.py --source C:\a\school\毕设 --output data/yolo/dataset_msd_oriented
+C:\environment\citywall-python312\Scripts\python.exe scripts/train_model.py --data data/yolo/dataset_msd_oriented/data.yaml --name msd_oriented_baseline --device cpu --evaluation-split val
 ```
 
 数据转换输出 train / val / test、data.yaml 和 manifest.json。训练输出 best.pt、训练记录和独立测试集 evaluation.json（含逐类指标）；--deploy 才复制权重到推理目录。CUDA 环境使用 --device 0，断点继续可传 --resume data/yolo/runs/运行名/weights/last.pt。模型选择应依据验证集，独立测试集仅用于最终评估。训练与推理代码存在不代表模型准确率已通过验收，参见 [验收边界](docs/acceptance.md)。
+
+标注尺寸与编码尺寸一致时保留原坐标；只有 EXIF 方向归一后的尺寸与标注完全一致时才采用归一图片，不通过缩放猜测标注。输出 JPEG 不携带方向标签。当前完整转换得到 1,076 张图片，其中 134 张进行了方向归一；原有 942 张的图片字节、标签和划分保持一致。输出目录已有 data.yaml 时拒绝覆盖。
 
 已转换 MSD 后，可使用资料目录中的青砖标注补充训练，需安装 7-Zip：
 
@@ -77,16 +79,16 @@ C:\environment\citywall-cuda312\Scripts\python.exe -m pip install -r recognizer/
 ```
 
 ```powershell
-C:\environment\citywall-python312\Scripts\python.exe scripts/prepare_combined_dataset.py
-C:\environment\citywall-cuda312\Scripts\python.exe scripts/train_model.py --data data/yolo/dataset_combined/data.yaml --name combined_n960 --imgsz 960 --epochs 80 --batch 8 --device 0
+C:\environment\citywall-python312\Scripts\python.exe scripts/prepare_combined_dataset.py --base data/yolo/dataset_msd_oriented --output data/yolo/dataset_combined_oriented
+C:\environment\citywall-cuda312\Scripts\python.exe scripts/train_model.py --data data/yolo/dataset_combined_oriented/data.yaml --name combined_oriented_n960 --imgsz 960 --epochs 80 --batch 8 --device 0 --evaluation-split val
 ```
 
-合并数据保留 MSD 的全部划分；青砖数据保留原训练集，将原验证集按图片哈希分为验证与测试集。同像素图片归为一组，有标注冲突的组整体隔离，明细写入 manifest.json。当前合并后为 1,577 张，训练 1,249 张、验证 175 张、测试 153 张；其中青砖重复副本 72 份、冲突组 42 组共 93 个文件被排除。W_E 保留来源标签，不自动视为 MSD 的表面溶蚀。
+合并数据保留 MSD 的全部划分；青砖数据保留原训练集，将原验证集按图片哈希分为验证与测试集。同像素图片归为一组，有标注冲突的组整体隔离，来源、数量及隔离项写入 manifest.json。W_E 保留来源标签，不自动视为 MSD 的表面溶蚀；含该未定义类别的权重不能直接部署。
 
 msd-target.yaml 只使用 MSD 图片和七个已标注业务类别，保持原划分和文件内容，可用于原场景微调。自定义学习率必须同时指定优化器，避免 auto 优化器覆盖学习率；断点继续使用检查点中的训练参数。
 
 ```powershell
-C:\environment\citywall-cuda312\Scripts\python.exe scripts/train_model.py --data data/yolo/dataset_combined/msd-target.yaml --model data/yolo/runs/combined_n960/weights/best.pt --name msd_finetune_n960 --epochs 40 --imgsz 960 --device 0 --batch 8 --optimizer AdamW --learning-rate 0.0002 --evaluation-split val
+C:\environment\citywall-cuda312\Scripts\python.exe scripts/train_model.py --data data/yolo/dataset_combined_oriented/msd-target.yaml --model data/yolo/runs/combined_oriented_n960/weights/best.pt --name msd_oriented_finetune_n960 --epochs 40 --imgsz 960 --device 0 --batch 8 --optimizer AdamW --learning-rate 0.0002 --evaluation-split val
 ```
 
 data.yaml 提供合并入口，msd.yaml 和 bluebrick.yaml 提供分来源入口。评估现有权重可使用 --evaluate 权重路径、--evaluation-split val 或 test，以及 --evaluation-name 自定义名称；输出对应命名的指标 JSON 和图表，记录权重哈希。新权重的类别顺序从其名称元数据读取，须属于业务类别白名单，不能依靠数字编号猜测病害。

@@ -10,7 +10,7 @@ from collections import Counter
 from pathlib import Path
 from xml.etree import ElementTree
 
-from PIL import Image
+from PIL import Image, ImageOps
 import yaml
 
 CODES = ["CRACK", "DISCOLOURATION", "EFFLORESCENCE", "SURFACE_DISSOLUTION", "MASONRY_LOSS", "FUNGUS", "MOSS", "PLANT", "CORROSION", "ARTISTIC"]
@@ -21,6 +21,15 @@ LABELS = {
 }
 
 
+def annotation_image(image: Image.Image, expected_size: tuple[int, int]):
+    if image.size == expected_size:
+        return image.convert("RGB"), False
+    normalized = ImageOps.exif_transpose(image)
+    if normalized.size == expected_size:
+        return normalized.convert("RGB"), True
+    return None, False
+
+
 def prepare(source: Path, output: Path):
     if (output / "data.yaml").exists():
         raise ValueError("output already contains a dataset; use a new output directory")
@@ -29,7 +38,7 @@ def prepare(source: Path, output: Path):
         pillow_heif.register_heif_opener()
     except ImportError:
         pass
-    counts, classes, skipped = Counter(), Counter(), Counter()
+    counts, classes, skipped, normalizations = Counter(), Counter(), Counter(), Counter()
     records, seen = [], set()
     with zipfile.ZipFile(source / "yolo" / "MSD-dataset.zip") as archive:
         names = {Path(name).name.lower(): name for name in archive.namelist() if not name.startswith("__MACOSX")}
@@ -44,11 +53,12 @@ def prepare(source: Path, output: Path):
             raw = archive.read(image_path)
             try:
                 with Image.open(io.BytesIO(raw)) as image:
-                    rgb = image.convert("RGB")
-                    width, height = rgb.size
-                    if width != int(document.findtext("size/width", "0")) or height != int(document.findtext("size/height", "0")):
+                    expected_size = (int(document.findtext("size/width", "0")), int(document.findtext("size/height", "0")))
+                    rgb, orientation_applied = annotation_image(image, expected_size)
+                    if rgb is None:
                         skipped["dimension_mismatch"] += 1
                         continue
+                    width, height = rgb.size
                     digest = hashlib.sha256(rgb.tobytes() + f"{width}:{height}".encode()).hexdigest()
                     if digest in seen:
                         skipped["duplicate_image"] += 1
@@ -82,12 +92,14 @@ def prepare(source: Path, output: Path):
                 skipped["unsupported_or_corrupt_image"] += 1
                 continue
             seen.add(digest)
+            if orientation_applied:
+                normalizations["exif_orientation"] += 1
             counts[split] += 1
-            records.append({"source": image_path, "annotation": annotation, "sha256": digest, "split": split})
+            records.append({"source": image_path, "annotation": annotation, "sha256": digest, "split": split, "orientation_applied": orientation_applied})
     if any(counts[split] == 0 for split in ("train", "val", "test")):
         raise ValueError("each dataset split must contain images")
     (output / "data.yaml").write_text(yaml.safe_dump({"path": str(output.resolve()), "train": "images/train", "val": "images/val", "test": "images/test", "names": dict(enumerate(CODES))}), encoding="utf-8")
-    manifest = {"counts": dict(counts), "class_boxes": dict(classes), "skipped": dict(skipped), "images": records}
+    manifest = {"counts": dict(counts), "class_boxes": dict(classes), "skipped": dict(skipped), "normalizations": dict(normalizations), "images": records}
     (output / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
     print(json.dumps({key: value for key, value in manifest.items() if key != "images"}, ensure_ascii=False))
 
