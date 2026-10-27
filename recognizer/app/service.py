@@ -35,6 +35,7 @@ class RecognitionService:
         # 前置图像校验：格式白名单 + 内容可解析 + EXIF 方向归一。
         inspect_image(image_bytes, allowed_formats or [])
         out: DetectOutput = self._detector.detect(image_bytes)
+        analysis = self._analyzer.analyze(image_bytes, [d.class_code for d in out.detections]) if self._analyzer else None
         latency_ms = int((time.monotonic() - started) * 1000)
         return RecognitionResponse(
             attempt_id=attempt_id,
@@ -43,5 +44,5 @@ class RecognitionService:
             image_height=out.image_height,
             latency_ms=latency_ms,
             detections=out.detections,
-            analysis=self._analyzer.analyze(image_bytes, [d.class_code for d in out.detections]) if self._analyzer else None,
+            analysis=analysis,
         )

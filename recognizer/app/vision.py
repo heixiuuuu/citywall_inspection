@@ -55,16 +55,22 @@ class VisionAnalyzer:
                     },
                 )
                 response.raise_for_status()
-            content = response.json()["choices"][0]["message"]["content"].strip()
+            content = response.json()["choices"][0]["message"]["content"]
+            if not isinstance(content, str):
+                raise ValueError("visual response content must be text")
+            content = content.strip()
             if content.startswith("```"):
                 content = content.split("\n", 1)[1].rsplit("```", 1)[0]
             data = json.loads(content)
-            return VisionAnalysis(
+            analysis = VisionAnalysis(
                 status="SUCCEEDED", model=cfg.model,
                 description=data["description"],
                 possible_causes=data["possible_causes"],
                 recommendations=data["recommendations"],
             )
+            if not analysis.description.strip():
+                raise ValueError("visual response description must not be blank")
+            return analysis
         except httpx.TimeoutException:
             code = "VLM_TIMEOUT"
         except (httpx.HTTPError, ValueError, KeyError, IndexError, TypeError):
