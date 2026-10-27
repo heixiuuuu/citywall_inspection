@@ -93,6 +93,14 @@ C:\environment\citywall-cuda312\Scripts\python.exe scripts/train_model.py --data
 
 data.yaml 提供合并入口，msd.yaml 和 bluebrick.yaml 提供分来源入口。评估现有权重可使用 --evaluate 权重路径、--evaluation-split val 或 test，以及 --evaluation-name 自定义名称；输出对应命名的指标 JSON 和图表，记录权重哈希。新权重的类别顺序从其名称元数据读取，须属于业务类别白名单，不能依靠数字编号猜测病害。
 
+部署前还需在相同验证集、设备和推理参数下比较固定置信度的候选数量。下面的脚本针对转换后的 images/labels 目录，默认使用权重的输入尺寸、0.35 置信度和 0.7 NMS IoU；按置信度顺序匹配同语义类别、IoU 至少 0.5 的未匹配标注，输出 TP、FP、FN、逐类及逐图结果。输出记录数据集与权重指纹，拒绝覆盖已有文件。该指标用于比较人工复核负担，不代替标准 mAP 或现场效果评估。
+
+```powershell
+C:\environment\citywall-python312\Scripts\python.exe scripts/evaluate_operating_point.py --data data/yolo/dataset_msd_oriented/data.yaml --weights data/yolo/weights/best.pt --output C:\code\tmp\operating-val.json
+```
+
+--confidence、--nms-iou、--imgsz 可指定运行参数。阈值选择使用验证集，确定模型与参数后再使用 --split test 进行最终评估；更换数据配置时须重新核对类别语义和划分。
+
 视觉语言模型使用兼容 Chat Completions 的图像输入接口。配置 .env 中的 VLM_BASE_URL（包含 /v1 等服务前缀）、VLM_MODEL 和 VLM_API_KEY 后重建识别容器。支持不要求 API Key 的本地服务。输出保存于识别尝试中，可在管理端审核页面与报告查看。未配置显示 DISABLED，失败显示 FAILED；不会生成代替模型的分析文本。
 
 本地 NVIDIA GPU 可使用 Docker 内的 Ollama 和 Qwen3-VL 2B：
