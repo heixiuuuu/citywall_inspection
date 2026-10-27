@@ -45,18 +45,30 @@ export interface Detection {
 export interface RecognitionAttempt {
   id: number; image_id: number; attempt_no: number; status: string
   model_version: string; error_code: string; analysis_json: string
+  started_at: string; finished_at: string | null
 }
 export interface VisionAnalysis {
   status: 'SUCCEEDED' | 'DISABLED' | 'FAILED'; model: string; description: string
   possible_causes: string[]; recommendations: string[]; error_code: string
 }
 export interface Evidence {
+  submissions: SubmissionEvidence[]
   observation: Observation
   attempts: RecognitionAttempt[]
   detections: Detection[]
   conclusions: ConclusionRevision[]
   items: { id: number; conclusion_revision_id: number; image_id: number; decision: string; final_class_code: string; description: string }[]
-  reviews: { id: number; decision: string; reason: string; disposition: string; created_at: string }[]
+  reviews: { id: number; submission_id: number; decision: string; reason: string; disposition: string; created_at: string }[]
+}
+
+export interface SubmissionEvidence {
+  id: number
+  submission_no: number
+  observation_revision: number
+  conclusion_revision_id: number | null
+  submitted_at: string
+  location: { location_text: string; latitude: number | null; longitude: number | null; accuracy_m: number | null; distance_m: number | null; captured_at: string | null }
+  images: ObservationImageMeta[]
 }
 export async function fetchEvidence(id: number): Promise<Evidence> {
   return (await request<{ evidence: Evidence }>(`/observations/${id}`)).evidence
@@ -74,7 +86,7 @@ export interface ReviewPayload {
 /** 记录图片元数据（GET /observations/{id}/images）。 */
 export interface ObservationImageMeta {
   id: number
-  role: 'OVERVIEW' | 'DETAIL'
+  role: 'OVERVIEW' | 'DETAIL' | 'ARCHIVED'
   media_type: string
   byte_size: number
   width: number

@@ -72,12 +72,17 @@ def main():
     long_location = "报告流程测试：" + "城墙段巡检位置说明，" * 15 + "位置说明结束。"
     record = call("POST", "/observations", inspector, json={"source": "TASK", "task_point_id": second_point["id"], "location_text": long_location})["observation"]
     second_oid = record["id"]
-    call("POST", f"/observations/{second_oid}/images", inspector, files={"image": ("sample.png", buffer.getvalue(), "image/png")})
+    archived_photo = call("POST", f"/observations/{second_oid}/images", inspector, files={"image": ("sample.png", buffer.getvalue(), "image/png")})["image"]
+    call("POST", f'/images/{archived_photo["id"]}/recognitions', inspector, json={})
     call("PUT", f"/observations/{second_oid}/conclusion", inspector, json={"revision": 1, "outcome": "UNDETERMINED", "description": "仅验证软件报告", "items": []})
     call("POST", f"/observations/{second_oid}/submit", inspector, json={"revision": 2})
     return_reason = "复核首轮联调：请补充近景。"
     final_disposition = "复核最终联调：记录已补充完整。"
     call("POST", f"/observations/{second_oid}/review", json={"revision": 3, "decision": "RETURN", "reason": return_reason})
+    call("DELETE", f'/observations/{second_oid}/images/{archived_photo["id"]}', inspector)
+    replacement_photo = io.BytesIO()
+    Image.new("RGB", (96, 72), (100, 110, 160)).save(replacement_photo, format="PNG")
+    call("POST", f"/observations/{second_oid}/images", inspector, files={"image": ("replacement.png", replacement_photo.getvalue(), "image/png")})
     call("PUT", f"/observations/{second_oid}/conclusion", inspector, json={"revision": 4, "outcome": "UNDETERMINED", "description": "补正报告流程验证", "items": []})
     call("POST", f"/observations/{second_oid}/submit", inspector, json={"revision": 5})
     pending = call("POST", f"/reports/task/{tid}")["report"]
@@ -126,8 +131,8 @@ def main():
     handling_pdf.raise_for_status()
     with pymupdf.open(stream=handling_pdf.content, filetype="pdf") as document:
         handling_text = "".join(page.get_text() for page in document)
-        assert sum(len(page.get_images()) for page in document) >= 2
-    for expected in (progress, observe, "计划复查", "巡检员", "审核员", "核验完成", "已关闭", "处置附件"):
+        assert len({image[0] for page in document for image in page.get_images()}) >= 3
+    for expected in (progress, observe, "计划复查", "巡检员", "审核员", "核验完成", "已关闭", "处置附件", "历史提交", f'图片 #{archived_photo["id"]} 识别'):
         assert expected in handling_text, expected
     assert handling_text.index(return_reason) < handling_text.index(final_disposition)
     assert "第 1 次提交审核：退回补正" in handling_text and "第 2 次提交审核：通过" in handling_text

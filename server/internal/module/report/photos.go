@@ -20,7 +20,11 @@ func (w *pdfWriter) photos(images []ImageView, opts renderOpts) {
 			photoHeight = math.Min(120*float64(height)/float64(width), 90)
 		}
 		w.ensure(photoHeight + sectionGap + lineHeight + 8)
-		w.section(fmt.Sprintf("照片 #%d（%s）", image.ID, image.Role))
+		role := map[string]string{"OVERVIEW": "概览", "DETAIL": "细节", "ARCHIVED": "历史提交"}[image.Role]
+		if role == "" {
+			role = image.Role
+		}
+		w.section(fmt.Sprintf("照片 #%d（%s）", image.ID, role))
 		if err := w.image(path, imgFormat(mediaType), width, height, 120); err != nil {
 			w.text(fmt.Sprintf("照片 #%d 无法嵌入", image.ID), 9, 0)
 		}

@@ -494,12 +494,16 @@ paths:
   /api/v1/observations/{id}:
     get:
       tags: [observation]
-      summary: 记录证据（本人或管理员、审核员），包含识别尝试、候选、结论修订和审核记录
+      summary: 读取记录证据（上报人、管理员、审核员及已受理关联问题当前责任人）
       parameters:
         - { name: id, in: path, required: true, schema: { type: integer } }
       responses:
         '200':
-          description: data.evidence 包含 observation、attempts、detections、conclusions、items、reviews
+          description: |
+            data.evidence 包含 observation、attempts、detections、conclusions、items、reviews、submissions。
+            submissions 按 submission_no 排列，包含 id、observation_revision、conclusion_revision_id、submitted_at、location 和 images。
+            location 为冻结的位置对象；images 为冻结图片元数据，已移出当前记录的图片角色为 ARCHIVED。
+            快照只读，识别尝试保留 started_at 和 finished_at，客户端可按提交时间筛选已完成结果。
         '403':
           $ref: '#/components/responses/Forbidden'
     patch:
@@ -530,12 +534,12 @@ paths:
   /api/v1/observations/{id}/images:
     get:
       tags: [observation]
-      summary: 记录图片列表（负责人本人或管理员/审核员）
+      summary: 当前关联图片列表（按记录读取权限校验）
       parameters:
         - { name: id, in: path, required: true, schema: { type: integer } }
       responses:
         '200':
-          description: 图片元数据（含受控访问 URL，不含存储路径）
+          description: 当前图片元数据（含受控访问 URL，不含存储路径）；历史提交图片由 evidence.submissions 提供，编辑器只使用本接口。
           content:
             application/json:
               schema:

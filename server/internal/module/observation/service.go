@@ -555,6 +555,22 @@ func (s *service) submit(ctx context.Context, actor *middleware.Actor, obsID, re
 	if err != nil {
 		return nil, ErrMissingConclusion
 	}
+	items, err := s.repo.ListConclusionItems(ctx, conclusion.ID)
+	if err != nil {
+		return nil, err
+	}
+	for _, item := range items {
+		present := false
+		for _, imageID := range imageIDs {
+			if item.ImageID == imageID {
+				present = true
+				break
+			}
+		}
+		if !present {
+			return nil, fmt.Errorf("%w: human conclusion references a removed photo; save the conclusion again", ErrSourceConstraint)
+		}
+	}
 	if o.Source == SourceVoluntary && (o.LocationText == "" || o.Latitude == nil) {
 		return nil, ErrMissingLocation
 	}
@@ -776,6 +792,11 @@ type ImageMeta struct {
 	URL       string `json:"url"`
 }
 
+func imageMetadata(image *Image, role string) ImageMeta {
+	return ImageMeta{ID: image.ID, Role: role, MediaType: image.MediaType, ByteSize: image.ByteSize,
+		Width: image.Width, Height: image.Height, URL: fmt.Sprintf("/api/v1/images/%d/content", image.ID)}
+}
+
 // ListImages 按现场记录读取权限返回关联图片元数据。
 func (s *service) ListImages(ctx context.Context, actor *middleware.Actor, obsID int64) ([]ImageMeta, error) {
 	_, err := s.repo.GetByID(ctx, obsID)
@@ -799,15 +820,7 @@ func (s *service) ListImages(ctx context.Context, actor *middleware.Actor, obsID
 		if err != nil {
 			continue // 图片记录缺失时跳过，不阻断列表
 		}
-		metas = append(metas, ImageMeta{
-			ID:        img.ID,
-			Role:      l.ImageRole,
-			MediaType: img.MediaType,
-			ByteSize:  img.ByteSize,
-			Width:     img.Width,
-			Height:    img.Height,
-			URL:       fmt.Sprintf("/api/v1/images/%d/content", img.ID),
-		})
+		metas = append(metas, imageMetadata(img, l.ImageRole))
 	}
 	return metas, nil
 }

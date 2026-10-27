@@ -15,16 +15,17 @@ import (
 // ---- fakes ----
 
 type fakeObsRepo struct {
-	obs          map[int64]*Observation
-	images       map[int64]*Image
-	links        map[int64][]ObservationImage
-	attempts     []RecognitionAttempt
-	detect       []Detection
-	concl        []ConclusionRevision
-	subs         []ObservationSubmission
-	decisions    []ReviewDecision
-	next         int64
-	issueReaders map[int64][]int64
+	obs             map[int64]*Observation
+	images          map[int64]*Image
+	links           map[int64][]ObservationImage
+	attempts        []RecognitionAttempt
+	detect          []Detection
+	concl           []ConclusionRevision
+	subs            []ObservationSubmission
+	decisions       []ReviewDecision
+	next            int64
+	issueReaders    map[int64][]int64
+	conclusionItems map[int64][]ConclusionItem
 }
 
 func (f *fakeObsRepo) Transaction(ctx context.Context, operation func(Repository) error) error {
@@ -173,8 +174,19 @@ func (f *fakeObsRepo) NextConclusionNo(_ context.Context, _ int64) (int, error) 
 	return len(f.concl) + 1, nil
 }
 func (f *fakeObsRepo) InsertConclusion(_ context.Context, rev *ConclusionRevision, items []ConclusionItem) error {
+	if rev.ID == 0 {
+		rev.ID = f.next
+		f.next++
+	}
 	f.concl = append(f.concl, *rev)
+	if f.conclusionItems == nil {
+		f.conclusionItems = map[int64][]ConclusionItem{}
+	}
+	f.conclusionItems[rev.ID] = items
 	return nil
+}
+func (f *fakeObsRepo) ListConclusionItems(_ context.Context, id int64) ([]ConclusionItem, error) {
+	return f.conclusionItems[id], nil
 }
 func (f *fakeObsRepo) LatestConclusion(_ context.Context, obsID int64) (*ConclusionRevision, error) {
 	for i := len(f.concl) - 1; i >= 0; i-- {

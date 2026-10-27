@@ -29,6 +29,7 @@ type DetectionView struct {
 
 // AttemptView 识别尝试（多次识别分别留存）。
 type AttemptView struct {
+	ImageID      int64           `json:"image_id"`
 	AnalysisJSON string          `json:"analysis_json"`
 	AttemptNo    int             `json:"attempt_no"`
 	Status       string          `json:"status"`

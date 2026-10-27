@@ -164,7 +164,7 @@ func TestGORMSubmissionSnapshot(t *testing.T) {
 	if err != nil || no != 1 {
 		t.Fatalf("next submission no: %d err=%v", no, err)
 	}
-	sub := &ObservationSubmission{ObservationID: o.ID, SubmissionNo: no, ConclusionRevisionID: &latest.ID, SubmittedAt: latest.CreatedAt}
+	sub := &ObservationSubmission{ObservationID: o.ID, SubmissionNo: no, ConclusionRevisionID: &latest.ID, SubmittedAt: latest.CreatedAt, LocationSnapshotJSON: "{}", ImageIDsSnapshotJSON: "[]"}
 	if err := repo.InsertSubmission(ctx, sub); err != nil {
 		t.Fatalf("insert submission: %v", err)
 	}

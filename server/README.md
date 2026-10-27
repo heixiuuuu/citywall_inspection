@@ -13,3 +13,5 @@ Go / Gin / GORM / MySQL 服务。HTTP Handler 处理鉴权上下文及参数，�
 从仓库根运行 `docker compose up -d --build` 自动迁移、初始化并启动。若在主机启动 Go，数据库仍使用 Docker，按配置指定映射端口，在 server 执行 `go run ./cmd/server -config ../conf/server.json`。
 
 图片和报告经鉴权读取，不公开受控存储目录。记录提交、审核、问题处置采用 revision 冲突检测；业务测试不等于并发压力测试。数据库结构变更必须新增迁移。
+
+GET /api/v1/observations/:id 返回的 evidence.submissions 按提交序号排列，包含提交时间、冻结位置、人工结论版本引用和图片元数据。历史图片可通过同一 images/:id/content、preview 接口鉴权读取。GET observations/:id/images 仅返回当前关联照片，供草稿编辑使用；ARCHIVED 仅为历史只读图片角色，不接受上传。

@@ -2,18 +2,27 @@
   <section v-loading="loading" class="evidence">
     <el-alert v-if="error" :title="error" type="error" :closable="false" />
     <template v-if="evidence">
-      <p>经纬度：{{ evidence.observation.latitude ?? '—' }}, {{ evidence.observation.longitude ?? '—' }} · 精度 {{ evidence.observation.accuracy_m ?? '—' }} m</p>
+      <div v-if="evidence.submissions?.length" class="image-toolbar">
+        <span>查看版本</span>
+        <el-select v-model="submissionId" style="width: 340px" aria-label="查看提交版本">
+          <el-option :value="0" label="当前记录" />
+          <el-option v-for="submission in evidence.submissions" :key="submission.id" :value="submission.id" :label="`第 ${submission.submission_no} 次提交 · ${formatDateTime(submission.submitted_at)}`" />
+        </el-select>
+      </div>
+      <p v-if="snapshot" class="hint">提交快照只读，保留本次提交的位置、照片和人工结论。</p>
+      <p v-if="snapshot">提交位置：{{ location?.location_text || '未填写' }}</p>
+      <p>经纬度：{{ location?.latitude ?? '—' }}, {{ location?.longitude ?? '—' }} · 精度 {{ location?.accuracy_m ?? '—' }} m</p>
       <p v-if="evidence.observation.admitted_at">受理：{{ evidence.observation.no_issue_reason ? `不立项 · ${evidence.observation.no_issue_reason}` : '已立项或关联问题' }} · {{ formatDateTime(evidence.observation.admitted_at) }}</p>
       <p v-else-if="evidence.observation.status === 'ACCEPTED'" class="hint">受理：尚未受理</p>
       <h4>现场照片与检测框</h4>
       <p class="hint">候选仅供复核。未检出不能代替人工判断，置信度不表示严重程度。</p>
       <article v-for="img in images" :key="img.id">
         <div class="image-toolbar">
-          <span>{{ img.role === 'OVERVIEW' ? '概览' : '细节' }} #{{ img.id }}</span>
+          <span>{{ img.role === 'OVERVIEW' ? '概览' : img.role === 'DETAIL' ? '细节' : '历史照片' }} #{{ img.id }}</span>
           <el-select v-if="attemptsFor(img.id).length" v-model="selected[img.id]" style="width: 260px" size="small">
             <el-option v-for="a in attemptsFor(img.id)" :key="a.id" :value="a.id" :label="`第 ${a.attempt_no} 次 · ${a.model_version || attemptLabel(a.status)}`" />
           </el-select>
-          <span v-else class="hint">尚未识别</span>
+          <span v-else class="hint">{{ snapshot ? '提交时无已完成识别' : '尚未识别' }}</span>
         </div>
         <div v-if="img.url" class="image-stage">
           <img :src="img.url" :alt="`现场照片 #${img.id}`" @load="measure(img.id, $event)" />
@@ -38,8 +47,8 @@
         </div>
       </article>
       <el-empty v-if="!images.length" description="暂无现场照片" :image-size="50" />
-      <h4>人工结论与修订</h4>
-      <article v-for="c in evidence.conclusions" :key="c.id" class="conclusion">
+      <h4>{{ snapshot ? '本次提交人工结论' : '人工结论与修订' }}</h4>
+      <article v-for="c in conclusions" :key="c.id" class="conclusion">
         <strong>第 {{ c.revision_no }} 版 · {{ outcomeLabel(c.outcome) }}</strong>
         <p>{{ c.description || '未填写描述' }}</p>
         <el-table :data="evidence.items.filter(i => i.conclusion_revision_id === c.id)" size="small">
@@ -49,9 +58,9 @@
           <el-table-column prop="description" label="说明" min-width="150" />
         </el-table>
       </article>
-      <el-empty v-if="!evidence.conclusions.length" description="暂无人工结论" :image-size="50" />
-      <h4 v-if="evidence.reviews.length">审核记录</h4>
-      <article v-for="r in evidence.reviews" :key="r.id">
+      <el-empty v-if="!conclusions.length" description="暂无人工结论" :image-size="50" />
+      <h4 v-if="reviews.length">审核记录</h4>
+      <article v-for="r in reviews" :key="r.id">
         <p>{{ reviewLabel(r.decision) }} · {{ formatDateTime(r.created_at) }}</p>
         <p v-if="r.disposition">处置意见：{{ r.disposition }}</p>
         <p v-if="r.reason">审核原因：{{ r.reason }}</p>
@@ -62,10 +71,16 @@
 <script setup lang="ts">
 import { formatDateTime } from '@/shared/ui/time'
 import { categoryLabel, outcomeLabel, reviewLabel, decisionLabel, attemptLabel } from './labels'
-import { onBeforeUnmount, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { fetchEvidence, fetchObservationImages, loadImageBlob, type Evidence, type ObservationImageMeta, type VisionAnalysis } from '@/shared/api/observation'
 const props = defineProps<{ observationId: number }>()
 const evidence = ref<Evidence>()
+const submissionId = ref(0)
+const currentMetas = ref<ObservationImageMeta[]>([])
+const snapshot = computed(() => evidence.value?.submissions?.find(submission => submission.id === submissionId.value))
+const location = computed(() => snapshot.value?.location ?? evidence.value?.observation)
+const conclusions = computed(() => evidence.value?.conclusions.filter(conclusion => !snapshot.value || conclusion.id === snapshot.value.conclusion_revision_id) ?? [])
+const reviews = computed(() => evidence.value?.reviews.filter(review => !snapshot.value || review.submission_id === snapshot.value.id) ?? [])
 const images = ref<(ObservationImageMeta & { url: string })[]>([])
 const selected = reactive<Record<number, number>>({})
 const sizes = reactive<Record<number, [number, number]>>({})
@@ -77,21 +92,37 @@ watch(() => props.observationId, async id => {
   const current = ++generation
   release()
   evidence.value = undefined
+  currentMetas.value = []
+  submissionId.value = 0
   loading.value = true
   error.value = ''
   try {
     const [detail, metas] = await Promise.all([fetchEvidence(id), fetchObservationImages(id)])
     if (current !== generation) return
+    currentMetas.value = metas
     evidence.value = detail
-    for (const a of detail.attempts) selected[a.image_id] = a.id
-    const loaded = await Promise.all(metas.map(async m => ({ ...m, url: await loadImageBlob(m.id).catch(() => '') })))
-    if (current !== generation) { loaded.forEach(i => { if (i.url) URL.revokeObjectURL(i.url) }); return }
-    images.value = loaded
+    await loadImages()
   } catch (e) { if (current === generation) error.value = e instanceof Error ? e.message : '记录加载失败' }
   finally { if (current === generation) loading.value = false }
 }, { immediate: true })
+watch(submissionId, () => { if (evidence.value) loadImages() })
+async function loadImages() {
+  const current = ++generation
+  release()
+  loading.value = true
+  const metas = snapshot.value?.images ?? currentMetas.value
+  for (const image of metas) {
+    const attempts = attemptsFor(image.id)
+    if (attempts.length) selected[image.id] = attempts[attempts.length - 1].id
+    else delete selected[image.id]
+  }
+  const loaded = await Promise.all(metas.map(async m => ({ ...m, url: await loadImageBlob(m.id).catch(() => '') })))
+  if (current !== generation) { loaded.forEach(i => { if (i.url) URL.revokeObjectURL(i.url) }); return }
+  images.value = loaded
+  loading.value = false
+}
 onBeforeUnmount(() => { generation++; release() })
-function attemptsFor(id: number) { return evidence.value?.attempts.filter(a => a.image_id === id) ?? [] }
+function attemptsFor(id: number) { return evidence.value?.attempts.filter(a => a.image_id === id && (!snapshot.value || a.finished_at && Date.parse(a.finished_at) <= Date.parse(snapshot.value.submitted_at))) ?? [] }
 function attemptFor(id: number) { return attemptsFor(id).find(a => a.id === selected[id]) }
 function detectionsFor(id: number) { return evidence.value?.detections.filter(d => d.attempt_id === selected[id]) ?? [] }
 function analysisFor(id: number): VisionAnalysis | null {

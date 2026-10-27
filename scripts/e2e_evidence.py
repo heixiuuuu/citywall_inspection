@@ -104,14 +104,44 @@ def main():
     call("DELETE", f'/observations/{draft["id"]}/images/{removable["id"]}', inspector)
     assert call("GET", f'/observations/{draft["id"]}/images', inspector)["images"] == []
     did = draft["id"]
-    call("POST", f"/observations/{did}/images", inspector, 201, files={"image": ("sample.png", buffer.getvalue(), "image/png")}, data={"image_role": "OVERVIEW"})
+    historical_image = call("POST", f"/observations/{did}/images", inspector, 201, files={"image": ("sample.png", buffer.getvalue(), "image/png")}, data={"image_role": "OVERVIEW"})["image"]
+    historical_attempt = call("POST", f'/images/{historical_image["id"]}/recognitions', inspector, json={})["attempt"]
     call("PATCH", f"/observations/{did}", inspector, json={"revision": 1, "latitude": 0, "longitude": 0, "location_text": "退回补正位置"})
-    call("PUT", f"/observations/{did}/conclusion", inspector, 201, json={"revision": 2, "outcome": "SUSPECTED", "description": "保留待补正描述", "items": []})
+    call("PUT", f"/observations/{did}/conclusion", inspector, 201, json={"revision": 2, "outcome": "SUSPECTED", "description": "保留待补正描述", "items": [{"image_id": historical_image["id"], "decision": "ADD", "final_class_code": "CRACK", "final_box_json": '{"x1":1,"y1":1,"x2":20,"y2":20}', "description": "软件追溯验证"}]})
     call("POST", f"/observations/{did}/submit", inspector, json={"revision": 3})
     call("POST", f"/observations/{did}/review", admin, json={"revision": 4, "decision": "RETURN", "reason": "请补充墙体近景"})
     returned = call("GET", f"/observations/{did}", inspector)["evidence"]
     assert returned["observation"]["status"] == "RETURNED" and returned["reviews"][-1]["reason"] == "请补充墙体近景"
     assert returned["conclusions"][-1]["description"] == "保留待补正描述"
+    first_submission = returned["submissions"][0]
+    assert first_submission["location"]["location_text"] == "退回补正位置"
+    call("DELETE", f'/observations/{did}/images/{historical_image["id"]}', inspector)
+    assert requests.get(BASE + f'/images/{historical_image["id"]}/content', headers=inspector, timeout=10).content == buffer.getvalue()
+    assert requests.get(BASE + f'/images/{removable["id"]}/content', headers=inspector, timeout=10).status_code == 403
+    assert requests.get(BASE + f'/images/{historical_image["id"]}/preview', headers=other_inspector, timeout=10).status_code == 403
+    replacement_bytes = io.BytesIO()
+    Image.new("RGB", (80, 60), "steelblue").save(replacement_bytes, "PNG")
+    replacement = call("POST", f"/observations/{did}/images", inspector, 201, files={"image": ("replacement.png", replacement_bytes.getvalue(), "image/png")}, data={"image_role": "OVERVIEW"})["image"]
+    call("POST", f"/observations/{did}/submit", inspector, 400, json={"revision": 5})
+    unchanged = call("GET", f"/observations/{did}", inspector)["evidence"]
+    assert len(unchanged["submissions"]) == 1 and unchanged["observation"]["revision"] == 5
+    assert any(attempt["id"] == historical_attempt["id"] for attempt in unchanged["attempts"])
+    assert [image["id"] for image in call("GET", f"/observations/{did}/images", inspector)["images"]] == [replacement["id"]]
+    call("PATCH", f"/observations/{did}", inspector, json={"revision": 5, "latitude": 1, "longitude": 1, "location_text": "补正后位置"})
+    call("PUT", f"/observations/{did}/conclusion", inspector, 201, json={"revision": 6, "outcome": "UNDETERMINED", "description": "补正后待复核", "items": []})
+    call("POST", f"/observations/{did}/submit", inspector, json={"revision": 7})
+    corrected = call("GET", f"/observations/{did}", inspector)["evidence"]
+    assert len(corrected["submissions"]) == 2
+    old, new = corrected["submissions"]
+    assert old["location"]["latitude"] == 0 and new["location"]["latitude"] == 1
+    assert old["images"][0]["id"] == historical_image["id"] and old["images"][0]["role"] == "ARCHIVED"
+    assert new["images"][0]["id"] == replacement["id"] and old["conclusion_revision_id"] != new["conclusion_revision_id"]
+    call("POST", f"/observations/{did}/review", admin, json={"revision": 8, "decision": "ACCEPT", "disposition": "软件追溯验证"})
+    archived_issue = call("POST", f"/observations/{did}/admit", admin, json={"new_issues": [{"title": "历史提交读取权限验收", "priority_code": "WATCH"}]})["admit"]["created_issue_ids"][0]
+    assigned = call("POST", f"/issues/{archived_issue}/assign", admin, json={"revision": 1, "assignee_id": other_id})["issue"]
+    assert requests.get(BASE + f'/images/{historical_image["id"]}/preview', headers=other_inspector, timeout=10).status_code == 200
+    call("POST", f"/issues/{archived_issue}/assign", admin, json={"revision": assigned["revision"], "assignee_id": 3})
+    assert requests.get(BASE + f'/images/{historical_image["id"]}/preview', headers=other_inspector, timeout=10).status_code == 403
     private = call("POST", "/observations", admin, 201, json={"source": "VOLUNTARY", "location_text": "其他人的记录"})["observation"]
     call("GET", f'/observations/{private["id"]}', inspector, 403)
     call("GET", f'/observations/{private["id"]}', other_inspector, 403)

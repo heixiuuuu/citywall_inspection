@@ -286,10 +286,10 @@ func renderTaskPDF(src *TaskSource, opts renderOpts) ([]byte, error) {
 		for _, a := range o.Attempts {
 			w.analysis(a.AnalysisJSON)
 			if len(a.Detections) == 0 {
-				w.text(fmt.Sprintf("识别尝试 %d：%s（模型 %s，无候选）", a.AttemptNo, a.Status, a.ModelVersion), 9, 3)
+				w.text(fmt.Sprintf("图片 #%d 识别尝试 %d：%s（模型 %s，无候选）", a.ImageID, a.AttemptNo, a.Status, a.ModelVersion), 9, 3)
 				continue
 			}
-			w.text(fmt.Sprintf("识别尝试 %d：%s（模型 %s，候选 %d 个）", a.AttemptNo, a.Status, a.ModelVersion, len(a.Detections)), 9, 3)
+			w.text(fmt.Sprintf("图片 #%d 识别尝试 %d：%s（模型 %s，候选 %d 个）", a.ImageID, a.AttemptNo, a.Status, a.ModelVersion, len(a.Detections)), 9, 3)
 			for _, d := range a.Detections {
 				w.text(fmt.Sprintf("  候选 %s 置信度 %.3f 框(%d,%d,%d,%d)", d.ClassCode, d.Confidence, d.X1, d.Y1, d.X2, d.Y2), 9, 6)
 			}
@@ -351,7 +351,7 @@ func renderRangePDF(src *RangeSource, opts renderOpts) ([]byte, error) {
 		}
 		for _, a := range o.Attempts {
 			w.analysis(a.AnalysisJSON)
-			w.text(fmt.Sprintf("识别 %d：%s（模型 %s，候选 %d）", a.AttemptNo, a.Status, a.ModelVersion, len(a.Detections)), 9, 3)
+			w.text(fmt.Sprintf("图片 #%d 识别 %d：%s（模型 %s，候选 %d）", a.ImageID, a.AttemptNo, a.Status, a.ModelVersion, len(a.Detections)), 9, 3)
 		}
 		for _, c := range o.Conclusions {
 			w.text(fmt.Sprintf("人工结论 v%d：%s（%d 项）", c.RevisionNo, c.Outcome, len(c.Items)), 9, 3)

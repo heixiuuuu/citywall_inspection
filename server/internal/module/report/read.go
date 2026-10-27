@@ -274,6 +274,27 @@ func (s *snapshotRepository) assembleObservations(ctx context.Context, obs []Obs
 	if err := s.db.WithContext(ctx).Where("observation_id IN ?", ids).Find(&rels).Error; err != nil {
 		return nil, err
 	}
+	var subs []ObservationSubmission
+	if err := s.db.WithContext(ctx).Where("observation_id IN ?", ids).Order("observation_id, submission_no, id").Find(&subs).Error; err != nil {
+		return nil, err
+	}
+	linked := map[[2]int64]bool{}
+	for _, rel := range rels {
+		linked[[2]int64{rel.ObservationID, rel.ImageID}] = true
+	}
+	for _, submission := range subs {
+		var snapshotImages []int64
+		if err := json.Unmarshal([]byte(submission.ImageIDsSnapshotJSON), &snapshotImages); err != nil {
+			return nil, err
+		}
+		for _, imageID := range snapshotImages {
+			key := [2]int64{submission.ObservationID, imageID}
+			if !linked[key] {
+				rels = append(rels, ObservationImage{ObservationID: submission.ObservationID, ImageID: imageID, ImageRole: "ARCHIVED"})
+				linked[key] = true
+			}
+		}
+	}
 	imgIDs := make([]int64, 0, len(rels))
 	for _, r := range rels {
 		imgIDs = append(imgIDs, r.ImageID)
@@ -329,6 +350,7 @@ func (s *snapshotRepository) assembleObservations(ctx context.Context, obs []Obs
 		}
 		for _, a := range attempts {
 			av := AttemptView{
+				ImageID:      a.ImageID,
 				AnalysisJSON: a.AnalysisJSON,
 				AttemptNo:    a.AttemptNo, Status: a.Status, ModelVersion: a.ModelVersion,
 				ErrorCode: a.ErrorCode, LatencyMs: a.LatencyMs,
@@ -375,10 +397,6 @@ func (s *snapshotRepository) assembleObservations(ctx context.Context, obs []Obs
 	}
 
 	// 审核决定（经提交快照关联）。
-	var subs []ObservationSubmission
-	if err := s.db.WithContext(ctx).Where("observation_id IN ?", ids).Order("observation_id, submission_no, id").Find(&subs).Error; err != nil {
-		return nil, err
-	}
 	if len(subs) > 0 {
 		subIDs := make([]int64, 0, len(subs))
 		for _, su := range subs {
@@ -633,9 +651,10 @@ type ConclusionItem struct {
 	Description          string
 }
 type ObservationSubmission struct {
-	ID            int64
-	ObservationID int64
-	SubmissionNo  int
+	ImageIDsSnapshotJSON string
+	ID                   int64
+	ObservationID        int64
+	SubmissionNo         int
 }
 type ReviewDecision struct {
 	ReviewerName string

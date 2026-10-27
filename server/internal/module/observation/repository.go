@@ -2,6 +2,7 @@ package observation
 
 import (
 	"context"
+	"strconv"
 	"time"
 
 	"gorm.io/gorm"
@@ -36,6 +37,7 @@ type Repository interface {
 
 	NextConclusionNo(ctx context.Context, obsID int64) (int, error)
 	InsertConclusion(ctx context.Context, rev *ConclusionRevision, items []ConclusionItem) error
+	ListConclusionItems(ctx context.Context, conclusionID int64) ([]ConclusionItem, error)
 	LatestConclusion(ctx context.Context, obsID int64) (*ConclusionRevision, error)
 
 	NextSubmissionNo(ctx context.Context, obsID int64) (int, error)
@@ -153,9 +155,11 @@ func (r *GORMRepository) CanReadImage(ctx context.Context, imageID, actorID int6
 	err := r.db.WithContext(ctx).Raw(`SELECT
 		EXISTS(SELECT 1 FROM observation_images oi JOIN observations o ON o.id = oi.observation_id
 			WHERE oi.image_id = ? AND `+observationReadAccess+`)
+		OR EXISTS(SELECT 1 FROM observation_submissions s JOIN observations o ON o.id = s.observation_id
+			WHERE JSON_CONTAINS(IF(JSON_VALID(s.image_ids_snapshot_json), s.image_ids_snapshot_json, '[]'), ?) AND `+observationReadAccess+`)
 		OR EXISTS(SELECT 1 FROM issue_action_images ai JOIN issue_actions a ON a.id = ai.issue_action_id
 			JOIN issues i ON i.id = a.issue_id WHERE ai.image_id = ? AND (? OR i.assignee_id = ?))`,
-		imageID, reviewer, actorID, actorID, imageID, reviewer, actorID).Scan(&allowed).Error
+		imageID, reviewer, actorID, actorID, strconv.FormatInt(imageID, 10), reviewer, actorID, actorID, imageID, reviewer, actorID).Scan(&allowed).Error
 	return allowed, err
 }
 
@@ -249,6 +253,12 @@ func (r *GORMRepository) InsertConclusion(ctx context.Context, rev *ConclusionRe
 		}
 		return nil
 	})
+}
+
+func (r *GORMRepository) ListConclusionItems(ctx context.Context, conclusionID int64) ([]ConclusionItem, error) {
+	var items []ConclusionItem
+	err := r.db.WithContext(ctx).Where("conclusion_revision_id = ?", conclusionID).Order("id").Find(&items).Error
+	return items, err
 }
 
 func (r *GORMRepository) LatestConclusion(ctx context.Context, obsID int64) (*ConclusionRevision, error) {
