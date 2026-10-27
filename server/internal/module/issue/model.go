@@ -6,12 +6,12 @@ import "time"
 
 // 问题状态（04 文档 7.4）。
 const (
-	StatusUnassigned          = "UNASSIGNED"          // 待分配
-	StatusOpen                = "OPEN"                // 已分配待跟进
-	StatusInProgress          = "IN_PROGRESS"         // 处理中
-	StatusMonitoring          = "MONITORING"          // 观察中
+	StatusUnassigned          = "UNASSIGNED"           // 待分配
+	StatusOpen                = "OPEN"                 // 已分配待跟进
+	StatusInProgress          = "IN_PROGRESS"          // 处理中
+	StatusMonitoring          = "MONITORING"           // 观察中
 	StatusPendingVerification = "PENDING_VERIFICATION" // 待核验
-	StatusClosed              = "CLOSED"              // 已关闭
+	StatusClosed              = "CLOSED"               // 已关闭
 )
 
 // 人工业务优先级（非模型推断的结构安全等级）。
@@ -23,14 +23,14 @@ const (
 
 // 处置动作类型（只追加，不改写历史正文）。
 const (
-	ActionAdvice         = "ADVICE"          // 处理建议
-	ActionProgress       = "PROGRESS"        // 处理进展
-	ActionObserve        = "OBSERVE"         // 观察记录
-	ActionRequestVerify  = "REQUEST_VERIFY"  // 申请核验
-	ActionVerifyPass     = "VERIFY_PASS"     // 核验通过
-	ActionVerifyReturn   = "VERIFY_RETURN"   // 核验退回
-	ActionReopen         = "REOPEN"          // 重新打开
-	ActionAssign         = "ASSIGN"          // 指派/改派
+	ActionAdvice        = "ADVICE"         // 处理建议
+	ActionProgress      = "PROGRESS"       // 处理进展
+	ActionObserve       = "OBSERVE"        // 观察记录
+	ActionRequestVerify = "REQUEST_VERIFY" // 申请核验
+	ActionVerifyPass    = "VERIFY_PASS"    // 核验通过
+	ActionVerifyReturn  = "VERIFY_RETURN"  // 核验退回
+	ActionReopen        = "REOPEN"         // 重新打开
+	ActionAssign        = "ASSIGN"         // 指派/改派
 )
 
 // Issue 病害问题。task_id 不存在于本表：来源通过 issue_observations 关联现场记录追溯。
@@ -55,24 +55,25 @@ type Issue struct {
 
 // IssueObservation 问题与现场记录关联（一次审核可关联多个 Issue；一个问题可关联多个记录）。
 type IssueObservation struct {
-	IssueID           int64     `gorm:"primaryKey;column:issue_id" json:"issue_id"`
-	ObservationID     int64     `gorm:"primaryKey;column:observation_id" json:"observation_id"`
-	ReviewDecisionID  int64     `gorm:"column:review_decision_id" json:"review_decision_id"`
-	ConclusionItemID  *int64    `gorm:"column:conclusion_item_id" json:"conclusion_item_id"`
-	LinkReason        string    `gorm:"column:link_reason" json:"link_reason"`
-	LinkedBy          int64     `gorm:"column:linked_by" json:"linked_by"`
-	LinkedAt          time.Time `gorm:"column:linked_at" json:"linked_at"`
+	IssueID          int64     `gorm:"primaryKey;column:issue_id" json:"issue_id"`
+	ObservationID    int64     `gorm:"primaryKey;column:observation_id" json:"observation_id"`
+	ReviewDecisionID int64     `gorm:"column:review_decision_id" json:"review_decision_id"`
+	ConclusionItemID *int64    `gorm:"column:conclusion_item_id" json:"conclusion_item_id"`
+	LinkReason       string    `gorm:"column:link_reason" json:"link_reason"`
+	LinkedBy         int64     `gorm:"column:linked_by" json:"linked_by"`
+	LinkedAt         time.Time `gorm:"column:linked_at" json:"linked_at"`
 }
 
 // IssueAction 处置动作（建议/进展/观察/申请核验/核验通过/退回/重开/指派）。
 type IssueAction struct {
-	ID                int64      `gorm:"primaryKey;column:id" json:"id"`
-	IssueID           int64      `gorm:"column:issue_id" json:"issue_id"`
-	ActorID           int64      `gorm:"column:actor_id" json:"actor_id"`
-	ActionType        string     `gorm:"column:action_type" json:"action_type"`
-	Content           string     `gorm:"column:content" json:"content"`
-	PlannedFollowUpAt *time.Time `gorm:"column:planned_follow_up_at" json:"planned_follow_up_at"`
-	CreatedAt         time.Time  `gorm:"column:created_at" json:"created_at"`
+	Images            []ActionImage `gorm:"-" json:"images"`
+	ID                int64         `gorm:"primaryKey;column:id" json:"id"`
+	IssueID           int64         `gorm:"column:issue_id" json:"issue_id"`
+	ActorID           int64         `gorm:"column:actor_id" json:"actor_id"`
+	ActionType        string        `gorm:"column:action_type" json:"action_type"`
+	Content           string        `gorm:"column:content" json:"content"`
+	PlannedFollowUpAt *time.Time    `gorm:"column:planned_follow_up_at" json:"planned_follow_up_at"`
+	CreatedAt         time.Time     `gorm:"column:created_at" json:"created_at"`
 }
 
 // IssueActionImage 处置动作附件（照片证据；读取时校验 Issue 权限）。

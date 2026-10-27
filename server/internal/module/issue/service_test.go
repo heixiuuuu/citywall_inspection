@@ -161,8 +161,9 @@ func (f *fakeIssueRepo) MarkAdmitted(_ context.Context, id, actorID int64, reaso
 	return nil
 }
 
-func (f *fakeIssueRepo) LinkActionImage(_ context.Context, actionID, imageID int64) error {
-	f.actionImgs = append(f.actionImgs, IssueActionImage{IssueActionID: actionID, ImageID: imageID})
+func (f *fakeIssueRepo) RegisterActionImage(_ context.Context, actionID int64, image *observation.Image) error {
+	image.ID = 1000
+	f.actionImgs = append(f.actionImgs, IssueActionImage{IssueActionID: actionID, ImageID: image.ID})
 	return nil
 }
 
@@ -190,9 +191,7 @@ func (fakeObsAccess) AcceptedAdmissionInfo(_ context.Context, obsID int64) (*obs
 type fakeImageStore struct{}
 
 func (fakeImageStore) Save(_ []byte, _ string) (string, string, error) { return "k1", "sha1", nil }
-func (fakeImageStore) Register(_ context.Context, key, sha, mt string, bs int64, w, h int, up int64) (int64, error) {
-	return 1000, nil
-}
+func (fakeImageStore) Discard(_ string)                                {}
 
 // ---- helpers ----
 
@@ -386,12 +385,14 @@ func TestAddActionImage(t *testing.T) {
 	svc, repo := newTestSvc()
 	id := mkIssue(repo)
 	_, _ = svc.Assign(context.Background(), admin(), id, 1, 9, "")
-	_, _ = svc.AddAction(context.Background(), inspector(9), id, 3, ActionInput{ActionType: ActionProgress, Content: "处理进展"})
+	if _, err := svc.AddAction(context.Background(), inspector(9), id, 3, ActionInput{ActionType: ActionProgress, Content: "处理进展"}); err != nil {
+		t.Fatal(err)
+	}
 	actions, _ := repo.ListActions(context.Background(), id)
 	if len(actions) == 0 {
 		t.Fatal("expected actions")
 	}
-	img, err := svc.AddActionImage(context.Background(), inspector(9), id, actions[0].ID, []byte("fake-png"), "image/png")
+	img, err := svc.AddActionImage(context.Background(), inspector(9), id, actions[len(actions)-1].ID, []byte("fake-png"), "image/png")
 	if err != nil {
 		t.Fatalf("add action image failed: %v", err)
 	}

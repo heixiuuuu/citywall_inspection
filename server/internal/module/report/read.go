@@ -450,11 +450,33 @@ func (s *snapshotRepository) loadIssues(ctx context.Context, ids []int64) ([]Iss
 		return nil, err
 	}
 	index := map[int64]int{}
+	type actionPhoto struct {
+		ActionID int64
+		ImageView
+	}
+	var photos []actionPhoto
+	err = s.db.WithContext(ctx).Table("issue_action_images AS ai").
+		Select("ai.issue_action_id AS action_id, i.id, i.storage_key, i.media_type, i.width, i.height").
+		Joins("JOIN images AS i ON i.id = ai.image_id").
+		Joins("JOIN issue_actions AS a ON a.id = ai.issue_action_id").
+		Where("a.issue_id IN ?", ids).Order("i.id").Scan(&photos).Error
+	if err != nil {
+		return nil, err
+	}
+	byAction := map[int64][]ImageView{}
+	for _, photo := range photos {
+		photo.Role = "处置附件"
+		byAction[photo.ActionID] = append(byAction[photo.ActionID], photo.ImageView)
+	}
 	for idx := range rows {
 		rows[idx].Actions = []IssueActionView{}
 		index[rows[idx].ID] = idx
 	}
 	for _, action := range actions {
+		action.Images = byAction[action.ID]
+		if action.Images == nil {
+			action.Images = []ImageView{}
+		}
 		if idx, ok := index[action.IssueID]; ok {
 			rows[idx].Actions = append(rows[idx].Actions, action)
 		}

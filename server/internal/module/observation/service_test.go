@@ -294,6 +294,11 @@ func (f *fakeObsRepo) ObservationByImage(_ context.Context, imageID int64) (*Obs
 	return nil, errors.New("not found")
 }
 
+func (f *fakeObsRepo) CanReadImage(ctx context.Context, imageID, actorID int64, reviewer bool) (bool, error) {
+	o, err := f.ObservationByImage(ctx, imageID)
+	return err == nil && (reviewer || o.ReporterID == actorID), nil
+}
+
 type fakeStorage struct{ keys []string }
 
 func (f *fakeStorage) SaveImage(_ []byte, mediaType string) (string, error) {

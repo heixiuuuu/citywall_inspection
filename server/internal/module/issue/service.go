@@ -109,7 +109,7 @@ type Service interface {
 	AdmitFromObservation(ctx context.Context, actor *middleware.Actor, obsID int64, in AdmitInput) (*AdmitResult, error)
 }
 
-// ActionImage 动作附件元数据（由 ImageStore 注册）。
+// ActionImage 处置附件元数据。
 type ActionImage struct {
 	ID        int64  `json:"id"`
 	MediaType string `json:"media_type"`
@@ -119,12 +119,11 @@ type ActionImage struct {
 	URL       string `json:"url"`
 }
 
-// ImageStore 图片落盘与注册（由 infrastructure/storage + images 表实现注入）。
+// ImageStore 图片受控存储与失败清理。
 type ImageStore interface {
 	// Save 将图片字节写入受控目录，返回 storage_key 与 sha256。
 	Save(data []byte, mediaType string) (key string, sha256 string, err error)
-	// Register 登记图片元数据到 images 表，返回 image_id。
-	Register(ctx context.Context, key, sha256, mediaType string, byteSize int64, width, height int, uploadedBy int64) (int64, error)
+	Discard(key string)
 }
 
 type service struct {
@@ -517,43 +516,69 @@ func (s *service) AddActionImage(ctx context.Context, actor *middleware.Actor, i
 	if s.images == nil {
 		return nil, ErrForbidden
 	}
-	i, err := s.repo.GetByID(ctx, issueID)
-	if err != nil {
-		return nil, ErrNotFound
-	}
-	if !canAct(actor, i) {
-		return nil, ErrForbidden
-	}
-	actions, err := s.repo.ListActions(ctx, issueID)
-	if err != nil {
-		return nil, err
-	}
-	found := false
-	for _, a := range actions {
-		if a.ID == actionID {
-			found = true
-			break
+	var image *ActionImage
+	var savedKey string
+	_, err := s.withTransaction(ctx, func(tx *service) (*Issue, error) {
+		i, err := tx.repo.GetByID(ctx, issueID)
+		if err != nil {
+			return nil, ErrNotFound
 		}
-	}
-	if !found {
-		return nil, ErrActionImageMiss
-	}
-	key, sha, err := s.images.Save(data, mediaType)
+		if !canAct(actor, i) {
+			return nil, ErrForbidden
+		}
+		if i.Status == StatusPendingVerification || i.Status == StatusClosed {
+			return nil, ErrInvalidState
+		}
+		actions, err := tx.repo.ListActions(ctx, issueID)
+		if err != nil {
+			return nil, err
+		}
+		var action *IssueAction
+		for idx := range actions {
+			if actions[idx].ID == actionID {
+				action = &actions[idx]
+				break
+			}
+		}
+		if action == nil {
+			return nil, ErrActionImageMiss
+		}
+		if action.ActorID != actor.UserID {
+			return nil, ErrForbidden
+		}
+		key, sha, err := tx.images.Save(data, mediaType)
+		if err != nil {
+			return nil, err
+		}
+		savedKey = key
+		w, h := imageSize(data)
+		metadata := &observation.Image{StorageKey: key, SHA256: sha, MediaType: mediaType,
+			ByteSize: int64(len(data)), Width: w, Height: h, UploadedBy: actor.UserID}
+		if err := tx.repo.RegisterActionImage(ctx, actionID, metadata); err != nil {
+			return nil, err
+		}
+		n, err := tx.repo.UpdateStatus(ctx, issueID, i.Revision, i.Status)
+		if err != nil {
+			return nil, err
+		}
+		if n != 1 {
+			return nil, ErrStatusConflict
+		}
+		i.Revision++
+		tx.audit.Record(ctx, &audit.Event{EntityType: "issue", EntityID: issueID, Action: "add_action_image",
+			ActorID: actor.UserID, OldStatus: i.Status, NewStatus: i.Status, Revision: &i.Revision,
+			Reason: "动作 #" + itoa(actionID) + "，照片 #" + itoa(metadata.ID)})
+		image = &ActionImage{ID: metadata.ID, MediaType: mediaType, ByteSize: int64(len(data)), Width: w, Height: h,
+			URL: "/api/v1/images/" + itoa(metadata.ID) + "/content"}
+		return i, nil
+	})
 	if err != nil {
+		if savedKey != "" {
+			s.images.Discard(savedKey)
+		}
 		return nil, err
 	}
-	w, h := imageSize(data)
-	imgID, err := s.images.Register(ctx, key, sha, mediaType, int64(len(data)), w, h, actor.UserID)
-	if err != nil {
-		return nil, err
-	}
-	if err := s.repo.LinkActionImage(ctx, actionID, imgID); err != nil {
-		return nil, err
-	}
-	return &ActionImage{
-		ID: imgID, MediaType: mediaType, ByteSize: int64(len(data)),
-		URL: "/api/v1/images/" + itoa(imgID) + "/content",
-	}, nil
+	return image, nil
 }
 
 // AdmitFromObservation 受理已通过审核的记录：新建问题/关联已有问题/记录不立项原因。

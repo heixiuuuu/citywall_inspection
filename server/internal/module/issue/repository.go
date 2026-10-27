@@ -28,7 +28,7 @@ type Repository interface {
 	ListByObservation(ctx context.Context, observationID int64) ([]IssueObservation, error)
 	LockObservation(ctx context.Context, observationID int64) (*observation.Observation, error)
 	MarkAdmitted(ctx context.Context, observationID, actorID int64, reason string, at time.Time) error
-	LinkActionImage(ctx context.Context, actionID, imageID int64) error
+	RegisterActionImage(ctx context.Context, actionID int64, image *observation.Image) error
 
 	// InTx 在同一事务中执行 fn（用于受理等原子写入）。
 	InTx(ctx context.Context, fn func(Repository) error) error
@@ -137,10 +137,38 @@ func (r *GORMRepository) InsertAction(ctx context.Context, a *IssueAction) error
 
 func (r *GORMRepository) ListActions(ctx context.Context, issueID int64) ([]IssueAction, error) {
 	var items []IssueAction
-	return items, r.db.WithContext(ctx).
+	err := r.db.WithContext(ctx).
 		Where("issue_id = ?", issueID).
 		Order("created_at ASC, id ASC").
 		Find(&items).Error
+	if err != nil {
+		return nil, err
+	}
+	type linkedImage struct {
+		ActionID int64
+		ActionImage
+	}
+	var images []linkedImage
+	err = r.db.WithContext(ctx).Table("issue_action_images AS ai").
+		Select("ai.issue_action_id AS action_id, i.id, i.media_type, i.byte_size, i.width, i.height").
+		Joins("JOIN images AS i ON i.id = ai.image_id").
+		Joins("JOIN issue_actions AS a ON a.id = ai.issue_action_id").
+		Where("a.issue_id = ?", issueID).Order("i.id").Scan(&images).Error
+	if err != nil {
+		return nil, err
+	}
+	byAction := map[int64][]ActionImage{}
+	for _, image := range images {
+		image.URL = "/api/v1/images/" + itoa(image.ID) + "/content"
+		byAction[image.ActionID] = append(byAction[image.ActionID], image.ActionImage)
+	}
+	for idx := range items {
+		items[idx].Images = byAction[items[idx].ID]
+		if items[idx].Images == nil {
+			items[idx].Images = []ActionImage{}
+		}
+	}
+	return items, nil
 }
 
 func (r *GORMRepository) LinkObservation(ctx context.Context, link *IssueObservation) error {
@@ -175,10 +203,13 @@ func (r *GORMRepository) MarkAdmitted(ctx context.Context, observationID, actorI
 		Updates(map[string]any{"admitted_at": at, "admitted_by": actorID, "no_issue_reason": reason}).Error
 }
 
-func (r *GORMRepository) LinkActionImage(ctx context.Context, actionID, imageID int64) error {
+func (r *GORMRepository) RegisterActionImage(ctx context.Context, actionID int64, image *observation.Image) error {
+	if err := r.db.WithContext(ctx).Create(image).Error; err != nil {
+		return err
+	}
 	return r.db.WithContext(ctx).Create(&IssueActionImage{
 		IssueActionID: actionID,
-		ImageID:       imageID,
+		ImageID:       image.ID,
 	}).Error
 }
 

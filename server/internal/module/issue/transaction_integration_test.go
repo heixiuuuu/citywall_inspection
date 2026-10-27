@@ -92,6 +92,109 @@ func TestIssueActionRollsBackOnStatusFailure(t *testing.T) {
 	}
 }
 
+type attachmentStore struct {
+	key       string
+	discarded bool
+}
+
+func (s *attachmentStore) Save(_ []byte, _ string) (string, string, error) { return s.key, "test", nil }
+func (s *attachmentStore) Discard(_ string)                                { s.discarded = true }
+
+func TestActionImageWritesRollbackTogether(t *testing.T) {
+	for _, table := range []string{"issue_action_images", "issues"} {
+		t.Run(table, func(t *testing.T) {
+			s, db, i := persistentIssue(t, StatusInProgress)
+			store := &attachmentStore{key: "rollback-" + itoa(i.ID)}
+			s.images = store
+			action := &IssueAction{IssueID: i.ID, ActorID: 3, ActionType: ActionProgress, Content: "处理"}
+			if err := db.Create(action).Error; err != nil {
+				t.Fatal(err)
+			}
+			callback := "test:fail_attachment"
+			inject := func(tx *gorm.DB) {
+				if tx.Statement.Table == table {
+					tx.AddError(errors.New("write unavailable"))
+				}
+			}
+			if table == "issues" {
+				db.Callback().Update().Before("gorm:update").Register(callback, inject)
+				t.Cleanup(func() { db.Callback().Update().Remove(callback) })
+			} else {
+				db.Callback().Create().Before("gorm:create").Register(callback, inject)
+				t.Cleanup(func() { db.Callback().Create().Remove(callback) })
+			}
+			_, err := s.AddActionImage(context.Background(), inspector(3), i.ID, action.ID, []byte("test"), "image/png")
+			if err == nil {
+				t.Fatal("expected write failure")
+			}
+			var images, links int64
+			db.Model(&observation.Image{}).Where("storage_key = ?", store.key).Count(&images)
+			db.Model(&IssueActionImage{}).Where("issue_action_id = ?", action.ID).Count(&links)
+			var saved Issue
+			db.First(&saved, i.ID)
+			if images != 0 || links != 0 || saved.Revision != 1 || !store.discarded {
+				t.Fatalf("images=%d links=%d revision=%d discarded=%v", images, links, saved.Revision, store.discarded)
+			}
+		})
+	}
+}
+
+func TestActionImagesUseIssueAccessAndFreezeForVerification(t *testing.T) {
+	s, db, i := persistentIssue(t, StatusInProgress)
+	s.images = &attachmentStore{key: "attachment-" + itoa(i.ID)}
+	action := &IssueAction{IssueID: i.ID, ActorID: 3, ActionType: ActionProgress, Content: "处理"}
+	if err := db.Create(action).Error; err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	if _, err := s.AddActionImage(ctx, admin(), i.ID, action.ID, []byte("test"), "image/png"); !errors.Is(err, ErrForbidden) {
+		t.Fatalf("other author: %v", err)
+	}
+	image, err := s.AddActionImage(ctx, inspector(3), i.ID, action.ID, []byte("test"), "image/png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		db.Where("image_id = ?", image.ID).Delete(&IssueActionImage{})
+		db.Delete(&observation.Image{}, image.ID)
+	})
+	actions, err := s.repo.ListActions(ctx, i.ID)
+	if err != nil || len(actions) != 1 || len(actions[0].Images) != 1 || actions[0].Images[0].ID != image.ID {
+		t.Fatalf("actions=%+v err=%v", actions, err)
+	}
+	access := observation.NewGORMRepository(db)
+	for _, test := range []struct {
+		id                int64
+		reviewer, allowed bool
+	}{{3, false, true}, {999, false, false}, {2, true, true}} {
+		allowed, err := access.CanReadImage(ctx, image.ID, test.id, test.reviewer)
+		if err != nil || allowed != test.allowed {
+			t.Fatalf("access=%v expected=%v err=%v", allowed, test.allowed, err)
+		}
+	}
+	if err := db.Model(&Issue{}).Where("id = ?", i.ID).Update("assignee_id", 999).Error; err != nil {
+		t.Fatal(err)
+	}
+	if allowed, err := access.CanReadImage(ctx, image.ID, 3, false); err != nil || allowed {
+		t.Fatalf("previous assignee: allowed=%v err=%v", allowed, err)
+	}
+	if allowed, err := access.CanReadImage(ctx, image.ID, 999, false); err != nil || !allowed {
+		t.Fatalf("current assignee: allowed=%v err=%v", allowed, err)
+	}
+	if err := db.Model(&Issue{}).Where("id = ?", i.ID).Update("assignee_id", 3).Error; err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.RequestVerification(ctx, inspector(3), i.ID, 1, "旧版本"); !errors.Is(err, ErrStatusConflict) {
+		t.Fatalf("stale revision: %v", err)
+	}
+	if _, err := s.RequestVerification(ctx, inspector(3), i.ID, 2, "申请核验"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.AddActionImage(ctx, inspector(3), i.ID, action.ID, []byte("test"), "image/png"); !errors.Is(err, ErrInvalidState) {
+		t.Fatalf("frozen attachment: %v", err)
+	}
+}
+
 func TestIssueAssignmentRollsBackOnActionFailure(t *testing.T) {
 	s, db, i := persistentIssue(t, StatusUnassigned)
 	callback := "test:fail_issue_action"

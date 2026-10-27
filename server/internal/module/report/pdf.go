@@ -318,7 +318,7 @@ func renderTaskPDF(src *TaskSource, opts renderOpts) ([]byte, error) {
 		}
 	}
 
-	w.issues(src.Issues)
+	w.issues(src.Issues, opts)
 	w.text("", 9, 0)
 	w.text("本报告为生成时刻数据快照，后续问题状态变化不影响本报告。", 8, 0)
 	var buf bytes.Buffer
@@ -372,7 +372,7 @@ func renderRangePDF(src *RangeSource, opts renderOpts) ([]byte, error) {
 		w.photos(observation.Images, opts)
 	}
 
-	w.issues(src.Issues)
+	w.issues(src.Issues, opts)
 	w.text("", 9, 0)
 	w.text("本报告为生成时刻数据快照，后续问题状态变化不影响本报告。", 8, 0)
 	var buf bytes.Buffer
@@ -382,7 +382,7 @@ func renderRangePDF(src *RangeSource, opts renderOpts) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-func (w *pdfWriter) issues(issues []IssueLinkView) {
+func (w *pdfWriter) issues(issues []IssueLinkView, opts renderOpts) {
 	w.section("关联问题与处置进展")
 	if len(issues) == 0 {
 		w.text("无关联问题", 10, 0)
@@ -428,6 +428,7 @@ func (w *pdfWriter) issues(issues []IssueLinkView) {
 			if action.PlannedFollowUpAt != nil {
 				w.text("计划复查："+timeStr(action.PlannedFollowUpAt), 9, 6)
 			}
+			w.photos(action.Images, opts)
 		}
 	}
 }

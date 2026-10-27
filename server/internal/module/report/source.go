@@ -94,14 +94,15 @@ type ObservationView struct {
 }
 
 type IssueActionView struct {
-	ID                int64      `json:"id"`
-	IssueID           int64      `json:"issue_id"`
-	ActorID           int64      `json:"actor_id"`
-	ActorName         string     `json:"actor_name"`
-	ActionType        string     `json:"action_type"`
-	Content           string     `json:"content"`
-	PlannedFollowUpAt *time.Time `json:"planned_follow_up_at"`
-	CreatedAt         time.Time  `json:"created_at"`
+	Images            []ImageView `json:"images" gorm:"-"`
+	ID                int64       `json:"id"`
+	IssueID           int64       `json:"issue_id"`
+	ActorID           int64       `json:"actor_id"`
+	ActorName         string      `json:"actor_name"`
+	ActionType        string      `json:"action_type"`
+	Content           string      `json:"content"`
+	PlannedFollowUpAt *time.Time  `json:"planned_follow_up_at"`
+	CreatedAt         time.Time   `json:"created_at"`
 }
 
 // IssueLinkView 关联问题摘要。

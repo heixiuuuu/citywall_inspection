@@ -21,6 +21,7 @@ export interface Issue {
 }
 
 export interface IssueAction {
+  images: IssueActionImage[]
   id: number
   issue_id: number
   actor_id: number
@@ -28,6 +29,21 @@ export interface IssueAction {
   content: string
   planned_follow_up_at: string | null
   created_at: string
+}
+
+export interface IssueActionImage {
+  id: number
+  media_type: string
+  byte_size: number
+  width: number
+  height: number
+  url: string
+}
+
+export function uploadIssueActionImage(issueId: number, actionId: number, file: File) {
+  const body = new FormData()
+  body.append('image', file)
+  return request<{ image: IssueActionImage }>(`/issues/${issueId}/actions/${actionId}/images`, { method: 'POST', body })
 }
 
 export interface IssueObservationLink {

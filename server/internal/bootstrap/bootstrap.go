@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"log"
 	"net/http"
+	"os"
 
 	"github.com/gin-gonic/gin"
 
@@ -96,7 +97,7 @@ func New(cfg *config.Config) (*App, error) {
 	var idemSvc idempotency.Service
 	var idemStore observation.IdempotencyStore
 	if app.dbReady {
-		issueSvc = issue.NewService(issueRepo, obsSvc, &issueImageStore{obsRepo: obsRepo, st: st}, recorder)
+		issueSvc = issue.NewService(issueRepo, obsSvc, &issueImageStore{st: st}, recorder)
 		idemSvc = idempotency.NewService(idempotency.NewRepository(db))
 		idemStore, _ = idemSvc.(observation.IdempotencyStore)
 	}
@@ -144,10 +145,9 @@ func (a *App) Close() error { return nil }
 // DBReady 报告数据库就绪状态。
 func (a *App) DBReady() bool { return a.dbReady }
 
-// issueImageStore 适配 issue.ImageStore：落盘经 storage，元数据登记到 images 表。
+// issueImageStore 复用受控图片目录。
 type issueImageStore struct {
-	obsRepo observation.Repository
-	st      storage.Storage
+	st storage.Storage
 }
 
 func (a *issueImageStore) Save(data []byte, mediaType string) (string, string, error) {
@@ -159,20 +159,20 @@ func (a *issueImageStore) Save(data []byte, mediaType string) (string, string, e
 	return key, hex.EncodeToString(sum[:]), nil
 }
 
-func (a *issueImageStore) Register(ctx context.Context, key, sha, mediaType string, byteSize int64, width, height int, uploadedBy int64) (int64, error) {
-	img := &observation.Image{
-		StorageKey: key,
-		SHA256:     sha,
-		MediaType:  mediaType,
-		ByteSize:   byteSize,
-		Width:      width,
-		Height:     height,
-		UploadedBy: uploadedBy,
+func (a *issueImageStore) Discard(key string) {
+	f, err := a.st.Open(key)
+	if err != nil {
+		log.Printf("open uncommitted issue image: %v", err)
+		return
 	}
-	if err := a.obsRepo.InsertImage(ctx, img); err != nil {
-		return 0, err
+	name := f.Name()
+	if err := f.Close(); err != nil {
+		log.Printf("close uncommitted issue image: %v", err)
+		return
 	}
-	return img.ID, nil
+	if err := os.Remove(name); err != nil {
+		log.Printf("remove uncommitted issue image: %v", err)
+	}
 }
 
 func registerReadyz(a *App) {

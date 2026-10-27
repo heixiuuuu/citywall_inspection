@@ -96,6 +96,7 @@
             </div>
             <div class="action-content">{{ a.content }}</div>
             <div v-if="a.planned_follow_up_at" class="action-follow-up">计划复查：{{ formatDateTime(a.planned_follow_up_at) }}</div>
+            <IssueActionPhotos v-if="a.images?.length || canAct && canAction && a.actor_id === myId" :issue-id="detail.issue.id" :action-id="a.id" :images="a.images" :can-upload="canAct && canAction && a.actor_id === myId" @uploaded="refresh" />
           </el-timeline-item>
         </el-timeline>
 
@@ -191,6 +192,7 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { formatDateTime } from '@/shared/ui/time'
 import ObservationEvidence from '@/shared/ui/ObservationEvidence.vue'
+import IssueActionPhotos from '@/shared/ui/IssueActionPhotos.vue'
 import {
   fetchIssues,
   fetchIssue,
@@ -239,7 +241,7 @@ const detail = ref<{
 const busy = ref(false)
 
 const canAssign = computed(() => detail.value && ['UNASSIGNED', 'OPEN', 'IN_PROGRESS', 'MONITORING'].includes(detail.value.issue.status))
-const canAction = computed(() => detail.value && ['OPEN', 'IN_PROGRESS', 'MONITORING'].includes(detail.value.issue.status))
+const canAction = computed(() => !!detail.value && ['OPEN', 'IN_PROGRESS', 'MONITORING'].includes(detail.value.issue.status))
 const canRequestVerify = computed(() => detail.value && ['IN_PROGRESS', 'MONITORING'].includes(detail.value.issue.status))
 const awaitingOtherReviewer = computed(() => detail.value?.issue.status === 'PENDING_VERIFICATION' && [...detail.value.actions].reverse().find(action => action.action_type === 'REQUEST_VERIFY')?.actor_id === myId)
 const canVerify = computed(() => detail.value && canReview.value && detail.value.issue.status === 'PENDING_VERIFICATION' && !awaitingOtherReviewer.value)

@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"strconv"
 	"time"
@@ -267,8 +268,8 @@ func (h *IssueHandler) AddActionImage(c *gin.Context) {
 		return
 	}
 	defer f.Close()
-	buf := make([]byte, fileHeader.Size)
-	if _, err := f.Read(buf); err != nil {
+	buf, err := io.ReadAll(f)
+	if err != nil {
 		writeErr(c, err)
 		return
 	}

@@ -22,6 +22,7 @@ type Repository interface {
 
 	InsertImage(ctx context.Context, img *Image) error
 	GetImage(ctx context.Context, id int64) (*Image, error)
+	CanReadImage(ctx context.Context, imageID, actorID int64, reviewer bool) (bool, error)
 	LinkImage(ctx context.Context, obsID, imageID int64, role string) error
 	ListImages(ctx context.Context, obsID int64) ([]ObservationImage, error)
 
@@ -133,6 +134,17 @@ func (r *GORMRepository) GetImage(ctx context.Context, id int64) (*Image, error)
 		return nil, err
 	}
 	return &img, nil
+}
+
+func (r *GORMRepository) CanReadImage(ctx context.Context, imageID, actorID int64, reviewer bool) (bool, error) {
+	var allowed bool
+	err := r.db.WithContext(ctx).Raw(`SELECT
+		EXISTS(SELECT 1 FROM observation_images oi JOIN observations o ON o.id = oi.observation_id
+			WHERE oi.image_id = ? AND (? OR o.reporter_id = ?))
+		OR EXISTS(SELECT 1 FROM issue_action_images ai JOIN issue_actions a ON a.id = ai.issue_action_id
+			JOIN issues i ON i.id = a.issue_id WHERE ai.image_id = ? AND (? OR i.assignee_id = ?))`,
+		imageID, reviewer, actorID, imageID, reviewer, actorID).Scan(&allowed).Error
+	return allowed, err
 }
 
 func (r *GORMRepository) LinkImage(ctx context.Context, obsID, imageID int64, role string) error {

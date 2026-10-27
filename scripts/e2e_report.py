@@ -13,7 +13,8 @@ OUT = os.getenv("CITY_WALL_TEST_PDF", "C:/code/tmp/citywall-report-test.pdf")
 
 def check(name, r, expect=None):
     ok = expect is None or r.status_code == expect
-    detail = f"PDF {len(r.content)} bytes" if r.headers.get("Content-Type", "").startswith("application/pdf") else r.text[:140]
+    media_type = r.headers.get("Content-Type", "")
+    detail = f"{media_type} {len(r.content)} bytes" if media_type.startswith(("application/pdf", "image/")) else r.text[:140]
     print(f"{name:24} -> {r.status_code} {'OK ' if ok else 'FAIL'} {detail}")
     if not ok:
         sys.exit(1)
@@ -79,23 +80,46 @@ def main():
     progress = "处置进展联调：完成记录核对。"
     observe = "观察记录联调：等待复查。"
     issue = call("POST", f"/issues/{issue_id}/actions", inspector, json={"revision": issue["revision"], "action_type": "PROGRESS", "content": progress})["issue"]
+    action_id = call("GET", f"/issues/{issue_id}")["actions"][-1]["id"]
+    attachment = io.BytesIO()
+    Image.new("RGB", (180, 120), (60, 140, 80)).save(attachment, format="PNG")
+    action_path = f"/issues/{issue_id}/actions/{action_id}/images"
+    def upload_action(headers=inspector, content=None):
+        return requests.post(BASE + action_path, headers={key: value for key, value in headers.items() if key.lower() != "content-type"},
+                             files={"image": ("handling.png", content if content is not None else attachment.getvalue(), "image/png")}, timeout=20)
+    check("other action author", upload_action(H), 403)
+    check("invalid action photo", upload_action(content=b"invalid"), 422)
+    action_image = check("upload action photo", upload_action(), 201).json()["data"]["image"]
+    detail = call("GET", f"/issues/{issue_id}")
+    assert detail["actions"][-1]["images"][0]["id"] == action_image["id"]
+    assert action_image["width"] == 180 and action_image["height"] == 120
+    issue = detail["issue"]
+    for headers in (H, inspector):
+        original = check("read action original", requests.get(BASE + f"/images/{action_image['id']}/content", headers=headers, timeout=20), 200)
+        assert original.content == attachment.getvalue()
+        preview = check("read action preview", requests.get(BASE + f"/images/{action_image['id']}/preview", headers=headers, timeout=20), 200)
+        assert Image.open(io.BytesIO(preview.content)).size == (180, 120)
     planned = (datetime.now(timezone.utc) + timedelta(days=1)).isoformat()
     issue = call("POST", f"/issues/{issue_id}/actions", inspector, json={"revision": issue["revision"], "action_type": "OBSERVE", "content": observe, "planned_follow_up_at": planned})["issue"]
     issue = call("POST", f"/issues/{issue_id}/request-verification", inspector, json={"revision": issue["revision"], "content": "报告联调：申请核验。"})["issue"]
+    check("pending photo frozen", upload_action(), 409)
     reviewer_token = call("POST", "/auth/login", json={"username": "reviewer", "password": "Review123"})["token"]
     reviewer = {"Authorization": "Bearer " + reviewer_token}
     issue = call("POST", f"/issues/{issue_id}/verify", reviewer, json={"revision": issue["revision"], "decision": "PASS", "reason": "报告联调：核验完成。"})["issue"]
+    check("closed photo frozen", upload_action(), 409)
     handling = call("POST", f"/reports/task/{tid}")["report"]
     handling_pdf = requests.get(f"{BASE}/reports/{handling['id']}/file", headers=H, timeout=30)
     handling_pdf.raise_for_status()
     with pymupdf.open(stream=handling_pdf.content, filetype="pdf") as document:
         handling_text = "".join(page.get_text() for page in document)
-    for expected in (progress, observe, "计划复查", "巡检员", "审核员", "核验完成", "已关闭"):
+        assert sum(len(page.get_images()) for page in document) >= 2
+    for expected in (progress, observe, "计划复查", "巡检员", "审核员", "核验完成", "已关闭", "处置附件"):
         assert expected in handling_text, expected
     with open(OUT.replace(".pdf", "-handling.pdf"), "wb") as stream:
         stream.write(handling_pdf.content)
     marker = "报告生成后的重新打开操作。"
     call("POST", f"/issues/{issue_id}/reopen", reviewer, json={"revision": issue["revision"], "reason": marker})
+    check("reopened photo upload", upload_action(), 201)
     unchanged = requests.get(f"{BASE}/reports/{handling['id']}/file", headers=H, timeout=30)
     unchanged.raise_for_status()
     assert unchanged.content == handling_pdf.content and marker not in handling_text

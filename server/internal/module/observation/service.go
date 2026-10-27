@@ -348,11 +348,11 @@ func (s *service) GetImageContent(ctx context.Context, actor *middleware.Actor, 
 	if err != nil {
 		return nil, nil, ErrNotFound
 	}
-	o, err := s.repo.ObservationByImage(ctx, imageID)
+	allowed, err := s.repo.CanReadImage(ctx, imageID, actor.UserID, isAdminOrReviewer(actor))
 	if err != nil {
-		return nil, nil, ErrNotFound
+		return nil, nil, err
 	}
-	if o.ReporterID != actor.UserID && !isAdminOrReviewer(actor) {
+	if !allowed {
 		return nil, nil, ErrForbidden
 	}
 	f, err := s.storage.Open(img.StorageKey)
