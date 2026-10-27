@@ -6,7 +6,7 @@
 - POST /internal/v1/recognitions：multipart 字段 image、attempt_id、image_id、request_id。
 - GET /internal/v1/healthz：服务状态、检测模式、权重文件是否存在、视觉模型是否配置。文件存在不等于模型可加载。
 - RECOGNIZER_CONFIG 指定 JSON 配置。RECOGNIZER_MODE 仅允许 yolo 或 dev；dev 返回空候选，仅用于接口联调。
-- RECOGNIZER_WEIGHTS 覆盖权重路径；模型类别名称必须与业务类别码匹配。
+- RECOGNIZER_WEIGHTS 覆盖权重路径；模型类别名称必须与业务类别码匹配，含未定义类别的权重拒绝加载。W_E 仅保留在来源训练数据中，不属于业务类别。
 - RECOGNIZER_TOKEN 非空时要求 X-Internal-Token。
 - VLM_BASE_URL、VLM_MODEL、VLM_API_KEY 配置兼容图像输入的模型服务；分析状态为 SUCCEEDED / DISABLED / FAILED。
 

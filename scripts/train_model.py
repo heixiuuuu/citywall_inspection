@@ -1,4 +1,4 @@
-"""训练 YOLO，并使用独立测试集保存真实评估指标。"""
+"""训练或恢复 YOLO，并按指定数据划分保存评估指标。"""
 import argparse
 import json
 import shutil
@@ -22,6 +22,8 @@ def main():
     parser.add_argument("--device", default="cpu")
     parser.add_argument("--name", default="baseline")
     parser.add_argument("--batch", type=int, default=8)
+    parser.add_argument("--optimizer", choices=("auto", "SGD", "Adam", "AdamW"), default="auto")
+    parser.add_argument("--learning-rate", type=float)
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--resume", type=Path)
     mode.add_argument("--evaluate", type=Path, help="evaluate existing weights without training")
@@ -29,6 +31,11 @@ def main():
     parser.add_argument("--evaluation-split", choices=("val", "test"), default="test")
     parser.add_argument("--evaluation-name")
     args = parser.parse_args()
+    if args.learning_rate is not None:
+        if not 0 < args.learning_rate < 1:
+            parser.error("learning rate must be between zero and one")
+        if args.optimizer == "auto" or args.resume or args.evaluate:
+            parser.error("learning rate requires an explicit optimizer for a new training run")
     args.evaluation_name = args.evaluation_name or args.evaluation_split
     if not args.evaluation_name or any(not (c.isalnum() or c in "-_") for c in args.evaluation_name):
         raise ValueError("evaluation name must contain only letters, digits, hyphens and underscores")
@@ -48,8 +55,12 @@ def main():
         model.train(resume=True, device=args.device, workers=0)
     else:
         model = YOLO(args.model)
+        training = {"optimizer": args.optimizer}
+        if args.learning_rate is not None:
+            training["lr0"] = args.learning_rate
         model.train(data=str(args.data.resolve()), epochs=args.epochs, imgsz=args.imgsz, device=args.device,
-                    batch=args.batch, workers=0, seed=42, deterministic=True, project=str(project), name=args.name)
+                    batch=args.batch, workers=0, seed=42, deterministic=True, project=str(project), name=args.name,
+                    **training)
     if not args.evaluate:
         output = Path(model.trainer.save_dir)
         weights = output / "weights" / "best.pt"

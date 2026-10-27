@@ -163,6 +163,13 @@ def prepare(source: Path, base: Path, output: Path, temp_dir: Path):
         for dataset in by_source:
             subset = config | {split: f"images/{split}/{dataset}" for split in ("train", "val", "test")}
             (output / f"{dataset}.yaml").write_text(yaml.safe_dump(subset), encoding="utf-8")
+            if dataset == "msd":
+                observed_source = {row[0] for item in records if item["dataset"] == dataset for row in item["labels"]}
+                target_codes = [code for code in codes if code in observed_source]
+                if codes[:len(target_codes)] != target_codes:
+                    raise ValueError("target view requires contiguous class indices starting at zero")
+                subset["names"] = dict(enumerate(target_codes))
+                (output / "msd-target.yaml").write_text(yaml.safe_dump(subset), encoding="utf-8")
         manifest = {"counts": dict(counts), "counts_by_source": by_source, "class_boxes": dict(class_boxes), "skipped": dict(skipped),
                     "base_manifest_sha256": file_hash(base / "manifest.json"), "bluebrick_archive_sha256": file_hash(source_archive),
                     "bluebrick_label_mapping": BRICK_CODES, "excluded": excluded, "images": manifest_records}

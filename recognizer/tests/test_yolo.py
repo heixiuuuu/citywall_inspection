@@ -143,7 +143,11 @@ def test_resolve_weights_path_absolute_and_relative(tmp_path):
     assert p.name == "whatever.pt"
 
 
-@pytest.mark.parametrize("names, accepted", [({0: "MOSS", 1: "CRACK"}, True), ({0: "person"}, False)])
+@pytest.mark.parametrize("names, accepted", [
+    ({0: "MOSS", 1: "CRACK"}, True),
+    ({0: "person"}, False),
+    ({0: "CRACK", 1: "W_E"}, False),
+])
 def test_model_load_validates_semantic_names(tmp_path, monkeypatch, names, accepted):
     import sys
     from types import SimpleNamespace
