@@ -73,6 +73,12 @@ export function fetchIssue(id: number) {
   return request<IssueDetail>(`/issues/${id}`)
 }
 
+export interface IssueAssignee { id: number; display_name: string }
+export async function fetchIssueAssignees() {
+  const result = await request<{ items: IssueAssignee[] }>('/issues/assignees')
+  return result.items
+}
+
 export function assignIssue(id: number, revision: number, assigneeId: number, reason?: string) {
   return request<{ issue: Issue }>(`/issues/${id}/assign`, {
     method: 'POST',

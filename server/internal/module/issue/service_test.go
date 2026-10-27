@@ -26,6 +26,10 @@ func newFakeRepo() *fakeIssueRepo {
 	return &fakeIssueRepo{admissions: map[int64]*observation.Observation{}, issues: map[int64]*Issue{}, nextID: 1}
 }
 
+func (f *fakeIssueRepo) ListAssignees(context.Context) ([]Assignee, error) {
+	return []Assignee{{ID: 1}, {ID: 2}, {ID: 3}, {ID: 9}, {ID: 10}}, nil
+}
+
 func (f *fakeIssueRepo) Insert(_ context.Context, i *Issue) error {
 	i.ID = f.nextID
 	f.nextID++
@@ -123,11 +127,11 @@ func (f *fakeIssueRepo) LinkObservation(_ context.Context, link *IssueObservatio
 	return nil
 }
 
-func (f *fakeIssueRepo) ListObservations(_ context.Context, issueID int64) ([]IssueObservation, error) {
-	var out []IssueObservation
-	for _, l := range f.obsLinks {
-		if l.IssueID == issueID {
-			out = append(out, l)
+func (f *fakeIssueRepo) ListObservationBriefs(_ context.Context, issueID int64) ([]ObservationBrief, error) {
+	out := []ObservationBrief{}
+	for _, link := range f.obsLinks {
+		if link.IssueID == issueID {
+			out = append(out, ObservationBrief{ObservationID: link.ObservationID, Source: observation.SourceVoluntary, LinkReason: link.LinkReason, LinkedAt: link.LinkedAt})
 		}
 	}
 	return out, nil
@@ -397,5 +401,17 @@ func TestAddActionImage(t *testing.T) {
 	// 不存在的动作。
 	if _, err := svc.AddActionImage(context.Background(), inspector(9), id, 99999, []byte("x"), "image/png"); !errors.Is(err, ErrActionImageMiss) {
 		t.Fatalf("expected action miss, got %v", err)
+	}
+}
+
+func TestIssueAssigneeDirectoryPermissions(t *testing.T) {
+	svc, _ := newTestSvc()
+	for _, actor := range []*middleware.Actor{reviewer(), inspector(3)} {
+		if _, err := svc.ListAssignees(context.Background(), actor); !errors.Is(err, ErrForbidden) {
+			t.Fatalf("err=%v", err)
+		}
+	}
+	if users, err := svc.ListAssignees(context.Background(), admin()); err != nil || len(users) == 0 {
+		t.Fatalf("users=%+v err=%v", users, err)
 	}
 }

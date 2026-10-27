@@ -97,6 +97,15 @@ def main():
     assert a2["data"]["admit"]["already_admitted"] is True
 
     # ---- 4. 处置主链路：指派 → 进展 → 申请核验 → 核验通过关闭 ----
+    assignees = call("GET", "/issues/assignees", admin)["data"]["items"]
+    assert any(user["id"] == 3 for user in assignees)
+    assert all(set(user) == {"id", "display_name"} for user in assignees)
+    call("GET", "/issues/assignees", inspector, expect=403)
+    call("GET", "/issues/assignees", reviewer, expect=403)
+    call("POST", f"/issues/{iid_issue}/assign", admin, {"revision": 1, "assignee_id": 9999999}, expect=400)
+    unchanged = call("GET", f"/issues/{iid_issue}", admin)["data"]
+    assert unchanged["observations"][0]["source"] == "VOLUNTARY" and unchanged["observations"][0]["location_text"] == "e2e 受理链路测试点 A"
+    assert unchanged["issue"]["revision"] == 1 and unchanged["issue"]["assignee_id"] is None and unchanged["actions"] == []
     call("POST", f"/issues/{iid_issue}/assign", admin, {"revision": 1, "assignee_id": 3, "reason": "指派巡检员"})
     call("POST", f"/issues/{iid_issue}/actions", inspector,
          {"revision": 3, "action_type": "PROGRESS", "content": "已做封缝处理"})

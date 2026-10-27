@@ -833,6 +833,30 @@ paths:
                         type: array
                         items: { $ref: '#/components/schemas/Issue' }
                       total: { type: integer, format: int64 }
+  /api/v1/issues/assignees:
+    get:
+      tags: [issue]
+      summary: 可指派的启用业务用户（仅管理员）
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: 仅返回人员编号和显示名称
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      items:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            id: { type: integer }
+                            display_name: { type: string }
+        '403': { $ref: '#/components/responses/Forbidden' }
   /api/v1/issues/{id}:
     get:
       tags: [issue]

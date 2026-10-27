@@ -47,6 +47,12 @@ func issueTestDB(t *testing.T) *gorm.DB {
 func persistentIssue(t *testing.T, status string) (*service, *gorm.DB, *Issue) {
 	t.Helper()
 	db := issueTestDB(t)
+	if err := db.Exec("INSERT INTO users (id, display_name, status) VALUES (3, '测试责任人', 'ACTIVE') ON DUPLICATE KEY UPDATE status = 'ACTIVE'").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec("INSERT IGNORE INTO user_roles (user_id, role_code) VALUES (3, 'INSPECTOR')").Error; err != nil {
+		t.Fatal(err)
+	}
 	assignee := int64(3)
 	i := &Issue{Title: "事务验证", Status: status, PriorityCode: PriorityWatch, AssigneeID: &assignee, Revision: 1, OpenedAt: time.Now().UTC()}
 	if status == StatusUnassigned {
@@ -386,5 +392,59 @@ func TestAdmissionRollsBackIfResultCannotBeSaved(t *testing.T) {
 	db.First(&saved, record.ID)
 	if count != 0 || saved.AdmittedAt != nil || len(recorder.events) != 0 {
 		t.Fatalf("issues=%d record=%+v audit=%d", count, saved, len(recorder.events))
+	}
+}
+
+func TestIssueAssignmentRequiresActiveUser(t *testing.T) {
+	s, db, i := persistentIssue(t, StatusUnassigned)
+	if err := db.Exec("INSERT IGNORE INTO user_roles (user_id, role_code) VALUES (3, 'REVIEWER')").Error; err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		db.Exec("DELETE FROM user_roles WHERE user_id = 3 AND role_code = 'REVIEWER'")
+		db.Exec("UPDATE users SET status = 'ACTIVE' WHERE id = 3")
+	})
+	users, err := s.ListAssignees(context.Background(), admin())
+	if err != nil {
+		t.Fatal(err)
+	}
+	count := 0
+	for _, user := range users {
+		if user.ID == 3 {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Fatalf("duplicate or missing user: %+v", users)
+	}
+	if err := db.Exec("UPDATE users SET status = 'DISABLED' WHERE id = 3").Error; err != nil {
+		t.Fatal(err)
+	}
+	for _, assigneeID := range []int64{3, -1, 9999999} {
+		if _, err := s.Assign(context.Background(), admin(), i.ID, 1, assigneeID, "指派"); !errors.Is(err, ErrInvalidAssignee) {
+			t.Fatalf("assignee=%d err=%v", assigneeID, err)
+		}
+	}
+	var saved Issue
+	db.First(&saved, i.ID)
+	var actions int64
+	db.Model(&IssueAction{}).Where("issue_id = ?", i.ID).Count(&actions)
+	if saved.Revision != 1 || saved.AssigneeID != nil || actions != 0 {
+		t.Fatalf("issue=%+v actions=%d", saved, actions)
+	}
+}
+
+func TestIssuePreservesLinkedObservationSource(t *testing.T) {
+	s, _, record := persistentAdmission(t)
+	result, err := s.AdmitFromObservation(context.Background(), admin(), record.ID, AdmitInput{NewIssues: []NewIssueInput{{Title: "来源追溯", PriorityCode: PriorityWatch}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, briefs, _, err := s.Get(context.Background(), admin(), result.CreatedIssueIDs[0])
+	if err != nil || len(briefs) != 1 {
+		t.Fatalf("briefs=%+v err=%v", briefs, err)
+	}
+	if briefs[0].Source != observation.SourceVoluntary || briefs[0].LocationText != record.LocationText || briefs[0].ReporterID != record.ReporterID || briefs[0].Status != observation.ObsAccepted {
+		t.Fatalf("wrong provenance: %+v", briefs[0])
 	}
 }

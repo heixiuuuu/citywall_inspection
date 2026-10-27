@@ -22,6 +22,20 @@ func NewIssueHandler(svc issue.Service) *IssueHandler {
 	return &IssueHandler{service: svc}
 }
 
+func (h *IssueHandler) ListAssignees(c *gin.Context) {
+	actor, ok := middleware.GetActor(c)
+	if !ok {
+		writeError(c, http.StatusUnauthorized, "UNAUTHORIZED", "not authenticated")
+		return
+	}
+	users, err := h.service.ListAssignees(c.Request.Context(), actor)
+	if err != nil {
+		writeErr(c, err)
+		return
+	}
+	writeData(c, http.StatusOK, gin.H{"items": users})
+}
+
 // List 问题台账（管理员/审核员全部，巡检员仅被指派；支持 status/page/page_size）。
 func (h *IssueHandler) List(c *gin.Context) {
 	actor, ok := middleware.GetActor(c)

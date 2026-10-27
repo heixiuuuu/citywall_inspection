@@ -88,6 +88,7 @@ func Router(h Handlers, tm *authn.TokenManager, reqIDHeader string, idemSvc idem
 		if h.Issue != nil {
 			issueGroup := v1.Group("/issues", authed)
 			issueGroup.GET("", h.Issue.List)
+			issueGroup.GET("/assignees", h.Issue.ListAssignees)
 			issueGroup.GET("/:id", h.Issue.Get)
 			issueGroup.POST("/:id/assign", idem, h.Issue.Assign)
 			issueGroup.POST("/:id/actions", idem, h.Issue.AddAction)

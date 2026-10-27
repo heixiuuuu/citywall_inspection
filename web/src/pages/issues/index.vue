@@ -73,7 +73,7 @@
         <el-table :data="detail.observations" size="small" stripe>
           <el-table-column prop="observation_id" label="记录ID" width="90" />
           <el-table-column prop="source" label="来源" width="90">
-            <template #default="{ row }">{{ row.source === 'VOLUNTARY' ? '主动上报' : '巡检任务' }}</template>
+            <template #default="{ row }">{{ row.source === 'VOLUNTARY' ? '主动上报' : row.source === 'TASK' ? '任务巡检' : '来源未知' }}</template>
           </el-table-column>
           <el-table-column prop="link_reason" label="关联原因" min-width="120" />
           <el-table-column prop="linked_at" label="关联时间" min-width="150">
@@ -107,8 +107,10 @@
     <!-- 指派 -->
     <el-dialog v-model="assignVisible" title="指派/改派责任人" width="420">
       <el-form label-width="100px">
-        <el-form-item label="责任人ID" required>
-          <el-input-number v-model="assignForm.assignee_id" :min="1" />
+        <el-form-item label="责任人" required>
+          <el-select v-model="assignForm.assignee_id" filterable :loading="assigneeLoading" :disabled="assigneeLoading || busy" placeholder="选择责任人" style="width: 100%">
+            <el-option v-for="user in assignees" :key="user.id" :value="user.id" :label="`${user.display_name}（#${user.id}）`" />
+          </el-select>
         </el-form-item>
         <el-form-item label="说明">
           <el-input v-model="assignForm.reason" placeholder="如：由工程科处理" />
@@ -185,6 +187,8 @@ import {
   fetchIssues,
   fetchIssue,
   assignIssue,
+  fetchIssueAssignees,
+  type IssueAssignee,
   addIssueAction,
   requestVerification,
   verifyIssue,
@@ -265,13 +269,26 @@ async function openDetail(row: Issue) {
 
 // ---- 指派 ----
 const assignVisible = ref(false)
-const assignForm = reactive({ assignee_id: 1, reason: '' })
-function openAssign() {
-  assignForm.assignee_id = detail.value?.issue.assignee_id ?? 1
+const assignForm = reactive<{ assignee_id: number | undefined; reason: string }>({ assignee_id: undefined, reason: '' })
+const assignees = ref<IssueAssignee[]>([])
+const assigneeLoading = ref(false)
+async function openAssign() {
+  assignForm.assignee_id = undefined
   assignForm.reason = ''
+  assignees.value = []
+  assigneeLoading.value = true
   assignVisible.value = true
+  try {
+    assignees.value = await fetchIssueAssignees()
+    const currentId = detail.value?.issue.assignee_id
+    if (assignees.value.some(user => user.id === currentId)) assignForm.assignee_id = currentId ?? undefined
+  } catch {
+    ElMessage.error('加载责任人失败，请重试')
+    assignVisible.value = false
+  } finally { assigneeLoading.value = false }
 }
 async function doAssign() {
+  if (!assignForm.assignee_id || assigneeLoading.value) { ElMessage.warning('请选择责任人'); return }
   const d = detail.value!
   busy.value = true
   try {

@@ -24,7 +24,7 @@ var (
 	ErrStatusConflict   = errors.New("issue: status or revision conflict")
 	ErrSelfVerify       = errors.New("issue: cannot verify own submitted verification")
 	ErrReasonRequired   = errors.New("issue: reason required")
-	ErrAssigneeSelf     = errors.New("issue: cannot assign to self as verifier")
+	ErrInvalidAssignee  = errors.New("issue: assignee must be an active user with a business role")
 	ErrAdmitEmpty       = errors.New("issue: admit requires new issues, linked issues or no-issue reason")
 	ErrAdmitInvalid     = errors.New("issue: invalid admission input")
 	ErrAdmitNotAccepted = errors.New("issue: observation not accepted or already admitted")
@@ -97,6 +97,7 @@ type ObservationBrief struct {
 
 // Service 问题业务规则。
 type Service interface {
+	ListAssignees(ctx context.Context, actor *middleware.Actor) ([]Assignee, error)
 	List(ctx context.Context, actor *middleware.Actor, in ListInput) (*ListResult, error)
 	Get(ctx context.Context, actor *middleware.Actor, id int64) (*Issue, []ObservationBrief, []IssueAction, error)
 	Assign(ctx context.Context, actor *middleware.Actor, id, revision, assigneeID int64, reason string) (*Issue, error)
@@ -172,6 +173,13 @@ func (s *service) withTransaction(ctx context.Context, apply func(*service) (*Is
 func (s *service) Assign(ctx context.Context, actor *middleware.Actor, id, revision, assigneeID int64, reason string) (*Issue, error) {
 	return s.withTransaction(ctx, func(tx *service) (*Issue, error) { return tx.assign(ctx, actor, id, revision, assigneeID, reason) })
 }
+
+func (s *service) ListAssignees(ctx context.Context, actor *middleware.Actor) ([]Assignee, error) {
+	if !hasRole(actor, "ADMIN") {
+		return nil, ErrForbidden
+	}
+	return s.repo.ListAssignees(ctx)
+}
 func (s *service) AddAction(ctx context.Context, actor *middleware.Actor, id, revision int64, in ActionInput) (*Issue, error) {
 	return s.withTransaction(ctx, func(tx *service) (*Issue, error) { return tx.addAction(ctx, actor, id, revision, in) })
 }
@@ -216,17 +224,9 @@ func (s *service) Get(ctx context.Context, actor *middleware.Actor, id int64) (*
 	if !hasAdminOrReviewer(actor) && (i.AssigneeID == nil || *i.AssigneeID != actor.UserID) {
 		return nil, nil, nil, ErrForbidden
 	}
-	links, err := s.repo.ListObservations(ctx, id)
+	briefs, err := s.repo.ListObservationBriefs(ctx, id)
 	if err != nil {
 		return nil, nil, nil, err
-	}
-	briefs := make([]ObservationBrief, 0, len(links))
-	for _, l := range links {
-		briefs = append(briefs, ObservationBrief{
-			ObservationID: l.ObservationID,
-			LinkReason:    l.LinkReason,
-			LinkedAt:      l.LinkedAt,
-		})
 	}
 	actions, err := s.repo.ListActions(ctx, id)
 	if err != nil {
@@ -249,6 +249,20 @@ func (s *service) assign(ctx context.Context, actor *middleware.Actor, id, revis
 	}
 	if i.Revision != revision {
 		return nil, ErrStatusConflict
+	}
+	users, err := s.repo.ListAssignees(ctx)
+	if err != nil {
+		return nil, err
+	}
+	eligible := false
+	for _, user := range users {
+		if user.ID == assigneeID {
+			eligible = true
+			break
+		}
+	}
+	if !eligible {
+		return nil, ErrInvalidAssignee
 	}
 	n, err := s.repo.UpdateAssignee(ctx, id, revision, assigneeID)
 	if err != nil {
