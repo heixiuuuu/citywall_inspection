@@ -261,6 +261,7 @@ func (s *snapshotRepository) assembleObservations(ctx context.Context, obs []Obs
 			ID: o.ID, Source: o.Source, TaskPointID: o.TaskPointID, ReporterID: o.ReporterID,
 			LocationText: o.LocationText, Latitude: o.Latitude, Longitude: o.Longitude,
 			AccuracyM: o.AccuracyM, DistanceM: o.DistanceM, Status: o.Status, Outcome: o.InspectionOutcome,
+			Reviews:     []ReviewView{},
 			SubmittedAt: o.SubmittedAt, ReviewedAt: o.ReviewedAt, AdmittedAt: o.AdmittedAt, AdmittedBy: o.AdmittedBy, NoIssueReason: o.NoIssueReason,
 		}
 		v.LocationAbnormal = locationAbnormal(*o)
@@ -375,26 +376,34 @@ func (s *snapshotRepository) assembleObservations(ctx context.Context, obs []Obs
 
 	// 审核决定（经提交快照关联）。
 	var subs []ObservationSubmission
-	if err := s.db.WithContext(ctx).Where("observation_id IN ?", ids).Order("submission_no ASC").Find(&subs).Error; err != nil {
+	if err := s.db.WithContext(ctx).Where("observation_id IN ?", ids).Order("observation_id, submission_no, id").Find(&subs).Error; err != nil {
 		return nil, err
 	}
 	if len(subs) > 0 {
 		subIDs := make([]int64, 0, len(subs))
-		subByID := map[int64]int64{}
 		for _, su := range subs {
 			subIDs = append(subIDs, su.ID)
-			subByID[su.ID] = su.ObservationID
 		}
 		var revs []ReviewDecision
-		if err := s.db.WithContext(ctx).Where("submission_id IN ?", subIDs).Find(&revs).Error; err != nil {
+		if err := s.db.WithContext(ctx).Table("review_decisions AS r").Select("r.*, COALESCE(u.display_name, '') AS reviewer_name").
+			Joins("LEFT JOIN users u ON u.id = r.reviewer_id").Where("r.submission_id IN ?", subIDs).Scan(&revs).Error; err != nil {
 			return nil, err
 		}
+		reviewBySubmission := map[int64]ReviewDecision{}
 		for _, rv := range revs {
-			rvw := &ReviewView{
+			reviewBySubmission[rv.SubmissionID] = rv
+		}
+		for _, submission := range subs {
+			rv, ok := reviewBySubmission[submission.ID]
+			if !ok {
+				continue
+			}
+			rvw := ReviewView{
+				SubmissionNo: submission.SubmissionNo, ReviewerName: rv.ReviewerName,
 				Decision: rv.Decision, ReviewerID: rv.ReviewerID, Disposition: rv.Disposition,
 				Reason: rv.Reason, CreatedAt: rv.CreatedAt,
 			}
-			byID[subByID[rv.SubmissionID]].Review = rvw
+			byID[submission.ObservationID].Reviews = append(byID[submission.ObservationID].Reviews, rvw)
 		}
 	}
 	return views, nil
@@ -629,6 +638,7 @@ type ObservationSubmission struct {
 	SubmissionNo  int
 }
 type ReviewDecision struct {
+	ReviewerName string
 	ID           int64
 	SubmissionID int64
 	ReviewerID   int64

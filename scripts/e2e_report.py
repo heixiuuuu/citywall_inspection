@@ -69,12 +69,26 @@ def main():
     tid = second["id"]
     call("POST", f"/tasks/{tid}/dispatch", json={"revision": 1})
     second_point = call("GET", f"/tasks/{tid}")["points"][0]
-    record = call("POST", "/observations", inspector, json={"source": "TASK", "task_point_id": second_point["id"], "location_text": "报告流程测试"})["observation"]
+    long_location = "报告流程测试：" + "城墙段巡检位置说明，" * 15 + "位置说明结束。"
+    record = call("POST", "/observations", inspector, json={"source": "TASK", "task_point_id": second_point["id"], "location_text": long_location})["observation"]
     second_oid = record["id"]
     call("POST", f"/observations/{second_oid}/images", inspector, files={"image": ("sample.png", buffer.getvalue(), "image/png")})
     call("PUT", f"/observations/{second_oid}/conclusion", inspector, json={"revision": 1, "outcome": "UNDETERMINED", "description": "仅验证软件报告", "items": []})
     call("POST", f"/observations/{second_oid}/submit", inspector, json={"revision": 2})
-    call("POST", f"/observations/{second_oid}/review", json={"revision": 3, "decision": "ACCEPT", "disposition": "仅验证报告流程"})
+    return_reason = "复核首轮联调：请补充近景。"
+    final_disposition = "复核最终联调：记录已补充完整。"
+    call("POST", f"/observations/{second_oid}/review", json={"revision": 3, "decision": "RETURN", "reason": return_reason})
+    call("PUT", f"/observations/{second_oid}/conclusion", inspector, json={"revision": 4, "outcome": "UNDETERMINED", "description": "补正报告流程验证", "items": []})
+    call("POST", f"/observations/{second_oid}/submit", inspector, json={"revision": 5})
+    pending = call("POST", f"/reports/task/{tid}")["report"]
+    pending_pdf = requests.get(f"{BASE}/reports/{pending['id']}/file", headers=H, timeout=30)
+    pending_pdf.raise_for_status()
+    with pymupdf.open(stream=pending_pdf.content, filetype="pdf") as document:
+        pending_text = "".join(page.get_text() for page in document)
+    assert return_reason in pending_text and "本次提交待审核" in pending_text and final_disposition not in pending_text
+    with open(OUT.replace(".pdf", "-pending.pdf"), "wb") as stream:
+        stream.write(pending_pdf.content)
+    call("POST", f"/observations/{second_oid}/review", json={"revision": 6, "decision": "ACCEPT", "disposition": final_disposition})
     issue_id = call("POST", f"/observations/{second_oid}/admit", json={"new_issues": [{"title": "报告处置历史验收", "priority_code": "WATCH"}]})["admit"]["created_issue_ids"][0]
     issue = call("POST", f"/issues/{issue_id}/assign", json={"revision": 1, "assignee_id": 3})["issue"]
     progress = "处置进展联调：完成记录核对。"
@@ -115,6 +129,9 @@ def main():
         assert sum(len(page.get_images()) for page in document) >= 2
     for expected in (progress, observe, "计划复查", "巡检员", "审核员", "核验完成", "已关闭", "处置附件"):
         assert expected in handling_text, expected
+    assert handling_text.index(return_reason) < handling_text.index(final_disposition)
+    assert "第 1 次提交审核：退回补正" in handling_text and "第 2 次提交审核：通过" in handling_text
+    assert "本次提交待审核" not in handling_text
     with open(OUT.replace(".pdf", "-handling.pdf"), "wb") as stream:
         stream.write(handling_pdf.content)
     marker = "报告生成后的重新打开操作。"
@@ -136,6 +153,10 @@ def main():
     with pymupdf.open(stream=range_pdf.content, filetype="pdf") as document:
         range_text = "".join(page.get_text() for page in document)
     assert progress in range_text and marker in range_text and admission_reason in range_text
+    assert range_text.index(return_reason) < range_text.index(final_disposition)
+    assert "位置说明结束。" in "".join(range_text.split())
+    with open(OUT.replace(".pdf", "-range.pdf"), "wb") as stream:
+        stream.write(range_pdf.content)
 
 
     # 权限：巡检员无权生成/查看报告

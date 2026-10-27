@@ -61,11 +61,13 @@ type ConclusionView struct {
 
 // ReviewView 审核决定。
 type ReviewView struct {
-	Decision    string    `json:"decision"`
-	ReviewerID  int64     `json:"reviewer_id"`
-	Disposition string    `json:"disposition"`
-	Reason      string    `json:"reason"`
-	CreatedAt   time.Time `json:"created_at"`
+	SubmissionNo int       `json:"submission_no"`
+	ReviewerName string    `json:"reviewer_name"`
+	Decision     string    `json:"decision"`
+	ReviewerID   int64     `json:"reviewer_id"`
+	Disposition  string    `json:"disposition"`
+	Reason       string    `json:"reason"`
+	CreatedAt    time.Time `json:"created_at"`
 }
 
 // ObservationView 现场记录完整视图。
@@ -89,7 +91,7 @@ type ObservationView struct {
 	Images           []ImageView      `json:"images"`
 	Attempts         []AttemptView    `json:"attempts"`
 	Conclusions      []ConclusionView `json:"conclusions"`
-	Review           *ReviewView      `json:"review"`
+	Reviews          []ReviewView     `json:"reviews"`
 	LocationAbnormal string           `json:"location_abnormal"` // 定位异常说明（distance/accuracy 超限）
 }
 

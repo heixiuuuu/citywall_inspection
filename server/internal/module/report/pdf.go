@@ -267,12 +267,9 @@ func renderTaskPDF(src *TaskSource, opts renderOpts) ([]byte, error) {
 
 	w.section("点位明细")
 	for _, p := range src.Points {
-		w.ensure(6)
-		w.pdf.SetFont("hei", "", 11)
-		w.pdf.SetX(w.left)
-		w.pdf.CellFormat(0, 6, fmt.Sprintf("点位 %d ｜ %s（%s）", p.SequenceNo, p.PointName, p.PointCode), "", 0, "L", false, 0, "")
-		w.pdf.Ln(lineHeight)
-		w.y += lineHeight
+		heading := fmt.Sprintf("点位 %d ｜ %s（%s）", p.SequenceNo, p.PointName, p.PointCode)
+		w.ensure(float64(len(w.splitLines(heading, 11, w.pageW-2*pdfMargin))+2) * lineHeight)
+		w.text(heading, 11, 0)
 		if p.SnapshotLocation != "" {
 			w.text("快照位置："+p.SnapshotLocation, 9, 3)
 		}
@@ -307,9 +304,7 @@ func renderTaskPDF(src *TaskSource, opts renderOpts) ([]byte, error) {
 				w.text(fmt.Sprintf("  图片 #%d %s → %s：%s", it.ImageID, it.Decision, it.FinalClassCode, it.Description), 9, 6)
 			}
 		}
-		if o.Review != nil {
-			w.text(fmt.Sprintf("审核：%s ｜ %s ｜ %s", o.Review.Decision, o.Review.Disposition, o.Review.Reason), 9, 3)
-		}
+		w.reviews(o)
 		w.admission(o)
 	}
 	for _, point := range src.Points {
@@ -345,13 +340,12 @@ func renderRangePDF(src *RangeSource, opts renderOpts) ([]byte, error) {
 
 	w.section("记录明细")
 	for idx, o := range src.Observations {
-		w.ensure(6)
-		w.pdf.SetFont("hei", "", 11)
-		w.pdf.SetX(w.left)
-		w.pdf.CellFormat(0, 6, fmt.Sprintf("记录 %d ｜ #%d ｜ %s ｜ %s", idx+1, o.ID, o.Source, o.LocationText), "", 0, "L", false, 0, "")
-		w.pdf.Ln(lineHeight)
-		w.y += lineHeight
-		w.text(fmt.Sprintf("状态 %s ｜ 结论 %s ｜ 提交 %s", o.Status, o.Outcome, timeStr(o.SubmittedAt)), 9, 3)
+		heading := fmt.Sprintf("记录 %d ｜ #%d ｜ %s ｜ %s", idx+1, o.ID, o.Source, o.LocationText)
+		status := fmt.Sprintf("状态 %s ｜ 结论 %s ｜ 提交 %s", o.Status, o.Outcome, timeStr(o.SubmittedAt))
+		lines := len(w.splitLines(heading, 11, w.pageW-2*pdfMargin)) + len(w.splitLines(status, 9, w.pageW-2*pdfMargin-3)) + 1
+		w.ensure(float64(lines) * lineHeight)
+		w.text(heading, 11, 0)
+		w.text(status, 9, 3)
 		if o.LocationAbnormal != "" {
 			w.text("定位异常："+o.LocationAbnormal, 9, 3)
 		}
@@ -362,9 +356,7 @@ func renderRangePDF(src *RangeSource, opts renderOpts) ([]byte, error) {
 		for _, c := range o.Conclusions {
 			w.text(fmt.Sprintf("人工结论 v%d：%s（%d 项）", c.RevisionNo, c.Outcome, len(c.Items)), 9, 3)
 		}
-		if o.Review != nil {
-			w.text(fmt.Sprintf("审核：%s ｜ %s", o.Review.Decision, o.Review.Reason), 9, 3)
-		}
+		w.reviews(&o)
 		w.admission(&o)
 	}
 
@@ -445,6 +437,36 @@ func (w *pdfWriter) admission(o *ObservationView) {
 		result = "不立项：" + o.NoIssueReason
 	}
 	w.text("受理："+result+" ｜ "+timeStr(o.AdmittedAt), 9, 3)
+}
+
+func (w *pdfWriter) reviews(o *ObservationView) {
+	decisions := map[string]string{"ACCEPT": "通过", "RETURN": "退回补正", "REJECT": "驳回"}
+	for _, review := range o.Reviews {
+		decision := decisions[review.Decision]
+		if decision == "" {
+			decision = review.Decision
+		}
+		reviewer := review.ReviewerName
+		if reviewer == "" {
+			reviewer = fmt.Sprintf("用户 #%d", review.ReviewerID)
+		}
+		heading := fmt.Sprintf("第 %d 次提交审核：%s ｜ %s ｜ %s", review.SubmissionNo, decision, reviewer, timeStr(&review.CreatedAt))
+		lines := len(w.splitLines(heading, 9, w.pageW-2*pdfMargin-3))
+		if review.Disposition != "" || review.Reason != "" {
+			lines++
+		}
+		w.ensure(float64(lines) * lineHeight)
+		w.text(heading, 9, 3)
+		if review.Disposition != "" {
+			w.text("处置意见："+review.Disposition, 9, 6)
+		}
+		if review.Reason != "" {
+			w.text("审核原因："+review.Reason, 9, 6)
+		}
+	}
+	if o.Status == "SUBMITTED" {
+		w.text("本次提交待审核", 9, 3)
+	}
 }
 
 func timeStr(t *time.Time) string {
