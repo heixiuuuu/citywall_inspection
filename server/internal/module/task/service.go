@@ -48,6 +48,7 @@ type CreateInput struct {
 
 // Repository 任务数据访问接口。
 type Repository interface {
+	Transaction(ctx context.Context, operation func(Repository) error) error
 	ListAssignees(ctx context.Context) ([]Assignee, error)
 	InsertTask(ctx context.Context, t *Task) error
 	InsertTaskPoints(ctx context.Context, taskID int64, pointIDs []int64) error
@@ -148,7 +149,7 @@ func NewService(
 	return &service{repo: repo, obsStatus: obs, pointGetter: pointGetter, audit: rec}
 }
 
-func (s *service) Create(ctx context.Context, actor *middleware.Actor, in CreateInput) (*Task, error) {
+func (s *service) create(ctx context.Context, actor *middleware.Actor, in CreateInput) (*Task, error) {
 	if !hasRole(actor, "ADMIN") {
 		return nil, ErrForbidden
 	}
@@ -185,7 +186,7 @@ func (s *service) Create(ctx context.Context, actor *middleware.Actor, in Create
 	return t, nil
 }
 
-func (s *service) Dispatch(ctx context.Context, actor *middleware.Actor, taskID, revision int64) (*Task, error) {
+func (s *service) dispatch(ctx context.Context, actor *middleware.Actor, taskID, revision int64) (*Task, error) {
 	if !hasRole(actor, "ADMIN") {
 		return nil, ErrForbidden
 	}

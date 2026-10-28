@@ -5,11 +5,19 @@ import (
 	"time"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // GORMRepository 基于 GORM 的 Repository 实现。
 type GORMRepository struct {
-	db *gorm.DB
+	db     *gorm.DB
+	locked bool
+}
+
+func (r *GORMRepository) Transaction(ctx context.Context, operation func(Repository) error) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		return operation(&GORMRepository{db: tx, locked: true})
+	})
 }
 
 // NewGORMRepository 构造任务仓储。
@@ -48,7 +56,11 @@ func (r *GORMRepository) InsertTaskPoints(ctx context.Context, taskID int64, poi
 
 func (r *GORMRepository) GetByID(ctx context.Context, id int64) (*Task, error) {
 	var t Task
-	if err := r.db.WithContext(ctx).First(&t, id).Error; err != nil {
+	query := r.db.WithContext(ctx)
+	if r.locked {
+		query = query.Clauses(clause.Locking{Strength: "UPDATE"})
+	}
+	if err := query.First(&t, id).Error; err != nil {
 		return nil, err
 	}
 	return &t, nil

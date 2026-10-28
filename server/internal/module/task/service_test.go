@@ -21,6 +21,10 @@ type fakeRepo struct {
 	refused   error
 }
 
+func (f *fakeRepo) Transaction(ctx context.Context, operation func(Repository) error) error {
+	return operation(f)
+}
+
 func (f *fakeRepo) ListAssignees(context.Context) ([]Assignee, error) {
 	if f.assignees != nil {
 		return f.assignees, nil
