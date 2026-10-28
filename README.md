@@ -101,6 +101,15 @@ C:\environment\citywall-python312\Scripts\python.exe scripts/evaluate_operating_
 
 --confidence、--nms-iou、--imgsz 可指定运行参数。阈值选择使用验证集，确定模型与参数后再使用 --split test 进行最终评估；更换数据配置时须重新核对类别语义和划分。
 
+资料中的 Brick and Stone(annotated).zip 可作为裂缝补充标注。转换脚本仅读取 brick 和 stone 两套数据，隔离不明类别、像素相同但标注冲突的图片，以及与已有 MSD 重复的图片。相同原图名或像素内容相连的图片整体保留在同一划分中，留出集优先；这不能证明不同照片来自不同墙段。边界舍入误差在归一化坐标 0.0001 以内时裁至图像边界并计数，明显越界拒绝处理。
+
+```powershell
+C:\environment\citywall-python312\Scripts\python.exe scripts/prepare_crack_dataset.py --base data/yolo/dataset_msd_oriented --output data/yolo/dataset_crack_augmented
+C:\environment\citywall-cuda312\Scripts\python.exe scripts/train_model.py --data data/yolo/dataset_crack_augmented/crack_only/target.yaml --model data/yolo/runs/msd_finetune_n960/weights/best.pt --name crack_expert_n960 --epochs 40 --imgsz 960 --device 0 --batch 8 --optimizer AdamW --learning-rate 0.0002 --evaluation-split val
+```
+
+训练入口 crack_only 只包含 CRACK 标签，避免将补充图片中未标注的其他病害作为多类模型的负样本。图片通过硬链接复用父目录的图像文件，标签独立；图像修改须另存副本。target.yaml 使用全部训练图片，仍以 MSD 的 114 张验证图选模，102 张测试图用于最终评估；data.yaml 提供全部来源的验证和测试入口。原数据目录不修改，父目录保留语义重编号后的来源标注及清单。训练结果须经目标场景复验后再发布。
+
 视觉语言模型使用兼容 Chat Completions 的图像输入接口。配置 .env 中的 VLM_BASE_URL（包含 /v1 等服务前缀）、VLM_MODEL 和 VLM_API_KEY 后重建识别容器。支持不要求 API Key 的本地服务。输出保存于识别尝试中，可在管理端审核页面与报告查看。未配置显示 DISABLED，失败显示 FAILED；不会生成代替模型的分析文本。
 
 本地 NVIDIA GPU 可使用 Docker 内的 Ollama 和 Qwen3-VL 2B：
