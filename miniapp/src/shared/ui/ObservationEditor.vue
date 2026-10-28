@@ -30,7 +30,7 @@
       <view class="loc-box">
         <view class="loc-line"><view class="loc-dot" />位置描述：{{ locationText || '待填写' }}</view>
         <input class="input" v-model="locationText" placeholder="填写具体位置描述" />
-        <LocationCapture :value="location" @change="location = $event" />
+        <LocationCapture :value="location" :disabled="busy" @pending="locationBusy = $event" @change="location = $event" />
       </view>
     </view>
 
@@ -169,7 +169,8 @@ const visionAnalysis = computed(() => { try { return JSON.parse(attempt.value?.a
 const recognizing = ref(false)
 const submitting = ref(false)
 const photoBusy = ref(false)
-const busy = computed(() => recognizing.value || submitting.value || photoBusy.value)
+const locationBusy = ref(false)
+const busy = computed(() => recognizing.value || submitting.value || photoBusy.value || locationBusy.value)
 const returnReason = ref('')
 let disposed = false
 
