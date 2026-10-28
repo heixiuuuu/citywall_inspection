@@ -14,6 +14,7 @@ import (
 	_ "image/png"
 	"io"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -475,6 +476,7 @@ func (s *service) saveConclusion(ctx context.Context, actor *middleware.Actor, o
 		validImage[l.ImageID] = true
 	}
 	items := make([]ConclusionItem, 0, len(in.Items))
+	imageSizes := map[int64]image.Point{}
 	for _, it := range in.Items {
 		if !validImage[it.ImageID] {
 			return nil, ErrForbidden
@@ -488,12 +490,26 @@ func (s *service) saveConclusion(ctx context.Context, actor *middleware.Actor, o
 				return nil, ErrForbidden
 			}
 		}
+		boxJSON := strings.TrimSpace(it.FinalBoxJSON)
+		if boxJSON != "" {
+			size, loaded := imageSizes[it.ImageID]
+			if !loaded {
+				size, err = s.conclusionImageSize(ctx, it.ImageID)
+				if err != nil {
+					return nil, err
+				}
+				imageSizes[it.ImageID] = size
+			}
+			if err := validateConclusionBox(boxJSON, size.X, size.Y); err != nil {
+				return nil, err
+			}
+		}
 		items = append(items, ConclusionItem{
 			ImageID:           it.ImageID,
 			SourceDetectionID: it.SourceDetectionID,
 			Decision:          it.Decision,
 			FinalClassCode:    it.FinalClassCode,
-			FinalBoxJSON:      it.FinalBoxJSON,
+			FinalBoxJSON:      boxJSON,
 			Description:       it.Description,
 		})
 	}

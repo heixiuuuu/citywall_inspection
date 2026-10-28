@@ -69,8 +69,19 @@ def main():
     assert evidence["attempts"][0]["id"] == attempt["id"]
     call("PATCH", f"/observations/{oid}", inspector, json={"revision": 1, "latitude": 0, "longitude": 0, "accuracy_m": 5, "inspection_outcome": "NORMAL"})
     call("PUT", f"/observations/{oid}/conclusion", inspector, 201, json={"revision": 2, "outcome": "NORMAL", "description": "现场人工复核", "items": []})
-    call("POST", f"/observations/{oid}/submit", inspector, json={"revision": 3})
-    call("POST", f"/observations/{oid}/review", admin, json={"revision": 4, "decision": "ACCEPT", "disposition": "证据完整"})
+    before_invalid_box = call("GET", f"/observations/{oid}", inspector)["evidence"]
+    call("PUT", f"/observations/{oid}/conclusion", inspector, 400, json={"revision": 3, "outcome": "SUSPECTED", "description": "无效坐标不得覆盖人工结论",
+         "items": [{"image_id": oriented["id"], "decision": "ADD", "final_class_code": "CRACK", "final_box_json": '{"x1":0,"y1":0,"x2":70,"y2":20}'}]})
+    after_invalid_box = call("GET", f"/observations/{oid}", inspector)["evidence"]
+    assert after_invalid_box["observation"]["revision"] == 3
+    assert after_invalid_box["conclusions"] == before_invalid_box["conclusions"] and after_invalid_box["items"] == before_invalid_box["items"]
+    valid_oriented_box = '{"x1":0,"y1":0,"x2":60,"y2":80}'
+    call("PUT", f"/observations/{oid}/conclusion", inspector, 201, json={"revision": 3, "outcome": "UNDETERMINED", "description": "仅验证旋转照片坐标，非现场结论",
+         "items": [{"image_id": oriented["id"], "decision": "ADD", "final_class_code": "CRACK", "final_box_json": valid_oriented_box}]})
+    oriented_evidence = call("GET", f"/observations/{oid}", inspector)["evidence"]
+    assert oriented_evidence["items"][-1]["final_box_json"] == valid_oriented_box
+    call("POST", f"/observations/{oid}/submit", inspector, json={"revision": 4})
+    call("POST", f"/observations/{oid}/review", admin, json={"revision": 5, "decision": "ACCEPT", "disposition": "证据完整"})
     evidence = call("GET", f"/observations/{oid}", inspector)["evidence"]
     assert evidence["observation"]["submitted_at"] and evidence["observation"]["reviewed_at"]
     assert evidence["conclusions"][0]["description"] == "现场人工复核"
