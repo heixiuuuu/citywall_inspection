@@ -7,20 +7,21 @@
       </view>
       <view class="img-grid">
         <view
-          v-for="(img, i) in images"
+          v-for="img in images"
           :key="img.localId"
           class="img-cell"
           :class="{ selected: selectedImageId === img.imageId }"
           @tap="selectedImageId = img.imageId"
         >
           <image :src="img.localPath" mode="aspectFill" class="img" />
-          <view class="del" @tap.stop="removeImage(i)">×</view>
+          <view v-if="!busy" class="del" @tap.stop="removeImage(img)">×</view>
           <view class="tag-ov" :class="{ detail: img.role === 'DETAIL' }">
             {{ img.role === 'OVERVIEW' ? '概览' : '细节' }}
           </view>
         </view>
-        <view v-for="n in slots" :key="'add' + n" class="img-cell add" @tap="chooseImage">＋</view>
+        <template v-if="!busy"><view v-for="n in slots" :key="'add' + n" class="img-cell add" @tap="chooseImage">＋</view></template>
       </view>
+      <view v-if="photoBusy" class="faint">正在处理照片，请稍候…</view>
       <view class="faint">拍照或从相册选择 · 首张为概览图，后续为细节图</view>
     </view>
 
@@ -58,7 +59,7 @@
         {{ selectedImage.role === 'OVERVIEW' ? '概览' : '细节' }} #{{ selectedImageId }} · {{ attempt ? (attempt.status === 'SUCCEEDED' ? `候选 ${detections.length} 个` : attempt.status === 'FAILED' ? '识别失败' : '识别中') : '尚未识别' }}
         <view v-if="attempt">{{ attempt.model_version || attempt.error_code }} · 未检出不代表正常</view>
       </view>
-      <button class="btn-ghost" :disabled="recognizing" :loading="recognizing" @tap="runRecognition">{{ recognizing ? '正在识别' : '识别当前照片' }}</button>
+      <button class="btn-ghost" :disabled="busy" :loading="recognizing" @tap="runRecognition">{{ recognizing ? '正在识别' : '识别当前照片' }}</button>
       <view v-if="visionAnalysis?.status === 'SUCCEEDED'" class="detect-note analysis">
         <view>{{ visionAnalysis.description }}</view>
         <view>可能成因：{{ visionAnalysis.possible_causes.join('；') || '无法判断' }}</view>
@@ -114,8 +115,8 @@
     </view>
 
     <view class="bottombar">
-      <button class="btn-ghost" :loading="submitting" @tap="saveDraft">保存草稿</button>
-      <button class="btn-primary" :loading="submitting" @tap="submit">{{ voluntary ? '提交上报' : '提交记录' }}</button>
+      <button class="btn-ghost" :disabled="busy" :loading="submitting" @tap="saveDraft">保存草稿</button>
+      <button class="btn-primary" :disabled="busy" :loading="submitting" @tap="submit">{{ voluntary ? '提交上报' : '提交记录' }}</button>
       <view class="note">{{ voluntary ? '主动上报将由审核员在管理端审核，可驳回' : '保存草稿后可继续补充 · 提交后进入待审核' }}</view>
     </view>
   </view>
@@ -167,7 +168,10 @@ const detections = computed(() => recognitionByImage.value[selectedImageId.value
 const visionAnalysis = computed(() => { try { return JSON.parse(attempt.value?.analysis_json || 'null') } catch { return null } })
 const recognizing = ref(false)
 const submitting = ref(false)
+const photoBusy = ref(false)
+const busy = computed(() => recognizing.value || submitting.value || photoBusy.value)
 const returnReason = ref('')
+let disposed = false
 
 function useCandidate(detection, decision) {
   const image = images.value.find(i => i.imageId === selectedImageId.value)
@@ -224,9 +228,11 @@ async function resumeExisting() {
 async function loadExisting(id) {
   try {
     const loaded = await loadObservation(id)
+    if (disposed) { loaded.images.forEach(image => releaseImage(image.localPath)); return }
     const evidence = loaded.evidence
     const record = evidence.observation
     if (record.source !== props.source || !['DRAFT', 'RETURNED'].includes(record.status)) {
+      loaded.images.forEach(image => releaseImage(image.localPath))
       uni.redirectTo({ url: `/pages/records/index?observationId=${id}` })
       return
     }
@@ -256,46 +262,47 @@ async function loadExisting(id) {
 }
 
 function chooseImage() {
+  if (busy.value || disposed || images.value.length >= 6) return
+  if (!obs.value) { uni.showToast({ title: '记录尚未创建', icon: 'none' }); return }
+  photoBusy.value = true
   uni.chooseImage({
     count: 1,
     sizeType: ['compressed'],
     sourceType: ['camera', 'album'],
-    success: (res) => {
+    success: async (res) => {
       const localPath = res.tempFilePaths[0]
-      if (!obs.value) {
-        uni.showToast({ title: '记录尚未创建', icon: 'none' })
-        return
-      }
       const role = images.value.some(image => image.role === 'OVERVIEW') ? 'DETAIL' : 'OVERVIEW'
-      addImage(obs.value.id, localPath, role)
-        .then(async (r) => {
-          const image = r.data.image
-          const previewPath = await loadImageContent(image.id).catch(() => '')
-          images.value.push({ localId: `img_${image.id}`, localPath: previewPath, imageId: image.id, role })
-          selectedImageId.value = image.id
-          if (role === 'OVERVIEW') {
-            // 概览图就绪后自动做一次识别作为候选参考。
-            runRecognitionOn(image.id)
-          }
-          uni.showToast({ title: '上传成功', icon: 'success' })
-        })
-        .catch(() => {
-          uni.showToast({ title: '上传失败', icon: 'none' })
-        })
+      let imageId
+      try {
+        const result = await addImage(obs.value.id, localPath, role)
+        const image = result.data.image
+        const previewPath = await loadImageContent(image.id).catch(() => '')
+        if (disposed) { releaseImage(previewPath); return }
+        images.value.push({ localId: `img_${image.id}`, localPath: previewPath, imageId: image.id, role })
+        selectedImageId.value = image.id
+        imageId = image.id
+        uni.showToast({ title: '上传成功', icon: 'success' })
+      } catch {
+        if (!disposed) uni.showToast({ title: '上传失败', icon: 'none' })
+      } finally { photoBusy.value = false }
+      if (imageId && role === 'OVERVIEW') runRecognitionOn(imageId)
     },
+    fail: () => { photoBusy.value = false },
   })
 }
 
-async function removeImage(i) {
-  const image = images.value[i]
+async function removeImage(image) {
+  if (busy.value || disposed || !images.value.some(item => item.imageId === image.imageId)) return
+  photoBusy.value = true
   try {
     await deleteImage(obs.value.id, image.imageId)
-    images.value.splice(i, 1)
+    images.value = images.value.filter(item => item.imageId !== image.imageId)
     conclusionItems.value = conclusionItems.value.filter(item => item.imageId !== image.imageId)
     delete recognitionByImage.value[image.imageId]
     if (selectedImageId.value === image.imageId) selectedImageId.value = images.value[0]?.imageId || null
     releaseImage(image.localPath)
-  } catch { uni.showToast({ title: '照片移除失败', icon: 'none' }) }
+  } catch { if (!disposed) uni.showToast({ title: '照片移除失败', icon: 'none' }) }
+  finally { photoBusy.value = false }
 }
 
 async function runRecognition() {
@@ -307,13 +314,13 @@ async function runRecognition() {
 }
 
 async function runRecognitionOn(imageId) {
-  if (recognizing.value) return
+  if (busy.value || disposed) return
   recognizing.value = true
   try {
     const res = await recognize(imageId)
     const attempt = res.data.attempt
     const dets = res.data.detections || []
-    if (!images.value.some(image => image.imageId === imageId)) return
+    if (disposed || !images.value.some(image => image.imageId === imageId)) return
     recognitionByImage.value[imageId] = { attempt, detections: dets }
     if (attempt.status === 'FAILED') {
       uni.showToast({ title: `识别失败：${attempt.error_code || '未知错误'}`, icon: 'none' })
@@ -321,14 +328,14 @@ async function runRecognitionOn(imageId) {
       uni.showToast({ title: '未检出候选', icon: 'none' })
     }
   } catch (e) {
-    uni.showToast({ title: '识别服务不可用', icon: 'none' })
+    if (!disposed) uni.showToast({ title: '识别服务不可用', icon: 'none' })
   } finally {
     recognizing.value = false
   }
 }
 
 function decisionText(d) {
-  return { CONFIRM: '确认', MODIFY: '修改', REJECT: '删除', ADD: '补录' }[d] || d
+  return { CONFIRM: '确认', MODIFY: '修改', REJECT: '误检', ADD: '补录' }[d] || d
 }
 
 function addConclusion() {
@@ -348,7 +355,7 @@ function releaseImage(path) {
   if (path?.startsWith('blob:')) URL.revokeObjectURL(path)
   // #endif
 }
-onBeforeUnmount(() => images.value.forEach(image => releaseImage(image.localPath)))
+onBeforeUnmount(() => { disposed = true; images.value.forEach(image => releaseImage(image.localPath)) })
 
 function removeConclusion(i) {
   conclusionItems.value.splice(i, 1)
@@ -374,7 +381,7 @@ async function persistDraft() {
 }
 
 async function saveDraft() {
-  if (!obs.value || submitting.value) return
+  if (!obs.value || busy.value || disposed) return
   submitting.value = true
   try { await persistDraft(); uni.showToast({ title: '草稿已保存', icon: 'success' }) }
   catch { uni.showToast({ title: '保存失败，请检查记录状态', icon: 'none' }) }
@@ -382,7 +389,7 @@ async function saveDraft() {
 }
 
 async function submit() {
-  if (!obs.value || submitting.value) return
+  if (!obs.value || busy.value || disposed) return
   if (voluntary.value && !location.value) { uni.showToast({ title: '请先获取现场定位', icon: 'none' }); return }
   if (!locationText.value.trim()) { uni.showToast({ title: '请填写位置', icon: 'none' }); return }
   if (voluntary.value && !overallNote.value.trim()) { uni.showToast({ title: '请填写现场描述', icon: 'none' }); return }

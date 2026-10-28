@@ -12,8 +12,6 @@ import (
 // 领域错误（Handler 映射 HTTP 状态）。
 var (
 	ErrInvalidAssignee = errors.New("task: assignee must be an active inspector")
-	// ErrNotImplemented 占位错误。
-	ErrNotImplemented = errors.New("task: not implemented yet")
 	// ErrStatusConflict 状态或 revision 冲突（409）。
 	ErrStatusConflict = errors.New("task: status or revision conflict")
 	// ErrNotFound 任务不存在（404）。
