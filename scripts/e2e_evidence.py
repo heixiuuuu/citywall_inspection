@@ -167,7 +167,54 @@ def main():
     filtered = call("GET", f'/observations?task_point_id={own_point["id"]}&page_size=1', inspector)
     assert filtered["total"] == 1 and filtered["items"][0]["id"] == own_record["id"]
     call("POST", "/auth/wechat-login", {}, 401, json={"code": "test-admin"})
-    print("Evidence, returned drafts, exact point queries, authorization and persisted timestamps passed")
+    location_payload = {**point_payload, "code": code + "-location", "name": "定位软件验收", "radius_m": 100}
+    location_point = call("POST", "/inspection-points", admin, 201, json=location_payload)["point"]
+    location_task = call("POST", "/tasks", admin, 201, json={"title": "定位软件验收（非现场巡检）", "assignee_id": 3, "point_ids": [location_point["id"]]})["task"]
+    tid = location_task["id"]
+    call("POST", f"/tasks/{tid}/dispatch", admin, json={"revision": 1})
+    frozen_point = call("GET", f"/tasks/{tid}", inspector)["points"][0]
+    call("PUT", f'/inspection-points/{location_point["id"]}', admin,
+         json={**location_payload, "latitude": 10, "longitude": 10, "radius_m": 300})
+    location_record = call("POST", "/observations", inspector, 201,
+                           json={"source": "TASK", "task_point_id": frozen_point["id"], "location_text": "软件定位验收（非现场巡检）"})["observation"]
+    lid = location_record["id"]
+    call("POST", f"/observations/{lid}/images", inspector, 201,
+         files={"image": ("location.png", buffer.getvalue(), "image/png")}, data={"image_role": "OVERVIEW"})
+    for invalid in ({"latitude": 91, "longitude": 0}, {"latitude": 0}, {"accuracy_m": -1}):
+        call("PATCH", f"/observations/{lid}", inspector, 400,
+             json={"revision": 1, "location_text": "不得保存", **invalid})
+    unchanged = call("GET", f"/observations/{lid}", inspector)["evidence"]["observation"]
+    assert unchanged["revision"] == 1 and unchanged["latitude"] is None
+    assert unchanged["location_text"] == location_record["location_text"]
+    call("PATCH", f"/observations/{lid}", inspector, json={"revision": 1, "latitude": 0, "longitude": 0, "accuracy_m": 0})
+    origin = call("GET", f"/observations/{lid}", inspector)["evidence"]["observation"]
+    assert origin["distance_m"] == 0 and origin["accuracy_m"] == 0
+    call("PATCH", f"/observations/{lid}", inspector, json={"revision": 2, "latitude": .001, "longitude": 0, "accuracy_m": 45})
+    call("PUT", f"/observations/{lid}/conclusion", inspector, 201,
+         json={"revision": 3, "outcome": "UNDETERMINED", "description": "软件定位验收，待现场复核", "items": []})
+    call("POST", f"/observations/{lid}/submit", inspector, json={"revision": 4})
+    submitted = call("GET", f"/observations/{lid}", inspector)["evidence"]
+    assert submitted["location_radius_m"] == 100 and submitted["submissions"][0]["location"]["radius_m"] == 100
+    assert abs(submitted["submissions"][0]["location"]["distance_m"] - 111.19) < .02
+    call("POST", f"/observations/{lid}/review", admin,
+         json={"revision": 5, "decision": "RETURN", "disposition": "软件验收位置补正", "reason": "补充现场位置"})
+    call("PATCH", f"/observations/{lid}", inspector, json={"revision": 6, "latitude": .002})
+    corrected_location = call("GET", f"/observations/{lid}", inspector)["evidence"]
+    assert abs(corrected_location["observation"]["distance_m"] - 222.39) < .02
+    assert corrected_location["location_radius_m"] == 100
+    assert corrected_location["submissions"] == submitted["submissions"]
+    location_report = call("POST", f"/reports/task/{tid}", admin, 201)["report"]
+    pdf = requests.get(BASE + f'/reports/{location_report["id"]}/file', headers=admin, timeout=30)
+    assert pdf.status_code == 200
+    import pymupdf
+    with pymupdf.open(stream=pdf.content, filetype="pdf") as document:
+        report_text = "".join(page.get_text() for page in document)
+    for expected in ("超出任务点提示半径", "定位精度超过 30m", "提示半径：100.0 m", "距任务目标：222.4 m"):
+        assert expected in report_text, (expected, report_text)
+    if os.getenv("CITY_WALL_TEST_PDF"):
+        from pathlib import Path
+        Path(os.environ["CITY_WALL_TEST_PDF"]).with_name("location-report.pdf").write_bytes(pdf.content)
+    print("Evidence, location snapshots, returned drafts, authorization and persisted timestamps passed")
 
 
 if __name__ == "__main__":

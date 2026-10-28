@@ -16,6 +16,7 @@ export interface Observation {
   latitude: number | null
   longitude: number | null
   accuracy_m: number | null
+  distance_m: number | null
   captured_at: string | null
   inspection_outcome: string | null
   status: ObservationStatus
@@ -52,6 +53,7 @@ export interface VisionAnalysis {
   possible_causes: string[]; recommendations: string[]; error_code: string
 }
 export interface Evidence {
+  location_radius_m: number | null
   submissions: SubmissionEvidence[]
   observation: Observation
   attempts: RecognitionAttempt[]
@@ -67,7 +69,7 @@ export interface SubmissionEvidence {
   observation_revision: number
   conclusion_revision_id: number | null
   submitted_at: string
-  location: { location_text: string; latitude: number | null; longitude: number | null; accuracy_m: number | null; distance_m: number | null; captured_at: string | null }
+  location: { location_text: string; latitude: number | null; longitude: number | null; accuracy_m: number | null; distance_m: number | null; radius_m: number | null; captured_at: string | null }
   images: ObservationImageMeta[]
 }
 export async function fetchEvidence(id: number): Promise<Evidence> {

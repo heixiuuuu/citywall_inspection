@@ -349,6 +349,13 @@ func renderRangePDF(src *RangeSource, opts renderOpts) ([]byte, error) {
 }
 
 func (w *pdfWriter) findings(o *ObservationView) {
+	if o.DistanceM != nil {
+		position := fmt.Sprintf("距任务目标：%.1f m", *o.DistanceM)
+		if o.LocationRadiusM != nil {
+			position += fmt.Sprintf(" ｜ 提示半径：%.1f m", *o.LocationRadiusM)
+		}
+		w.text(position, 9, 3)
+	}
 	for _, a := range o.Attempts {
 		w.text(fmt.Sprintf("图片 #%d 识别尝试 %d：%s（模型 %s，候选 %d 个）", a.ImageID, a.AttemptNo, reportLabel(a.Status), a.ModelVersion, len(a.Detections)), 9, 3)
 		if a.ErrorCode != "" {

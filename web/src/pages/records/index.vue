@@ -77,7 +77,7 @@
           <el-descriptions-item label="坐标">
             {{ detail.latitude != null && detail.longitude != null ? `${detail.latitude.toFixed(6)}, ${detail.longitude.toFixed(6)}` : '—' }}
           </el-descriptions-item>
-          <el-descriptions-item label="定位精度">{{ detail.accuracy_m ? `${detail.accuracy_m} m` : '—' }}</el-descriptions-item>
+          <el-descriptions-item label="定位精度">{{ detail.accuracy_m != null ? `${detail.accuracy_m} m` : '—' }}</el-descriptions-item>
           <el-descriptions-item label="现场结论">{{ outcomeLabel(detail.inspection_outcome) }}</el-descriptions-item>
           <el-descriptions-item label="版本">{{ detail.revision }}</el-descriptions-item>
         </el-descriptions>

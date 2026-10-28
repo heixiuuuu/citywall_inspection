@@ -250,6 +250,24 @@ func (s *service) update(ctx context.Context, actor *middleware.Actor, id, revis
 	if o.Revision != revision {
 		return nil, ErrStatusConflict
 	}
+	latitude, longitude, accuracy := o.Latitude, o.Longitude, o.AccuracyM
+	if in.Latitude != nil {
+		latitude = in.Latitude
+	}
+	if in.Longitude != nil {
+		longitude = in.Longitude
+	}
+	if in.AccuracyM != nil {
+		accuracy = in.AccuracyM
+	}
+	if err := validateLocation(latitude, longitude, accuracy); err != nil {
+		return nil, err
+	}
+	distance, _, err := s.locationDistance(ctx, o, latitude, longitude)
+	if err != nil {
+		return nil, err
+	}
+	o.DistanceM = distance
 	if in.LocationText != "" {
 		o.LocationText = in.LocationText
 	}
@@ -587,21 +605,36 @@ func (s *service) submit(ctx context.Context, actor *middleware.Actor, obsID, re
 			return nil, fmt.Errorf("%w: human conclusion references a removed photo; save the conclusion again", ErrSourceConstraint)
 		}
 	}
-	if o.Source == SourceVoluntary && (o.LocationText == "" || o.Latitude == nil) {
+	if err := validateLocation(o.Latitude, o.Longitude, o.AccuracyM); err != nil {
+		return nil, err
+	}
+	if o.Source == SourceVoluntary && (o.LocationText == "" || o.Latitude == nil || o.Longitude == nil) {
 		return nil, ErrMissingLocation
 	}
 	if o.Source == SourceTask && o.LocationText == "" {
 		return nil, ErrMissingLocation
 	}
 
-	locSnap, _ := json.Marshal(map[string]any{
+	distance, radius, err := s.locationDistance(ctx, o, o.Latitude, o.Longitude)
+	if err != nil {
+		return nil, err
+	}
+	o.DistanceM = distance
+	if err := s.repo.Update(ctx, o); err != nil {
+		return nil, err
+	}
+	locSnap, err := json.Marshal(map[string]any{
 		"location_text": o.LocationText,
 		"latitude":      o.Latitude,
 		"longitude":     o.Longitude,
 		"accuracy_m":    o.AccuracyM,
 		"captured_at":   o.CapturedAt,
 		"distance_m":    o.DistanceM,
+		"radius_m":      radius,
 	})
+	if err != nil {
+		return nil, err
+	}
 	imgSnap, _ := json.Marshal(imageIDs)
 
 	subNo, err := s.repo.NextSubmissionNo(ctx, obsID)

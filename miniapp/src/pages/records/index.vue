@@ -11,6 +11,8 @@
           <view class="line">{{ evidence.observation.source === 'TASK' ? '任务巡检' : '主动上报' }} · {{ shownLocation.location_text }}</view>
           <view class="muted">提交 {{ formatTime(snapshot?.submitted_at || evidence.observation.submitted_at) }}（北京时间）</view>
           <view class="muted" v-if="shownLocation.latitude != null">位置 {{ shownLocation.latitude }}, {{ shownLocation.longitude }} · 精度 {{ shownLocation.accuracy_m ?? '—' }} m</view>
+          <view v-if="shownLocation.distance_m != null" class="muted">距任务目标 {{ shownLocation.distance_m.toFixed(1) }} m · 提示半径 {{ locationRadius ?? '—' }} m</view>
+          <view v-if="locationWarning" class="location-warning">{{ locationWarning }}</view>
           <button v-if="canEdit" class="primary" @tap="continueEditing">{{ evidence.observation.status === 'RETURNED' ? '补正并重新提交' : '继续编辑草稿' }}</button>
         </view>
         <view v-if="evidence.observation.admitted_at" class="card">
@@ -102,6 +104,11 @@ const versionIndex = ref(0)
 const snapshot = computed(() => evidence.value?.submissions?.[versionIndex.value - 1] || null)
 const versionLabels = computed(() => ['当前记录', ...(evidence.value?.submissions || []).map(submission => `第 ${submission.submission_no} 次提交 · ${formatTime(submission.submitted_at)}`)])
 const shownLocation = computed(() => snapshot.value?.location || evidence.value?.observation || {})
+const locationRadius = computed(() => snapshot.value?.location.radius_m ?? evidence.value?.location_radius_m)
+const locationWarning = computed(() => [
+  shownLocation.value.distance_m != null && locationRadius.value != null && shownLocation.value.distance_m > locationRadius.value ? '超出任务点提示半径，请结合现场情况复核' : '',
+  shownLocation.value.accuracy_m != null && shownLocation.value.accuracy_m > 30 ? '定位精度较低，请复核位置' : '',
+].filter(Boolean).join('；'))
 const shownReviews = computed(() => (evidence.value?.reviews || []).filter(review => !snapshot.value || review.submission_id === snapshot.value.id))
 const shownConclusions = computed(() => (evidence.value?.conclusions || []).filter(conclusion => !snapshot.value || conclusion.id === snapshot.value.conclusion_revision_id))
 const shownAttempts = computed(() => (evidence.value?.attempts || []).filter(attempt => images.value.some(image => image.imageId === attempt.image_id) && (!snapshot.value || attempt.finished_at && Date.parse(attempt.finished_at) <= Date.parse(snapshot.value.submitted_at))))
@@ -182,6 +189,7 @@ function outcomeText(value) { return { NORMAL: '正常', SUSPECTED: '疑似病�
 function decisionText(value) { return { ACCEPT: '审核通过', RETURN: '退回补正', REJECT: '拒绝', CONFIRM: '确认', MODIFY: '修改', ADD: '补录' }[value] || value }
 </script>
 <style scoped>
+.location-warning { margin-top: 12rpx; color: #9f422d; font-size: 26rpx; line-height: 1.5; }
 .page { min-height: 100vh; padding: 24rpx 28rpx 60rpx; background: #f5f1e8; box-sizing: border-box; color: #2b2b2b; }
 .card { padding: 28rpx; margin-bottom: 24rpx; background: white; border-radius: 20rpx; }
 .row { display: flex; justify-content: space-between; align-items: center; gap: 20rpx; }

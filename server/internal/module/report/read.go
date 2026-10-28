@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strconv"
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -255,6 +256,25 @@ func (s *snapshotRepository) assembleObservations(ctx context.Context, obs []Obs
 	}
 	views := make([]*ObservationView, 0, len(obs))
 	byID := map[int64]*ObservationView{}
+	var taskPointIDs []int64
+	for _, observation := range obs {
+		if observation.TaskPointID != nil {
+			taskPointIDs = append(taskPointIDs, *observation.TaskPointID)
+		}
+	}
+	radii := map[int64]*float64{}
+	if len(taskPointIDs) > 0 {
+		var points []struct {
+			ID              int64
+			SnapshotRadiusM *float64
+		}
+		if err := s.db.Table("task_points").Select("id, snapshot_radius_m").Where("id IN ?", taskPointIDs).Find(&points).Error; err != nil {
+			return nil, err
+		}
+		for _, point := range points {
+			radii[point.ID] = point.SnapshotRadiusM
+		}
+	}
 	for i := range obs {
 		o := &obs[i]
 		v := &ObservationView{
@@ -264,7 +284,10 @@ func (s *snapshotRepository) assembleObservations(ctx context.Context, obs []Obs
 			Reviews:     []ReviewView{},
 			SubmittedAt: o.SubmittedAt, ReviewedAt: o.ReviewedAt, AdmittedAt: o.AdmittedAt, AdmittedBy: o.AdmittedBy, NoIssueReason: o.NoIssueReason,
 		}
-		v.LocationAbnormal = locationAbnormal(*o)
+		if o.TaskPointID != nil {
+			v.LocationRadiusM = radii[*o.TaskPointID]
+		}
+		v.LocationAbnormal = locationAbnormal(*o, v.LocationRadiusM)
 		views = append(views, v)
 		byID[o.ID] = v
 	}
@@ -513,15 +536,15 @@ func (s *snapshotRepository) loadIssues(ctx context.Context, ids []int64) ([]Iss
 
 // ---------- 工具 ----------
 
-// locationAbnormal 依据 02 文档判定定位异常（距离超限或精度过差）。
-func locationAbnormal(o Observation) string {
-	if o.DistanceM != nil && *o.DistanceM > 50 {
-		return "距目标点超过 50m"
+func locationAbnormal(o Observation, radius *float64) string {
+	var reasons []string
+	if o.DistanceM != nil && radius != nil && *o.DistanceM > *radius {
+		reasons = append(reasons, "超出任务点提示半径，请复核位置")
 	}
 	if o.AccuracyM != nil && *o.AccuracyM > 30 {
-		return "定位精度超过 30m"
+		reasons = append(reasons, "定位精度超过 30m")
 	}
-	return ""
+	return strings.Join(reasons, "；")
 }
 
 func locText(lat, lon float64, hint *string) string {

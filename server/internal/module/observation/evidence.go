@@ -10,13 +10,14 @@ import (
 )
 
 type Evidence struct {
-	Submissions []SubmissionEvidence `json:"submissions"`
-	Observation *Observation         `json:"observation"`
-	Attempts    []RecognitionAttempt `json:"attempts"`
-	Detections  []Detection          `json:"detections"`
-	Conclusions []ConclusionRevision `json:"conclusions"`
-	Items       []ConclusionItem     `json:"items"`
-	Reviews     []ReviewDecision     `json:"reviews"`
+	LocationRadiusM *float64             `json:"location_radius_m"`
+	Submissions     []SubmissionEvidence `json:"submissions"`
+	Observation     *Observation         `json:"observation"`
+	Attempts        []RecognitionAttempt `json:"attempts"`
+	Detections      []Detection          `json:"detections"`
+	Conclusions     []ConclusionRevision `json:"conclusions"`
+	Items           []ConclusionItem     `json:"items"`
+	Reviews         []ReviewDecision     `json:"reviews"`
 }
 
 type SubmissionLocation struct {
@@ -25,6 +26,7 @@ type SubmissionLocation struct {
 	Longitude    *float64   `json:"longitude"`
 	AccuracyM    *float64   `json:"accuracy_m"`
 	DistanceM    *float64   `json:"distance_m"`
+	RadiusM      *float64   `json:"radius_m"`
 	CapturedAt   *time.Time `json:"captured_at"`
 }
 
@@ -55,6 +57,11 @@ func (s *service) Evidence(ctx context.Context, actor *middleware.Actor, id int6
 		return nil, err
 	}
 	evidence.Observation = o
+	_, radius, err := s.locationDistance(ctx, o, nil, nil)
+	if err != nil {
+		return nil, err
+	}
+	evidence.LocationRadiusM = radius
 	return evidence, nil
 }
 

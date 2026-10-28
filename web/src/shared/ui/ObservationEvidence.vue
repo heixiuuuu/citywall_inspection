@@ -12,6 +12,8 @@
       <p v-if="snapshot" class="hint">提交快照只读，保留本次提交的位置、照片和人工结论。</p>
       <p v-if="snapshot">提交位置：{{ location?.location_text || '未填写' }}</p>
       <p>经纬度：{{ location?.latitude ?? '—' }}, {{ location?.longitude ?? '—' }} · 精度 {{ location?.accuracy_m ?? '—' }} m</p>
+      <p v-if="location?.distance_m != null">距任务目标 {{ location.distance_m.toFixed(1) }} m · 提示半径 {{ locationRadius ?? '—' }} m</p>
+      <el-alert v-if="locationWarning" :title="locationWarning" type="warning" :closable="false" />
       <p v-if="evidence.observation.admitted_at">受理：{{ evidence.observation.no_issue_reason ? `不立项 · ${evidence.observation.no_issue_reason}` : '已立项或关联问题' }} · {{ formatDateTime(evidence.observation.admitted_at) }}</p>
       <p v-else-if="evidence.observation.status === 'ACCEPTED'" class="hint">受理：尚未受理</p>
       <h4>现场照片与检测框</h4>
@@ -79,6 +81,11 @@ const submissionId = ref(0)
 const currentMetas = ref<ObservationImageMeta[]>([])
 const snapshot = computed(() => evidence.value?.submissions?.find(submission => submission.id === submissionId.value))
 const location = computed(() => snapshot.value?.location ?? evidence.value?.observation)
+const locationRadius = computed(() => snapshot.value?.location.radius_m ?? evidence.value?.location_radius_m)
+const locationWarning = computed(() => [
+  location.value?.distance_m != null && locationRadius.value != null && location.value.distance_m > locationRadius.value ? '超出任务点提示半径，请结合现场情况复核' : '',
+  location.value?.accuracy_m != null && location.value.accuracy_m > 30 ? '定位精度较低，请复核位置' : '',
+].filter(Boolean).join('；'))
 const conclusions = computed(() => evidence.value?.conclusions.filter(conclusion => !snapshot.value || conclusion.id === snapshot.value.conclusion_revision_id) ?? [])
 const reviews = computed(() => evidence.value?.reviews.filter(review => !snapshot.value || review.submission_id === snapshot.value.id) ?? [])
 const images = ref<(ObservationImageMeta & { url: string })[]>([])

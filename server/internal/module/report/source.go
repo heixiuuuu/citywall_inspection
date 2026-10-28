@@ -85,6 +85,7 @@ type ObservationView struct {
 	Longitude        *float64         `json:"longitude"`
 	AccuracyM        *float64         `json:"accuracy_m"`
 	DistanceM        *float64         `json:"distance_m"`
+	LocationRadiusM  *float64         `json:"location_radius_m"`
 	Status           string           `json:"status"`
 	Outcome          string           `json:"outcome"`
 	SubmittedAt      *time.Time       `json:"submitted_at"`

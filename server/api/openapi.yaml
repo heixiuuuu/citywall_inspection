@@ -500,15 +500,17 @@ paths:
       responses:
         '200':
           description: |
-            data.evidence 包含 observation、attempts、detections、conclusions、items、reviews、submissions。
+            data.evidence 包含 observation、location_radius_m、attempts、detections、conclusions、items、reviews、submissions。
+            location_radius_m 为派发时冻结的任务点提示半径；主动上报为 null。
             submissions 按 submission_no 排列，包含 id、observation_revision、conclusion_revision_id、submitted_at、location 和 images。
-            location 为冻结的位置对象；images 为冻结图片元数据，已移出当前记录的图片角色为 ARCHIVED。
+            location 为冻结的位置对象，包含 latitude、longitude、accuracy_m、distance_m、radius_m；images 为冻结图片元数据，已移出当前记录的图片角色为 ARCHIVED。
             快照只读，识别尝试保留 started_at 和 finished_at，客户端可按提交时间筛选已完成结果。
         '403':
           $ref: '#/components/responses/Forbidden'
     patch:
       tags: [observation]
       summary: 更新草稿位置/现场判断（DRAFT/RETURNED）
+      description: 更新后的经纬度必须同时存在或同时缺省，数值必须有限。distance_m 由后端根据任务派发坐标计算，不接受客户端写入。超出任务提示半径或精度超过 30m 仅提示复核。
       parameters:
         - { name: id, in: path, required: true, schema: { type: integer } }
       requestBody:
@@ -521,14 +523,16 @@ paths:
               properties:
                 revision: { type: integer }
                 location_text: { type: string }
-                latitude: { type: number, format: double }
-                longitude: { type: number, format: double }
-                accuracy_m: { type: number }
+                latitude: { type: number, format: double, minimum: -90, maximum: 90 }
+                longitude: { type: number, format: double, minimum: -180, maximum: 180 }
+                accuracy_m: { type: number, minimum: 0 }
                 captured_at: { type: string, format: date-time }
                 inspection_outcome: { type: string, enum: [NORMAL, SUSPECTED, UNDETERMINED, UNREACHABLE] }
       responses:
         '200':
           description: 更新成功
+        '400':
+          description: 位置数值无效或更新后经纬度不完整
         '409':
           $ref: '#/components/responses/Conflict'
   /api/v1/observations/{id}/images:
@@ -1286,7 +1290,7 @@ components:
         latitude: { type: [number, 'null'] }
         longitude: { type: [number, 'null'] }
         accuracy_m: { type: [number, 'null'] }
-        distance_m: { type: [number, 'null'] }
+        distance_m: { type: [number, 'null'], description: 到派发时目标坐标的球面近似距离（米）；无有效任务目标或定位时为 null }
         captured_at: { type: [string, 'null'], format: date-time }
         inspection_outcome: { type: [string, 'null'], enum: [NORMAL, SUSPECTED, UNDETERMINED, UNREACHABLE] }
         status: { type: string, enum: [DRAFT, SUBMITTED, RETURNED, ACCEPTED, REJECTED] }
