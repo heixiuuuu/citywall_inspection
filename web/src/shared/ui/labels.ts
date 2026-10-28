@@ -1,6 +1,7 @@
 const categories: Record<string, string> = {
   CRACK: '裂缝', DISCOLOURATION: '变色', EFFLORESCENCE: '泛碱',
   SURFACE_DISSOLUTION: '表面溶蚀', MASONRY_LOSS: '砌体缺失', FUNGUS: '真菌附着',
+  SURFACE_SPALLING: '表面剥落',
   MOSS: '苔藓', PLANT: '植物附着', CORROSION: '腐蚀', ARTISTIC: '人为痕迹', UNREACHABLE: '现场不可达',
 }
 const outcomes: Record<string, string> = {

@@ -3,6 +3,7 @@ export const categories = [
   { code: 'DISCOLOURATION', label: '变色' },
   { code: 'EFFLORESCENCE', label: '泛碱' },
   { code: 'SURFACE_DISSOLUTION', label: '表面溶蚀' },
+  { code: 'SURFACE_SPALLING', label: '表面剥落', manualOnly: true },
   { code: 'MASONRY_LOSS', label: '砌体缺失' },
   { code: 'FUNGUS', label: '真菌附着' },
   { code: 'MOSS', label: '苔藓' },

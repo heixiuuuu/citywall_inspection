@@ -77,7 +77,10 @@ def main():
     first_description = "仅验证软件报告：人工结论总体描述。"
     item_description = "报告明细验证：人工补录裂缝候选。"
     call("PUT", f"/observations/{second_oid}/conclusion", inspector, json={"revision": 1, "outcome": "SUSPECTED", "description": first_description,
-         "items": [{"image_id": archived_photo["id"], "decision": "ADD", "final_class_code": "CRACK", "final_box_json": '{"x1":10,"y1":20,"x2":100,"y2":120}', "description": item_description}]})
+         "items": [{"image_id": archived_photo["id"], "decision": "ADD", "final_class_code": "CRACK", "final_box_json": '{"x1":10,"y1":20,"x2":100,"y2":120}', "description": item_description},
+                   {"image_id": archived_photo["id"], "decision": "ADD", "final_class_code": "SURFACE_SPALLING", "description": "人工表面剥落记录，仅验证软件流程。"}]})
+    evidence = call("GET", f"/observations/{second_oid}", inspector)["evidence"]
+    assert any(item["final_class_code"] == "SURFACE_SPALLING" for item in evidence["items"])
     call("POST", f"/observations/{second_oid}/submit", inspector, json={"revision": 2})
     return_reason = "复核首轮联调：请补充近景。"
     final_disposition = "复核最终联调：记录已补充完整。"
@@ -96,6 +99,7 @@ def main():
     assert return_reason in pending_text and "本次提交待审核" in pending_text and final_disposition not in pending_text
     assert first_description in pending_text and item_description in pending_text and "补录 → 裂缝" in pending_text
     assert "人工定位框(10,20,100,120)" in pending_text
+    assert "补录 → 表面剥落" in pending_text
     with open(OUT.replace(".pdf", "-pending.pdf"), "wb") as stream:
         stream.write(pending_pdf.content)
     call("POST", f"/observations/{second_oid}/review", json={"revision": 6, "decision": "ACCEPT", "disposition": final_disposition})
@@ -163,7 +167,7 @@ def main():
     with pymupdf.open(stream=range_pdf.content, filetype="pdf") as document:
         range_text = "".join(page.get_text() for page in document)
     assert progress in range_text and marker in range_text and admission_reason in range_text
-    for expected in (first_description, item_description, "补录 → 裂缝", "人工定位框(10,20,100,120)", "任务巡检", "状态 已通过", "识别成功"):
+    for expected in (first_description, item_description, "补录 → 裂缝", "补录 → 表面剥落", "人工定位框(10,20,100,120)", "任务巡检", "状态 已通过", "识别成功"):
         assert expected in range_text, expected
     for raw_code in ("UNDETERMINED", "SUSPECTED", "SUCCEEDED", "ACCEPTED", "VOLUNTARY"):
         assert raw_code not in range_text, raw_code

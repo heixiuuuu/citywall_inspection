@@ -8,7 +8,8 @@ var reportLabels = map[string]string{
 	"PENDING": "等待识别", "RUNNING": "识别中", "SUCCEEDED": "识别成功", "FAILED": "识别失败",
 	"CRACK": "裂缝", "DISCOLOURATION": "变色", "EFFLORESCENCE": "泛碱", "SURFACE_DISSOLUTION": "表面溶蚀",
 	"MASONRY_LOSS": "砌体缺失", "FUNGUS": "真菌附着", "MOSS": "苔藓", "PLANT": "植物附着", "CORROSION": "腐蚀", "ARTISTIC": "人为痕迹",
-	"CONFIRM": "确认", "MODIFY": "修正", "REJECT": "误检", "ADD": "补录",
+	"SURFACE_SPALLING": "表面剥落",
+	"CONFIRM":          "确认", "MODIFY": "修正", "REJECT": "误检", "ADD": "补录",
 	"WATCH": "关注", "PROCESS": "需处理", "URGENT": "尽快核实",
 }
 

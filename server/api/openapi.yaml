@@ -623,7 +623,9 @@ paths:
                       image_id: { type: integer }
                       source_detection_id: { type: integer }
                       decision: { type: string, enum: [CONFIRM, MODIFY, REJECT, ADD] }
-                      final_class_code: { type: string }
+                      final_class_code:
+                        type: string
+                        description: 人工判定类别。SURFACE_SPALLING 表示表面剥落，与 SURFACE_DISSOLUTION 表面溶蚀独立；当前仅支持人工记录，不代表模型已训练该类。
                       final_box_json: { type: string }
                       description: { type: string }
       responses:
