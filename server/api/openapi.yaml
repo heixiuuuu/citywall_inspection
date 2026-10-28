@@ -500,7 +500,8 @@ paths:
       responses:
         '200':
           description: |
-            data.evidence 包含 observation、location_radius_m、attempts、detections、conclusions、items、reviews、submissions。
+            data.evidence 包含 observation、task_status、location_radius_m、attempts、detections、conclusions、items、reviews、submissions。
+            task_status 为当前父任务状态；主动上报为 null。任务取消或完成后停止采集修改、识别和提交，已保存证据仍可读取，已提交记录仍可审核。
             location_radius_m 为派发时冻结的任务点提示半径；主动上报为 null。
             submissions 按 submission_no 排列，包含 id、observation_revision、conclusion_revision_id、submitted_at、location 和 images。
             location 为冻结的位置对象，包含 latitude、longitude、accuracy_m、distance_m、radius_m；images 为冻结图片元数据，已移出当前记录的图片角色为 ARCHIVED。

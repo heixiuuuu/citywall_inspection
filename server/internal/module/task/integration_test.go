@@ -209,33 +209,3 @@ func TestGORMCancelTask(t *testing.T) {
 		t.Fatalf("repeat cancel should hit 0: n=%d err=%v", n, err)
 	}
 }
-
-func TestGORMMarkInProgressOnlyWhenAssigned(t *testing.T) {
-	db := integrationDB(t)
-	repo := newTxRepo(t, db)
-	ctx := context.Background()
-
-	tk := &Task{Title: "it-mark", AssigneeID: 3, Status: StatusDraft, Revision: 1}
-	if err := repo.InsertTask(ctx, tk); err != nil {
-		t.Fatalf("insert: %v", err)
-	}
-	// DRAFT 状态下标记不生效（保持 DRAFT）。
-	if err := repo.MarkInProgressIfAssigned(ctx, tk.ID); err != nil {
-		t.Fatalf("mark: %v", err)
-	}
-	got, _ := repo.GetByID(ctx, tk.ID)
-	if got.Status != StatusDraft {
-		t.Fatalf("draft should stay draft, got %s", got.Status)
-	}
-	// 派发后标记生效。
-	if _, err := repo.UpdateStatus(ctx, tk.ID, 1, StatusAssigned); err != nil {
-		t.Fatalf("assign: %v", err)
-	}
-	if err := repo.MarkInProgressIfAssigned(ctx, tk.ID); err != nil {
-		t.Fatalf("mark2: %v", err)
-	}
-	got, _ = repo.GetByID(ctx, tk.ID)
-	if got.Status != StatusInProgress {
-		t.Fatalf("assigned should become in_progress, got %s", got.Status)
-	}
-}

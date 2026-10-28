@@ -70,11 +70,6 @@ type TaskPointRepository interface {
 	GetTaskPoint(ctx context.Context, id int64) (*task.TaskPoint, error)
 }
 
-// TaskLifecycle 由 task 模块仓储实现：任务首次采集时 ASSIGNED → IN_PROGRESS。
-type TaskLifecycle interface {
-	MarkInProgressIfAssigned(ctx context.Context, taskID int64) error
-}
-
 // TaskPointLister 按任务列出任务点（由 task 模块仓储实现）。
 type TaskPointLister interface {
 	ListPoints(ctx context.Context, taskID int64) ([]task.TaskPoint, error)
@@ -149,6 +144,9 @@ func (s *service) removeImage(ctx context.Context, actor *middleware.Actor, obse
 	if o.Status != ObsDraft && o.Status != ObsReturned {
 		return ErrInvalidState
 	}
+	if _, err := collectableTask(ctx, s.repo, o); err != nil {
+		return err
+	}
 	return s.repo.UnlinkImage(ctx, observationID, imageID)
 }
 
@@ -157,7 +155,6 @@ type service struct {
 	storage         Storage
 	recognizer      RecognizerClient
 	taskPoints      TaskPointRepository
-	taskLife        TaskLifecycle
 	taskPointLister TaskPointLister
 	audit           audit.Recorder
 	idemMu          sync.Mutex
@@ -186,12 +183,12 @@ type idemResult struct {
 
 // NewService 构造现场记录服务。
 // rec 为审计记录器（可为 no-op，审计失败不阻断业务）。
-func NewService(repo Repository, st Storage, rc RecognizerClient, tp TaskPointRepository, tl TaskLifecycle, lister TaskPointLister, rec audit.Recorder) Service {
-	return &service{repo: repo, storage: st, recognizer: rc, taskPoints: tp, taskLife: tl, taskPointLister: lister, audit: rec,
+func NewService(repo Repository, st Storage, rc RecognizerClient, tp TaskPointRepository, lister TaskPointLister, rec audit.Recorder) Service {
+	return &service{repo: repo, storage: st, recognizer: rc, taskPoints: tp, taskPointLister: lister, audit: rec,
 		idemResults: make(map[string]idemResult)}
 }
 
-func (s *service) Create(ctx context.Context, actor *middleware.Actor, source string, taskPointID *int64, locationText string) (*Observation, error) {
+func (s *service) create(ctx context.Context, actor *middleware.Actor, source string, taskPointID *int64, locationText string) (*Observation, error) {
 	o := &Observation{
 		Source:       source,
 		TaskPointID:  taskPointID,
@@ -212,7 +209,11 @@ func (s *service) Create(ctx context.Context, actor *middleware.Actor, source st
 		if point.AssigneeID != actor.UserID && !isAdminOrReviewer(actor) {
 			return nil, ErrForbidden
 		}
-		if point.TaskStatus != task.StatusAssigned && point.TaskStatus != task.StatusInProgress && point.TaskStatus != task.StatusReturned {
+		_, taskStatus, err := s.repo.TaskState(ctx, *taskPointID)
+		if err != nil {
+			return nil, err
+		}
+		if taskStatus != task.StatusAssigned && taskStatus != task.StatusInProgress && taskStatus != task.StatusReturned {
 			return nil, ErrInvalidState
 		}
 		o.PointID = &point.PointID
@@ -249,6 +250,9 @@ func (s *service) update(ctx context.Context, actor *middleware.Actor, id, revis
 	}
 	if o.Revision != revision {
 		return nil, ErrStatusConflict
+	}
+	if _, err := collectableTask(ctx, s.repo, o); err != nil {
+		return nil, err
 	}
 	latitude, longitude, accuracy := o.Latitude, o.Longitude, o.AccuracyM
 	if in.Latitude != nil {
@@ -330,6 +334,9 @@ func (s *service) AddImage(ctx context.Context, actor *middleware.Actor, obsID i
 		return nil, ErrInvalidState
 	}
 
+	if _, err := collectableTask(ctx, s.repo, o); err != nil {
+		return nil, err
+	}
 	key, err := s.storage.SaveImage(data, mediaType)
 	if err != nil {
 		return nil, err
@@ -411,6 +418,9 @@ func (s *service) Recognize(ctx context.Context, actor *middleware.Actor, imageI
 		if current.Status != ObsDraft && current.Status != ObsReturned {
 			return nil, ErrInvalidState
 		}
+		if _, err := collectableTask(ctx, tx.repo, current); err != nil {
+			return nil, err
+		}
 		attemptNo, err := tx.repo.NextAttemptNo(ctx, imageID)
 		if err != nil {
 			return nil, err
@@ -483,6 +493,9 @@ func (s *service) saveConclusion(ctx context.Context, actor *middleware.Actor, o
 	}
 	if o.Revision != revision {
 		return nil, ErrStatusConflict
+	}
+	if _, err := collectableTask(ctx, s.repo, o); err != nil {
+		return nil, err
 	}
 
 	links, err := s.repo.ListImages(ctx, obsID)
@@ -568,6 +581,10 @@ func (s *service) submit(ctx context.Context, actor *middleware.Actor, obsID, re
 	}
 	if o.Revision != revision {
 		return nil, ErrStatusConflict
+	}
+	taskID, err := collectableTask(ctx, s.repo, o)
+	if err != nil {
+		return nil, err
 	}
 
 	links, err := s.repo.ListImages(ctx, obsID)
@@ -666,9 +683,9 @@ func (s *service) submit(ctx context.Context, actor *middleware.Actor, obsID, re
 	o.Revision++
 	o.SubmittedAt = &now
 
-	if o.Source == SourceTask && o.TaskPointID != nil {
-		if tp, err := s.taskPoints.GetTaskPoint(ctx, *o.TaskPointID); err == nil {
-			_ = s.taskLife.MarkInProgressIfAssigned(ctx, tp.TaskID)
+	if taskID != 0 {
+		if err := s.repo.MarkTaskInProgress(ctx, taskID); err != nil {
+			return nil, err
 		}
 	}
 	s.audit.Record(ctx, &audit.Event{

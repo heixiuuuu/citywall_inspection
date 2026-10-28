@@ -72,7 +72,7 @@ func New(cfg *config.Config) (*App, error) {
 	recorder := audit.NewRecorder(db)
 	identitySvc := identity.NewService(identityRepo, tm, recorder, identity.WechatConfig{AppID: cfg.Auth.WechatAppID, Secret: cfg.Auth.WechatAppSecret})
 	siteSvc := site.NewService(siteRepo)
-	obsSvc := observation.NewService(obsRepo, st, rc, taskRepo, taskRepo, taskRepo, recorder)
+	obsSvc := observation.NewService(obsRepo, st, rc, taskRepo, taskRepo, recorder)
 	taskSvc := task.NewService(taskRepo, obsSvc, func(ctx context.Context, pointID int64) (task.PointSnapshot, error) {
 		p, err := siteRepo.GetPoint(ctx, pointID)
 		if err != nil {

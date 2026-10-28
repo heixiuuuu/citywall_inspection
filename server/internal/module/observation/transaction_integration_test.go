@@ -4,6 +4,7 @@ package observation
 
 import (
 	"citywall/server/internal/infrastructure/recognizer"
+	"citywall/server/internal/module/task"
 	"context"
 	"errors"
 	"fmt"
@@ -12,6 +13,113 @@ import (
 
 	"gorm.io/gorm"
 )
+
+func taskObservation(t *testing.T) (*service, *gorm.DB, *Observation, *task.Task) {
+	t.Helper()
+	s, db, o := persistentObservation(t)
+	parent := &task.Task{Title: "任务状态事务验收", AssigneeID: 3, Status: task.StatusAssigned, Revision: 1}
+	if err := db.Create(parent).Error; err != nil {
+		t.Fatal(err)
+	}
+	point := &task.TaskPoint{TaskID: parent.ID, PointID: 1, SequenceNo: 1}
+	if err := db.Create(point).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Model(&Observation{}).Where("id = ?", o.ID).Updates(map[string]any{"source": SourceTask, "task_point_id": point.ID}).Error; err != nil {
+		t.Fatal(err)
+	}
+	o.Source, o.TaskPointID = SourceTask, &point.ID
+	s.taskPoints = task.NewGORMRepository(db)
+	return s, db, o, parent
+}
+
+func TestTaskSubmissionRollsBackWhenTaskStateWriteFails(t *testing.T) {
+	s, db, o, parent := taskObservation(t)
+	failure := errors.New("task lifecycle storage unavailable")
+	callback := "test:fail_task_lifecycle"
+	if err := db.Callback().Update().Before("gorm:update").Register(callback, func(tx *gorm.DB) {
+		if tx.Statement.Table == "tasks" {
+			tx.AddError(failure)
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Callback().Update().Remove(callback) })
+	if _, err := s.Submit(context.Background(), inspector(), o.ID, 2); !errors.Is(err, failure) {
+		t.Fatalf("err=%v", err)
+	}
+	saved, err := s.repo.GetByID(context.Background(), o.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var count int64
+	if err := db.Model(&ObservationSubmission{}).Where("observation_id = ?", o.ID).Count(&count).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.First(parent, parent.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if saved.Status != ObsDraft || saved.Revision != 2 || saved.SubmittedAt != nil || count != 0 || parent.Status != task.StatusAssigned {
+		t.Fatalf("partial submission: record=%+v snapshots=%d task=%s", saved, count, parent.Status)
+	}
+}
+
+func TestCancelledTaskRejectsSubmissionWithoutSnapshot(t *testing.T) {
+	s, db, o, parent := taskObservation(t)
+	if err := db.Model(parent).Update("status", task.StatusCancelled).Error; err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Submit(context.Background(), inspector(), o.ID, 2); !errors.Is(err, ErrInvalidState) {
+		t.Fatalf("err=%v", err)
+	}
+	var count int64
+	if err := db.Model(&ObservationSubmission{}).Where("observation_id = ?", o.ID).Count(&count).Error; err != nil {
+		t.Fatal(err)
+	}
+	saved, err := s.repo.GetByID(context.Background(), o.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 || saved.Revision != 2 || saved.Status != ObsDraft {
+		t.Fatal("cancelled task was submitted")
+	}
+}
+
+func TestConcurrentTaskRecordCreationReturnsDuplicate(t *testing.T) {
+	s, db, _, parent := taskObservation(t)
+	point := &task.TaskPoint{TaskID: parent.ID, PointID: 2, SequenceNo: 2}
+	if err := db.Create(point).Error; err != nil {
+		t.Fatal(err)
+	}
+	start := make(chan struct{})
+	results := make(chan error, 2)
+	for range 2 {
+		go func() {
+			<-start
+			_, err := s.Create(context.Background(), inspector(), SourceTask, &point.ID, "并发采集验收")
+			results <- err
+		}()
+	}
+	close(start)
+	success, duplicates := 0, 0
+	for range 2 {
+		err := <-results
+		if err == nil {
+			success++
+		} else if errors.Is(err, ErrDuplicateRecord) {
+			duplicates++
+		} else {
+			t.Errorf("err=%v", err)
+		}
+	}
+	var count int64
+	if err := db.Model(&Observation{}).Where("task_point_id = ?", point.ID).Count(&count).Error; err != nil {
+		t.Fatal(err)
+	}
+	if success != 1 || duplicates != 1 || count != 1 {
+		t.Fatalf("success=%d duplicates=%d count=%d", success, duplicates, count)
+	}
+}
 
 func TestConcurrentRecognitions(t *testing.T) {
 	s, db, o := persistentObservation(t)

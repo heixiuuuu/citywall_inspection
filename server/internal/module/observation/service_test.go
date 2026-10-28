@@ -25,6 +25,7 @@ type fakeObsRepo struct {
 	decisions       []ReviewDecision
 	next            int64
 	issueReaders    map[int64][]int64
+	taskPoints      map[int64]*task.TaskPoint
 	conclusionItems map[int64][]ConclusionItem
 }
 
@@ -394,7 +395,6 @@ func (f *fakeTaskPoint) GetTaskPoint(_ context.Context, id int64) (*task.TaskPoi
 	}
 	return p, nil
 }
-func (f *fakeTaskPoint) MarkInProgressIfAssigned(_ context.Context, _ int64) error { return nil }
 func (f *fakeTaskPoint) ListPoints(_ context.Context, _ int64) ([]task.TaskPoint, error) {
 	var out []task.TaskPoint
 	for _, p := range f.points {
@@ -414,12 +414,12 @@ func admin() *middleware.Actor     { return &middleware.Actor{UserID: 1, Roles: 
 func newObsService() (*service, *fakeObsRepo) {
 	repo := newFakeObsRepo()
 	points := map[int64]*task.TaskPoint{1: {ID: 1, TaskID: 10, PointID: 100, AssigneeID: 3, TaskStatus: task.StatusAssigned}}
+	repo.taskPoints = points
 	s := &service{
 		repo:            repo,
 		storage:         &fakeStorage{},
 		recognizer:      &fakeRecognizer{res: &recognizer.Result{ModelVersion: "yolo_baseline_001", Detections: nil}},
 		taskPoints:      &fakeTaskPoint{points: points},
-		taskLife:        &fakeTaskPoint{points: points},
 		taskPointLister: &fakeTaskPoint{points: points},
 		audit:           audit.NewRecorder(nil),
 		idemResults:     make(map[string]idemResult),
@@ -734,4 +734,20 @@ func TestListPagination(t *testing.T) {
 	if err != nil || res.Total != 3 {
 		t.Fatalf("filter draft: total=%d err=%v", res.Total, err)
 	}
+}
+
+func (f *fakeObsRepo) TaskState(_ context.Context, pointID int64) (int64, string, error) {
+	point, ok := f.taskPoints[pointID]
+	if !ok {
+		return 0, "", ErrNotFound
+	}
+	return point.TaskID, point.TaskStatus, nil
+}
+func (f *fakeObsRepo) MarkTaskInProgress(_ context.Context, taskID int64) error {
+	for _, point := range f.taskPoints {
+		if point.TaskID == taskID && point.TaskStatus == task.StatusAssigned {
+			point.TaskStatus = task.StatusInProgress
+		}
+	}
+	return nil
 }

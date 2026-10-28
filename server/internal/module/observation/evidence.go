@@ -10,6 +10,7 @@ import (
 )
 
 type Evidence struct {
+	TaskStatus      *string              `json:"task_status"`
 	LocationRadiusM *float64             `json:"location_radius_m"`
 	Submissions     []SubmissionEvidence `json:"submissions"`
 	Observation     *Observation         `json:"observation"`
@@ -57,11 +58,14 @@ func (s *service) Evidence(ctx context.Context, actor *middleware.Actor, id int6
 		return nil, err
 	}
 	evidence.Observation = o
-	_, radius, err := s.locationDistance(ctx, o, nil, nil)
-	if err != nil {
-		return nil, err
+	if o.Source == SourceTask && o.TaskPointID != nil {
+		point, err := s.taskPoints.GetTaskPoint(ctx, *o.TaskPointID)
+		if err != nil {
+			return nil, err
+		}
+		evidence.LocationRadiusM = point.SnapshotRadiusM
+		evidence.TaskStatus = &point.TaskStatus
 	}
-	evidence.LocationRadiusM = radius
 	return evidence, nil
 }
 

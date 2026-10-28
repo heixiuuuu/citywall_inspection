@@ -54,6 +54,7 @@ export interface VisionAnalysis {
 }
 export interface Evidence {
   location_radius_m: number | null
+  task_status: string | null
   submissions: SubmissionEvidence[]
   observation: Observation
   attempts: RecognitionAttempt[]

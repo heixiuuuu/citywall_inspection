@@ -214,7 +214,21 @@ def main():
     if os.getenv("CITY_WALL_TEST_PDF"):
         from pathlib import Path
         Path(os.environ["CITY_WALL_TEST_PDF"]).with_name("location-report.pdf").write_bytes(pdf.content)
-    print("Evidence, location snapshots, returned drafts, authorization and persisted timestamps passed")
+    current_task = call("GET", f"/tasks/{tid}", admin)["task"]
+    call("POST", f"/tasks/{tid}/cancel", admin, json={"revision": current_task["revision"], "reason": "软件取消边界验收"})
+    cancelled = call("GET", f"/observations/{lid}", inspector)["evidence"]
+    assert cancelled["task_status"] == "CANCELLED"
+    overview = call("GET", f"/observations/{lid}/images", inspector)["images"][0]
+    call("PATCH", f"/observations/{lid}", inspector, 409, json={"revision": 7, "location_text": "不得保存"})
+    call("PUT", f"/observations/{lid}/conclusion", inspector, 409, json={"revision": 7, "outcome": "NORMAL", "items": []})
+    call("POST", f"/observations/{lid}/submit", inspector, 409, json={"revision": 7})
+    call("DELETE", f'/observations/{lid}/images/{overview["id"]}', inspector, 409)
+    call("POST", f'/images/{overview["id"]}/recognitions', inspector, 409, json={})
+    call("POST", f"/observations/{lid}/images", inspector, 409,
+         files={"image": ("cancelled.png", buffer.getvalue(), "image/png")}, data={"image_role": "DETAIL"})
+    assert call("GET", f"/observations/{lid}", inspector)["evidence"] == cancelled
+    assert requests.get(BASE + f'/images/{overview["id"]}/preview', headers=inspector, timeout=10).status_code == 200
+    print("Evidence, cancelled task boundaries, location snapshots, returned drafts and authorization passed")
 
 
 if __name__ == "__main__":

@@ -21,7 +21,7 @@ func (r *GORMRepository) Transaction(ctx context.Context, operation func(Reposit
 }
 
 // NewGORMRepository 构造任务仓储。
-// 返回具体类型：observation 模块需使用其 GetTaskPoint/MarkInProgressIfAssigned/ListPoints 能力。
+// 返回具体类型：observation 模块需使用其 GetTaskPoint/ListPoints 能力。
 func NewGORMRepository(db *gorm.DB) *GORMRepository {
 	return &GORMRepository{db: db}
 }
@@ -167,16 +167,6 @@ func (r *GORMRepository) FillPointSnapshots(ctx context.Context, taskID int64, s
 		}
 		return nil
 	})
-}
-
-// MarkInProgressIfAssigned 实现 observation.TaskLifecycle：
-// 首次现场采集证据保存时，任务由 ASSIGNED 转为 IN_PROGRESS（不阻断业务）。
-func (r *GORMRepository) MarkInProgressIfAssigned(ctx context.Context, taskID int64) error {
-	res := r.db.WithContext(ctx).
-		Model(&Task{}).
-		Where("id = ? AND status = ?", taskID, StatusAssigned).
-		Update("status", StatusInProgress)
-	return res.Error
 }
 
 // GetTaskPoint 实现 observation.TaskPointRepository：按 ID 查询任务点。

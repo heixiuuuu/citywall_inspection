@@ -11,6 +11,7 @@
       </div>
       <p v-if="snapshot" class="hint">提交快照只读，保留本次提交的位置、照片和人工结论。</p>
       <p v-if="snapshot">提交位置：{{ location?.location_text || '未填写' }}</p>
+      <el-alert v-if="evidence.task_status === 'CANCELLED'" title="任务已取消，保留已有证据供查阅。" type="info" :closable="false" />
       <p>经纬度：{{ location?.latitude ?? '—' }}, {{ location?.longitude ?? '—' }} · 精度 {{ location?.accuracy_m ?? '—' }} m</p>
       <p v-if="location?.distance_m != null">距任务目标 {{ location.distance_m.toFixed(1) }} m · 提示半径 {{ locationRadius ?? '—' }} m</p>
       <el-alert v-if="locationWarning" :title="locationWarning" type="warning" :closable="false" />

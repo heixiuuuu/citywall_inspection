@@ -9,6 +9,7 @@
           <picker v-if="evidence.submissions?.length" :value="versionIndex" :range="versionLabels" @change="changeVersion"><view class="version">{{ versionLabels[versionIndex] }} · 切换</view></picker>
           <view v-if="snapshot" class="muted">提交快照只读，保留本次提交的位置、照片和人工结论。</view>
           <view class="line">{{ evidence.observation.source === 'TASK' ? '任务巡检' : '主动上报' }} · {{ shownLocation.location_text }}</view>
+          <view v-if="taskEnded" class="location-warning">{{ evidence.task_status === 'CANCELLED' ? '任务已取消' : '任务已完成' }}，已保存的记录仅供查阅。</view>
           <view class="muted">提交 {{ formatTime(snapshot?.submitted_at || evidence.observation.submitted_at) }}（北京时间）</view>
           <view class="muted" v-if="shownLocation.latitude != null">位置 {{ shownLocation.latitude }}, {{ shownLocation.longitude }} · 精度 {{ shownLocation.accuracy_m ?? '—' }} m</view>
           <view v-if="shownLocation.distance_m != null" class="muted">距任务目标 {{ shownLocation.distance_m.toFixed(1) }} m · 提示半径 {{ locationRadius ?? '—' }} m</view>
@@ -114,7 +115,8 @@ const shownConclusions = computed(() => (evidence.value?.conclusions || []).filt
 const shownAttempts = computed(() => (evidence.value?.attempts || []).filter(attempt => images.value.some(image => image.imageId === attempt.image_id) && (!snapshot.value || attempt.finished_at && Date.parse(attempt.finished_at) <= Date.parse(snapshot.value.submitted_at))))
 let generation = 0
 const hasMore = computed(() => records.value.length < total.value)
-const canEdit = computed(() => !snapshot.value && evidence.value && evidence.value.observation.reporter_id === getUser()?.id && ['DRAFT', 'RETURNED'].includes(evidence.value.observation.status))
+const taskEnded = computed(() => ['CANCELLED', 'COMPLETED'].includes(evidence.value?.task_status))
+const canEdit = computed(() => !taskEnded.value && !snapshot.value && evidence.value && evidence.value.observation.reporter_id === getUser()?.id && ['DRAFT', 'RETURNED'].includes(evidence.value.observation.status))
 onLoad(query => { if (query.observationId) detailId.value = Number(query.observationId) })
 onShow(() => { if (detailId.value) openDetail(detailId.value); else loadList(true) })
 onReachBottom(() => { if (!detailId.value && hasMore.value) loadList(false) })

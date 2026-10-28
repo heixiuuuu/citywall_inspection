@@ -119,7 +119,7 @@ function pointStatusText(p) {
 
 function openCollect(p) {
   const record = pointRecords.value[p.id]
-  if (record && !['DRAFT', 'RETURNED'].includes(record.status)) {
+  if (record && (!['DRAFT', 'RETURNED'].includes(record.status) || ['CANCELLED', 'COMPLETED'].includes(task.value.status))) {
     uni.navigateTo({ url: `/pages/records/index?observationId=${record.id}` })
     return
   }

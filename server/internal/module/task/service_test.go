@@ -179,17 +179,6 @@ func (f *fakeRepo) FillPointSnapshots(_ context.Context, taskID int64, snaps []P
 	return nil
 }
 
-func (f *fakeRepo) MarkInProgressIfAssigned(_ context.Context, taskID int64) error {
-	t, ok := f.tasks[taskID]
-	if !ok {
-		return errors.New("not found")
-	}
-	if t.Status == StatusAssigned {
-		t.Status = StatusInProgress
-	}
-	return nil
-}
-
 func (f *fakeRepo) GetTaskPoint(_ context.Context, id int64) (*TaskPoint, error) {
 	for _, pts := range f.points {
 		for _, p := range pts {

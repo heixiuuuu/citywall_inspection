@@ -12,6 +12,8 @@ import (
 // Repository 现场记录数据访问接口。
 type Repository interface {
 	Transaction(ctx context.Context, operation func(Repository) error) error
+	TaskState(ctx context.Context, taskPointID int64) (int64, string, error)
+	MarkTaskInProgress(ctx context.Context, taskID int64) error
 	UnlinkImage(ctx context.Context, observationID, imageID int64) error
 	LoadEvidence(ctx context.Context, id int64) (*Evidence, error)
 	Insert(ctx context.Context, o *Observation) error
@@ -171,6 +173,9 @@ func (r *GORMRepository) LinkImage(ctx context.Context, obsID, imageID int64, ro
 		}
 		if observation.Status != ObsDraft && observation.Status != ObsReturned {
 			return ErrInvalidState
+		}
+		if _, err := collectableTask(ctx, repo, observation); err != nil {
+			return err
 		}
 		return repo.(*GORMRepository).db.Create(&ObservationImage{
 			ObservationID: obsID, ImageID: imageID, ImageRole: role,

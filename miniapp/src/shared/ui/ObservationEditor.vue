@@ -232,7 +232,7 @@ async function loadExisting(id) {
     if (disposed) { loaded.images.forEach(image => releaseImage(image.localPath)); return }
     const evidence = loaded.evidence
     const record = evidence.observation
-    if (record.source !== props.source || !['DRAFT', 'RETURNED'].includes(record.status)) {
+    if (record.source !== props.source || !['DRAFT', 'RETURNED'].includes(record.status) || ['CANCELLED', 'COMPLETED'].includes(evidence.task_status)) {
       loaded.images.forEach(image => releaseImage(image.localPath))
       uni.redirectTo({ url: `/pages/records/index?observationId=${id}` })
       return

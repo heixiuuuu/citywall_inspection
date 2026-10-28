@@ -11,7 +11,7 @@ func transactionValue[T any](ctx context.Context, s *service, operation func(*se
 	err := s.repo.Transaction(ctx, func(repo Repository) error {
 		transactional := &service{
 			repo: repo, storage: s.storage, recognizer: s.recognizer,
-			taskPoints: s.taskPoints, taskLife: s.taskLife, taskPointLister: s.taskPointLister,
+			taskPoints: s.taskPoints, taskPointLister: s.taskPointLister,
 			audit: s.audit, idemStore: s.idemStore,
 		}
 		var err error
@@ -23,6 +23,12 @@ func transactionValue[T any](ctx context.Context, s *service, operation func(*se
 		return empty, err
 	}
 	return result, nil
+}
+
+func (s *service) Create(ctx context.Context, actor *middleware.Actor, source string, taskPointID *int64, locationText string) (*Observation, error) {
+	return transactionValue(ctx, s, func(tx *service) (*Observation, error) {
+		return tx.create(ctx, actor, source, taskPointID, locationText)
+	})
 }
 
 func (s *service) Update(ctx context.Context, actor *middleware.Actor, id, revision int64, input PatchInput) (*Observation, error) {
