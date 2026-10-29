@@ -1,6 +1,6 @@
 <template>
   <view class="page">
-    <view v-if="!task" class="empty">加载中…</view>
+    <view v-if="!task" class="empty">{{ statusError || '加载中…' }}<button v-if="statusError" size="mini" @tap="load">重试</button></view>
 
     <template v-else>
       <view class="card">
@@ -15,6 +15,10 @@
         <view v-if="task.description" class="sub">{{ task.description }}</view>
       </view>
 
+      <view v-if="statusError" class="card">
+        <view>{{ statusError }}</view>
+        <button size="mini" @tap="load">重新加载</button>
+      </view>
       <view class="card list">
         <view
           v-for="p in points"
@@ -27,7 +31,7 @@
             <view class="title-sm">{{ p.snapshot_name || '点位' }}</view>
             <view class="faint">{{ p.snapshot_location_hint || '—' }}</view>
           </view>
-          <view class="tag" :class="statusClass(pointStatus(p))">{{ pointStatusText(p) }}</view>
+          <view class="tag" :class="pointStatusReady ? statusClass(pointStatus(p)) : ''">{{ pointStatusText(p) }}</view>
           <text class="arrow">›</text>
         </view>
       </view>
@@ -35,7 +39,7 @@
 
     <view class="bottombar">
       <button class="btn-primary" :loading="submitting" :disabled="!canSubmit" @tap="submit">
-        提交任务（{{ doneCount }}/{{ points.length }} 已完成）
+        提交任务（{{ pointStatusReady ? doneCount : '—' }}/{{ points.length }} 已完成）
       </button>
       <view class="note">所有点位采集并提交后方可整任务提交</view>
     </view>
@@ -55,6 +59,9 @@ const task = ref(null)
 const points = ref([])
 const pointStatusMap = ref({})
 const pointRecords = ref({})
+const pointStatusReady = ref(false)
+const statusLoading = ref(false)
+const statusError = ref('')
 const submitting = ref(false)
 const user = getUser()
 
@@ -64,11 +71,14 @@ onLoad((query) => {
 onShow(() => { if (taskId.value) load() })
 
 async function load() {
+  if (statusLoading.value) return
+  statusLoading.value = true
+  pointStatusReady.value = false
+  statusError.value = ''
   try {
     const res = await getTask(taskId.value)
     task.value = res.data.task
     points.value = res.data.points || []
-    // 点位 → 记录状态：按 GET /observations?task_id= 拉取本人各任务点记录的真实审核状态。
     pointStatusMap.value = {}
     pointRecords.value = {}
     try {
@@ -79,6 +89,7 @@ async function load() {
         const ores = await listObservations({ task_id: taskId.value, page_size: 100, page })
         const records = ores.data.items || []
         total = ores.data.total
+        if (!Number.isInteger(total) || total < 0) throw new Error('invalid record total')
         for (const o of records) {
           if (o.task_point_id != null) {
             pointStatusMap.value[o.task_point_id] = o.status
@@ -87,19 +98,19 @@ async function load() {
         }
         loaded += records.length
         page++
-        if (!records.length) break
+        if (!records.length && loaded < total) throw new Error('incomplete record list')
       } while (loaded < total)
-    } catch (e) {
-      // 状态加载失败不阻塞任务详情（仍可按点位采集）。
+      pointStatusReady.value = true
+    } catch {
+      statusError.value = '点位记录状态加载失败，请重试'
     }
-  } catch (e) {
-    uni.showToast({ title: '加载任务失败', icon: 'none' })
-  }
+  } catch { statusError.value = '任务加载失败，请重试' }
+  finally { statusLoading.value = false }
 }
 
 const doneCount = computed(() => points.value.filter((p) => isDone(p)).length)
 const canSubmit = computed(
-  () => task.value && ['ASSIGNED', 'IN_PROGRESS'].includes(task.value.status) && doneCount.value === points.value.length
+  () => pointStatusReady.value && points.value.length > 0 && task.value && ['ASSIGNED', 'IN_PROGRESS'].includes(task.value.status) && doneCount.value === points.value.length
 )
 const assigneeLabel = computed(() => (task.value && task.value.assignee_id === (user && user.id) ? '我' : '负责人'))
 
@@ -108,16 +119,16 @@ function isDone(p) {
   return st === 'SUBMITTED' || st === 'ACCEPTED'
 }
 
-/** MVP 简化：无记录即待采集；有记录按记录的审核状态展示（在采集页回填）。 */
 function pointStatus(p) {
   return pointStatusMap.value[p.id] || 'DRAFT'
 }
 
 function pointStatusText(p) {
-  return statusText(pointStatus(p))
+  return pointStatusReady.value ? statusText(pointStatus(p)) : '状态未加载'
 }
 
 function openCollect(p) {
+  if (!pointStatusReady.value) { uni.showToast({ title: '请先重新加载点位状态', icon: 'none' }); return }
   const record = pointRecords.value[p.id]
   if (record && (!['DRAFT', 'RETURNED'].includes(record.status) || ['CANCELLED', 'COMPLETED'].includes(task.value.status))) {
     uni.navigateTo({ url: `/pages/records/index?observationId=${record.id}` })
