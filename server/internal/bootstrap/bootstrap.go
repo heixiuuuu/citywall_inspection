@@ -80,6 +80,10 @@ func New(cfg *config.Config) (*App, error) {
 		if !p.Active {
 			return task.PointSnapshot{}, task.ErrPointNotFound
 		}
+		segment, err := siteRepo.GetSegment(ctx, p.SegmentID)
+		if err != nil || !segment.Active {
+			return task.PointSnapshot{}, task.ErrPointNotFound
+		}
 		return task.PointSnapshot{
 			PointID:   p.ID,
 			Name:      p.Name,

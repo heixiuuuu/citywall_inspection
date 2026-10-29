@@ -18,9 +18,10 @@ func NewGORMRepository(db *gorm.DB) Repository {
 
 func (r *GORMRepository) ListPoints(ctx context.Context, onlyActive bool) ([]InspectionPoint, error) {
 	var pts []InspectionPoint
-	q := r.db.WithContext(ctx).Order("segment_id, code")
+	q := r.db.WithContext(ctx).Order("inspection_points.segment_id, inspection_points.code")
 	if onlyActive {
-		q = q.Where("active = ?", true)
+		q = q.Select("inspection_points.*").Joins("JOIN wall_segments ON wall_segments.id = inspection_points.segment_id").
+			Where("inspection_points.active = ? AND wall_segments.active = ?", true, true)
 	}
 	return pts, q.Find(&pts).Error
 }
