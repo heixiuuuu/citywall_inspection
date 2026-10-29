@@ -108,6 +108,8 @@ C:\environment\citywall-cuda312\Scripts\python.exe scripts/train_model.py --data
 
 训练入口 crack_only 只包含 CRACK 标签，避免将补充图片中未标注的其他病害作为多类模型的负样本。图片通过硬链接复用父目录的图像文件，标签独立；图像修改须另存副本。target.yaml 使用全部训练图片，仍以 MSD 的 114 张验证图选模，102 张测试图用于最终评估；data.yaml 提供全部来源的验证和测试入口。原数据目录不修改，父目录保留语义重编号后的来源标注及清单。训练结果须经目标场景复验后再发布。
 
+表面剥落候选训练集可通过 `python scripts/prepare_cif_spalling.py` 准备。该脚本从 [CIF 数据集](https://huggingface.co/datasets/ibm-research/cif-dataset) 的固定版本读取独立 Spalling 标注，按来源训练、验证划分生成单类别框和负样本，并保存文件哈希与来源清单。该数据许可为 CDLA-Permissive-2.0，场景主要为现代基础设施；对古城墙砖石的识别效果需结合项目资料核验。
+
 视觉语言模型使用兼容 Chat Completions 的图像输入接口。配置 .env 中的 VLM_BASE_URL（包含 /v1 等服务前缀）、VLM_MODEL 和 VLM_API_KEY 后重建识别容器。支持不要求 API Key 的本地服务。输出保存于识别尝试中，可在管理端审核页面与报告查看。未配置显示 DISABLED，失败显示 FAILED；不会生成代替模型的分析文本。
 
 本地 NVIDIA GPU 可使用 Docker 内的 Ollama 和 Qwen3-VL 2B：
