@@ -48,7 +48,9 @@ def _build_detector():
         if settings.recognition.spalling_weights_path:
             detector = ClassRoutedDetector(detector, YOLODetector(
                 weights_path=settings.recognition.spalling_weights_path,
-                confidence_threshold=settings.recognition.confidence_threshold,
+                confidence_threshold=(settings.recognition.spalling_confidence_threshold
+                                      if settings.recognition.spalling_confidence_threshold is not None
+                                      else settings.recognition.confidence_threshold),
                 required_class_codes=frozenset({"SURFACE_SPALLING"}),
             ), frozenset({"SURFACE_SPALLING"}))
         return detector

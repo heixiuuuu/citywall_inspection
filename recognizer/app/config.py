@@ -28,6 +28,7 @@ class RecognitionConfig:
     specialist_weights_path: str = ""
     specialist_class_codes: list[str] = field(default_factory=list)
     spalling_weights_path: str = ""
+    spalling_confidence_threshold: float | None = None
     max_image_bytes: int = 10 * 1024 * 1024
     allowed_formats: list[str] = field(default_factory=lambda: ["jpeg", "png", "webp"])
 
@@ -102,6 +103,8 @@ def load_settings() -> Settings:
         raise ValueError("detector_mode must be dev or yolo")
     if bool(s.recognition.specialist_weights_path) != bool(s.recognition.specialist_class_codes):
         raise ValueError("specialist weights and class codes must be configured together")
+    if s.recognition.spalling_confidence_threshold is not None and not 0 < s.recognition.spalling_confidence_threshold <= 1:
+        raise ValueError("spalling confidence threshold must be in (0, 1]")
     return s
 
 
