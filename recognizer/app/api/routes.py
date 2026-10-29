@@ -35,17 +35,23 @@ def _build_detector():
     固定响应与真实识别在配置层明确隔离，绝不会以固定响应冒充模型结果。
     """
     if settings.recognition.detector_mode == "yolo":
-        primary = YOLODetector(
+        detector = YOLODetector(
             weights_path=settings.recognition.weights_path,
             confidence_threshold=settings.recognition.confidence_threshold,
         )
         if settings.recognition.specialist_weights_path:
-            return ClassRoutedDetector(primary, YOLODetector(
+            detector = ClassRoutedDetector(detector, YOLODetector(
                 weights_path=settings.recognition.specialist_weights_path,
                 confidence_threshold=settings.recognition.confidence_threshold,
                 required_class_codes=frozenset(settings.recognition.specialist_class_codes),
             ), frozenset(settings.recognition.specialist_class_codes))
-        return primary
+        if settings.recognition.spalling_weights_path:
+            detector = ClassRoutedDetector(detector, YOLODetector(
+                weights_path=settings.recognition.spalling_weights_path,
+                confidence_threshold=settings.recognition.confidence_threshold,
+                required_class_codes=frozenset({"SURFACE_SPALLING"}),
+            ), frozenset({"SURFACE_SPALLING"}))
+        return detector
     return FixedDetector(detections=[])
 
 
@@ -108,7 +114,8 @@ async def healthz() -> dict:
         "model_version": settings.recognition.model_version,
         "detector_mode": settings.recognition.detector_mode,
         "weights_available": resolve_weights_path(settings.recognition.weights_path).is_file() and (
-            not settings.recognition.specialist_weights_path or resolve_weights_path(settings.recognition.specialist_weights_path).is_file()),
+            not settings.recognition.specialist_weights_path or resolve_weights_path(settings.recognition.specialist_weights_path).is_file()) and (
+            not settings.recognition.spalling_weights_path or resolve_weights_path(settings.recognition.spalling_weights_path).is_file()),
         "specialist_class_codes": settings.recognition.specialist_class_codes,
         "vision_configured": bool(settings.vision.base_url and settings.vision.model),
     }

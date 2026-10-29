@@ -38,6 +38,16 @@ def test_coordinate_mismatch_does_not_return_mixed_evidence():
         routed.detect(b"image")
 
 
+def test_spalling_detector_preserves_existing_routed_categories():
+    primary = Detector([detection("PLANT", .8), detection("CRACK", .4)])
+    specialist = Detector([detection("CRACK", .7)])
+    spalling = Detector([detection("SURFACE_SPALLING", .6)])
+    routed = ClassRoutedDetector(ClassRoutedDetector(primary, specialist, frozenset({"CRACK"})), spalling, frozenset({"SURFACE_SPALLING"}))
+    result = routed.detect(b"image")
+    assert [(item.class_code, item.confidence) for item in result.detections] == [("PLANT", .8), ("CRACK", .7), ("SURFACE_SPALLING", .6)]
+    assert len({item.detection_id for item in result.detections}) == 3
+
+
 def test_specialist_failure_is_not_silently_replaced_with_primary_output():
     class FailedDetector:
         def detect(self, image_bytes):

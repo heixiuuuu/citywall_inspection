@@ -27,6 +27,7 @@ class RecognitionConfig:
     confidence_threshold: float = 0.35
     specialist_weights_path: str = ""
     specialist_class_codes: list[str] = field(default_factory=list)
+    spalling_weights_path: str = ""
     max_image_bytes: int = 10 * 1024 * 1024
     allowed_formats: list[str] = field(default_factory=lambda: ["jpeg", "png", "webp"])
 
