@@ -341,6 +341,7 @@ function decisionText(d) {
 
 function addConclusion() {
   const firstImg = selectedImage.value || images.value[0]
+  if (!firstImg) { uni.showToast({ title: '请先添加现场照片', icon: 'none' }); return }
   conclusionItems.value.push({
     imageId: firstImg ? firstImg.imageId : null,
     thumb: firstImg ? firstImg.localPath : '',
@@ -372,7 +373,7 @@ async function persistDraft() {
   await saveConclusion(obs.value.id, obs.value.revision, {
     outcome: overall.value,
     description: overallNote.value,
-    items: conclusionItems.value.filter(item => item.imageId && item.final_class_code).map(item => ({
+    items: conclusionItems.value.map(item => ({
       image_id: item.imageId, source_detection_id: item.source_detection_id,
       final_box_json: item.final_box_json, decision: item.decision,
       final_class_code: item.final_class_code, description: item.description,
@@ -381,8 +382,21 @@ async function persistDraft() {
   obs.value.revision++
 }
 
+function validateConclusionItems() {
+  if (conclusionItems.value.some(item => !item.imageId || !images.value.some(image => image.imageId === item.imageId))) {
+    uni.showToast({ title: '结论项关联的照片不存在，请重新添加', icon: 'none' })
+    return false
+  }
+  if (conclusionItems.value.some(item => !item.final_class_code)) {
+    uni.showToast({ title: '请选择每条结论的病害类别', icon: 'none' })
+    return false
+  }
+  return true
+}
+
 async function saveDraft() {
   if (!obs.value || busy.value || disposed) return
+  if (!validateConclusionItems()) return
   submitting.value = true
   try { await persistDraft(); uni.showToast({ title: '草稿已保存', icon: 'success' }) }
   catch { uni.showToast({ title: '保存失败，请检查记录状态', icon: 'none' }) }
@@ -391,6 +405,7 @@ async function saveDraft() {
 
 async function submit() {
   if (!obs.value || busy.value || disposed) return
+  if (!validateConclusionItems()) return
   if (voluntary.value && !location.value) { uni.showToast({ title: '请先获取现场定位', icon: 'none' }); return }
   if (!locationText.value.trim()) { uni.showToast({ title: '请填写位置', icon: 'none' }); return }
   if (voluntary.value && !overallNote.value.trim()) { uni.showToast({ title: '请填写现场描述', icon: 'none' }); return }
