@@ -54,7 +54,7 @@ services:
       - ./conf:/app/conf:ro
       - ./data/yolo:/app/data/yolo:ro
     healthcheck:
-      test: [CMD, python, -c, 'import urllib.request; urllib.request.urlopen("http://127.0.0.1:8000/internal/v1/healthz")']
+      test: [CMD, python, -c, 'import json, urllib.request; d = json.load(urllib.request.urlopen("http://127.0.0.1:8000/internal/v1/healthz")); assert d["detector_mode"] == "dev" or d["weights_available"]']
       interval: 10s
       timeout: 3s
       retries: 20
