@@ -184,7 +184,7 @@ func (w *pdfWriter) title(s string) {
 }
 
 // image 嵌入图片文件，按最大宽度等比缩放（mm 单位）。
-func (w *pdfWriter) image(path, format string, pxW, pxH int, maxW float64) error {
+func (w *pdfWriter) image(path, format string, pxW, pxH int, maxW float64, boxes []photoBox) error {
 	f, err := os.Open(path)
 	if err != nil {
 		return err
@@ -210,6 +210,13 @@ func (w *pdfWriter) image(path, format string, pxW, pxH int, maxW float64) error
 	}
 	w.ensure(hgt + 4)
 	w.pdf.Image(name, w.left, w.y, wdt, hgt, false, format, 0, "")
+	if pxW > 0 && pxH > 0 {
+		w.pdf.SetDrawColor(210, 55, 40)
+		w.pdf.SetLineWidth(0.5)
+		for _, box := range boxes {
+			w.pdf.Rect(w.left+box.X1/float64(pxW)*wdt, w.y+box.Y1/float64(pxH)*hgt, (box.X2-box.X1)/float64(pxW)*wdt, (box.Y2-box.Y1)/float64(pxH)*hgt, "D")
+		}
+	}
 	w.y += hgt + 4
 	return nil
 }
@@ -289,7 +296,7 @@ func renderTaskPDF(src *TaskSource, opts renderOpts) ([]byte, error) {
 	}
 	for _, point := range src.Points {
 		if point.Observation != nil {
-			w.photos(point.Observation.Images, opts)
+			w.photos(point.Observation.Images, point.Observation.Conclusions, opts)
 		}
 	}
 
@@ -335,7 +342,7 @@ func renderRangePDF(src *RangeSource, opts renderOpts) ([]byte, error) {
 	}
 
 	for _, observation := range src.Observations {
-		w.photos(observation.Images, opts)
+		w.photos(observation.Images, observation.Conclusions, opts)
 	}
 
 	w.issues(src.Issues, opts)
@@ -435,7 +442,7 @@ func (w *pdfWriter) issues(issues []IssueLinkView, opts renderOpts) {
 			if action.PlannedFollowUpAt != nil {
 				w.text("计划复查："+timeStr(action.PlannedFollowUpAt), 9, 6)
 			}
-			w.photos(action.Images, opts)
+			w.photos(action.Images, nil, opts)
 		}
 	}
 }

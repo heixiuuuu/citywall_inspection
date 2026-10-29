@@ -2,11 +2,25 @@ package report
 
 import (
 	"bytes"
+	"image"
+	"image/png"
 	"os"
+	"path/filepath"
 	"testing"
 )
 
 func TestRenderTaskPDF(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "photo.png")
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := png.Encode(f, image.NewRGBA(image.Rect(0, 0, 64, 48))); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
 	src := &TaskSource{
 		TaskID: 1, Title: "测试任务", AssigneeName: "巡检员", Status: "ASSIGNED",
 		PointTotal: 1,
@@ -14,7 +28,8 @@ func TestRenderTaskPDF(t *testing.T) {
 			{TaskPointID: 1, SequenceNo: 1, PointName: "东城墙起点", PointCode: "E-001",
 				Observation: &ObservationView{
 					ID: 1, Status: "ACCEPTED", Outcome: "SUSPECTED", LocationText: "测试位置",
-					Images: []ImageView{{ID: 10, StorageKey: "none.png", MediaType: "image/png", Width: 64, Height: 48, Role: "OVERVIEW"}},
+					Images:      []ImageView{{ID: 10, StorageKey: "none.png", MediaType: "image/png", Width: 64, Height: 48, Role: "OVERVIEW"}},
+					Conclusions: []ConclusionView{{Items: []ItemView{{ImageID: 10, Decision: "ADD", FinalClassCode: "SURFACE_SPALLING", FinalBoxJSON: `{"x1":10,"y1":10,"x2":50,"y2":40}`}}}},
 				}},
 		},
 	}
@@ -22,7 +37,7 @@ func TestRenderTaskPDF(t *testing.T) {
 		GeneratedBy: "user#1", SnapshotAt: "2026-10-07 12:00:00",
 		FontPath: os.Getenv("CITY_WALL_TEST_FONT"),
 		OpenImage: func(key string) (string, int, int, string, func(), error) {
-			return "none.png", 64, 48, "image/png", func() {}, nil
+			return path, 64, 48, "image/png", func() {}, nil
 		},
 	}
 	data, err := renderTaskPDF(src, opts)
