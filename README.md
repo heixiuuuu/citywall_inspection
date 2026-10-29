@@ -112,7 +112,7 @@ C:\environment\citywall-cuda312\Scripts\python.exe scripts/train_model.py --data
 
 执行 `python scripts/prepare_spalling_tiles.py` 可从该数据集生成局部裁剪数据，保留原图的训练与验证划分，用于训练较小的病害目标。局部裁剪的验证结果不能直接代表整图识别效果。
 
-视觉语言模型使用兼容 Chat Completions 的图像输入接口。配置 .env 中的 VLM_BASE_URL（包含 /v1 等服务前缀）、VLM_MODEL 和 VLM_API_KEY 后重建识别容器。支持不要求 API Key 的本地服务。输出保存于识别尝试中，可在管理端审核页面与报告查看。未配置显示 DISABLED，失败显示 FAILED；不会生成代替模型的分析文本。
+视觉语言模型使用兼容 Chat Completions 的图像输入接口。使用外部服务时，配置 .env 中的 VLM_BASE_URL（包含 /v1 等服务前缀）、VLM_MODEL 和 VLM_API_KEY，并仅使用基础配置启动：`docker compose -f docker-compose.yml up -d --build --wait`。支持不要求 API Key 的本地服务。输出保存于识别尝试中，可在管理端审核页面与报告查看。未配置显示 DISABLED，失败显示 FAILED；不会生成代替模型的分析文本。
 
 本地 NVIDIA GPU 可使用 Docker 内的 Ollama 和 Qwen3-VL 2B：
 
@@ -122,7 +122,7 @@ docker compose -f docker-compose.yml -f docker-compose.vision.yml exec vision ol
 docker compose -f docker-compose.yml -f docker-compose.vision.yml up -d --build --wait
 ```
 
-模型保存在 citywall_vision-data 卷中，识别端通过容器网络调用服务，宿主接口仅绑定 127.0.0.1:11434。下载需要代理时，通过 VLM_DOWNLOAD_PROXY 指定容器可访问的 HTTPS 代理地址，例如 http://host.docker.internal:7897。
+模型保存在 citywall_vision-data 卷中，识别端通过容器网络调用服务，宿主接口仅绑定 127.0.0.1:11434。使用 `docker-compose.vision.yml` 时识别端固定连接该容器，不使用 .env 中的 VLM_BASE_URL 和 VLM_MODEL。下载需要代理时，通过 VLM_DOWNLOAD_PROXY 指定容器可访问的 HTTPS 代理地址，例如 http://host.docker.internal:7897。
 
 ## 验证
 
