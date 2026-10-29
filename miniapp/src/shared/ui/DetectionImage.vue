@@ -7,7 +7,7 @@
       </view>
       <view v-for="(box, index) in manualBoxes" :key="'manual-' + index" class="box manual" :style="boxStyle(box)"><text class="number">人工</text></view>
     </view>
-    <view v-if="drawing && size" class="draw-surface" @tap.stop @touchstart.stop.prevent="startDraw" @touchmove.stop.prevent="moveDraw" @touchend.stop.prevent="endDraw">
+    <view v-if="drawing && size" class="draw-surface" @tap.stop @touchstart.stop.prevent="startDraw" @touchmove.stop.prevent="moveDraw" @touchend.stop.prevent="endDraw" @touchcancel.stop="cancelDraw">
       <view v-if="selection" class="box manual" :style="boxStyle(selection)" />
     </view>
   </view>
@@ -21,8 +21,10 @@ const selection = ref(null)
 const instance = getCurrentInstance()
 let start = null
 let bounds = null
-watch(() => props.src, () => { size.value = null; selection.value = null; start = null })
-watch(() => props.drawing, value => { if (!value) { selection.value = null; start = null } })
+let gesture = 0
+function cancelDraw() { gesture++; selection.value = null; start = null; bounds = null }
+watch(() => props.src, () => { size.value = null; cancelDraw() })
+watch(() => props.drawing, value => { if (!value) cancelDraw() })
 function loaded(event) {
   const { width, height } = event.detail
   size.value = width > 0 && height > 0 ? { width, height } : null
@@ -35,7 +37,7 @@ function boxStyle(box) {
   return { left: `${left / width * 100}%`, top: `${top / height * 100}%`, width: `${Math.max(0, right - left) / width * 100}%`, height: `${Math.max(0, bottom - top) / height * 100}%` }
 }
 function point(touch) {
-  if (!touch || !bounds || !size.value) return null
+  if (!touch || !bounds || !size.value || !Number.isFinite(touch.clientX) || !Number.isFinite(touch.clientY)) return null
   const x = Math.max(0, Math.min(1, (touch.clientX - bounds.left) / bounds.width))
   const y = Math.max(0, Math.min(1, (touch.clientY - bounds.top) / bounds.height))
   return { x: Math.round(x * size.value.width), y: Math.round(y * size.value.height) }
@@ -43,9 +45,11 @@ function point(touch) {
 function startDraw(event) {
   const current = event.touches?.[0]
   if (!current) return
+  cancelDraw()
+  const currentGesture = gesture
   const touch = { clientX: current.clientX, clientY: current.clientY }
   uni.createSelectorQuery().in(instance.proxy).select('.draw-surface').boundingClientRect(rect => {
-    if (!rect?.width || !rect?.height || !props.drawing) return
+    if (gesture !== currentGesture || !rect?.width || !rect?.height || !props.drawing) return
     bounds = rect
     start = point(touch)
     selection.value = start ? { x1: start.x, y1: start.y, x2: start.x, y2: start.y } : null
@@ -59,9 +63,9 @@ function moveDraw(event) {
 function endDraw(event) {
   if (event.changedTouches?.[0]) moveDraw({ touches: event.changedTouches })
   const box = selection.value
-  start = null
+  cancelDraw()
   if (box && box.x2 > box.x1 && box.y2 > box.y1) emit('draw', box)
-  else { selection.value = null; uni.showToast({ title: '请拖动框选病害位置', icon: 'none' }) }
+  else uni.showToast({ title: '请拖动框选病害位置', icon: 'none' })
 }
 </script>
 <style scoped>
@@ -69,7 +73,7 @@ function endDraw(event) {
 .photo { display: block; width: 100%; }
 .boxes { position: absolute; inset: 0; pointer-events: none; }
 .draw-surface { position: absolute; inset: 0; touch-action: none; }
-.manual { border-color: #e15d48; background: rgba(225, 93, 72, .12); pointer-events: none; }
 .box { position: absolute; box-sizing: border-box; border: 2px solid var(--box-color); }
+.manual { border-color: #e15d48; background: rgba(225, 93, 72, .12); pointer-events: none; }
 .number { position: absolute; top: 0; left: 0; padding: 0 6rpx; color: var(--box-label); background: var(--box-color); font-size: 22rpx; line-height: 1.4; font-variant-numeric: tabular-nums; }
 </style>
