@@ -29,6 +29,7 @@ class RecognitionConfig:
     specialist_class_codes: list[str] = field(default_factory=list)
     spalling_weights_path: str = ""
     spalling_confidence_threshold: float | None = None
+    spalling_tile_size: int = 0
     max_image_bytes: int = 10 * 1024 * 1024
     allowed_formats: list[str] = field(default_factory=lambda: ["jpeg", "png", "webp"])
 
@@ -105,6 +106,8 @@ def load_settings() -> Settings:
         raise ValueError("specialist weights and class codes must be configured together")
     if s.recognition.spalling_confidence_threshold is not None and not 0 < s.recognition.spalling_confidence_threshold <= 1:
         raise ValueError("spalling confidence threshold must be in (0, 1]")
+    if s.recognition.spalling_tile_size != 0 and s.recognition.spalling_tile_size < 64:
+        raise ValueError("spalling tile size must be zero or at least 64")
     return s
 
 

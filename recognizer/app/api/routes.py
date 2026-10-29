@@ -21,6 +21,7 @@ from ..service import RecognitionService
 from ..models.fixed import FixedDetector
 from ..models.yolo import DetectorError, YOLODetector
 from ..models.routed import ClassRoutedDetector
+from ..models.tiled import TiledDetector
 from ..images import ImageValidationError
 from ..vision import VisionAnalyzer
 from ..models.yolo import resolve_weights_path
@@ -46,13 +47,16 @@ def _build_detector():
                 required_class_codes=frozenset(settings.recognition.specialist_class_codes),
             ), frozenset(settings.recognition.specialist_class_codes))
         if settings.recognition.spalling_weights_path:
-            detector = ClassRoutedDetector(detector, YOLODetector(
+            spalling = YOLODetector(
                 weights_path=settings.recognition.spalling_weights_path,
                 confidence_threshold=(settings.recognition.spalling_confidence_threshold
                                       if settings.recognition.spalling_confidence_threshold is not None
                                       else settings.recognition.confidence_threshold),
                 required_class_codes=frozenset({"SURFACE_SPALLING"}),
-            ), frozenset({"SURFACE_SPALLING"}))
+            )
+            if settings.recognition.spalling_tile_size:
+                spalling = TiledDetector(spalling, settings.recognition.spalling_tile_size)
+            detector = ClassRoutedDetector(detector, spalling, frozenset({"SURFACE_SPALLING"}))
         return detector
     return FixedDetector(detections=[])
 
