@@ -17,15 +17,13 @@
 
 ## Docker 启动
 
-安装并启动 Docker Desktop，在仓库根目录执行：
+安装并启动 Docker Desktop，在仓库根目录执行完整启动命令（本地视觉模型需要 NVIDIA GPU）：
 
 ```powershell
-Copy-Item .env.example .env
-docker compose up -d --build --wait
-docker compose ps
+powershell -ExecutionPolicy Bypass -File scripts/start.ps1
 ```
 
-管理端：[http://localhost:5173](http://localhost:5173)。业务 API：[http://localhost:8080/healthz](http://localhost:8080/healthz)。MySQL 仅绑定本机，数据卷名为 citywall_mysql-data，图片与报告卷名为 citywall_server-data。端口冲突时在 .env 修改 MYSQL_PORT、SERVER_PORT 或 WEB_PORT。
+首次启动会创建 .env 并在缺少视觉模型时下载模型；已有镜像可使用 `scripts/start.ps1 -SkipBuild`。管理端：[http://localhost:5173](http://localhost:5173)。业务 API：[http://localhost:8080/healthz](http://localhost:8080/healthz)。MySQL 仅绑定本机，数据卷名为 citywall_mysql-data，图片与报告卷名为 citywall_server-data。端口冲突时在 .env 修改 MYSQL_PORT、SERVER_PORT 或 WEB_PORT。
 
 | 账号 | 密码 | 角色 |
 | --- | --- | --- |
@@ -35,7 +33,7 @@ docker compose ps
 
 这些是本地演示账号。部署到外部网络前需更换账号密码、JWT_SECRET、数据库密码及内部服务令牌。
 
-停止服务执行 `docker compose down`，保留数据卷。删除数据卷会清除业务数据。
+停止完整服务执行 `docker compose -f docker-compose.yml -f docker-compose.vision.yml down`，保留数据卷。删除数据卷会清除业务数据。
 
 ## 巡检端
 
