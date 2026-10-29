@@ -110,6 +110,8 @@ C:\environment\citywall-cuda312\Scripts\python.exe scripts/train_model.py --data
 
 表面剥落候选训练集可通过 `python scripts/prepare_cif_spalling.py` 准备。该脚本从 [CIF 数据集](https://huggingface.co/datasets/ibm-research/cif-dataset) 的固定版本读取独立 Spalling 标注，按来源训练、验证划分生成单类别框和负样本，并保存文件哈希与来源清单。该数据许可为 CDLA-Permissive-2.0，场景主要为现代基础设施；对古城墙砖石的识别效果需结合项目资料核验。
 
+执行 `python scripts/prepare_spalling_tiles.py` 可从该数据集生成局部裁剪数据，保留原图的训练与验证划分，用于训练较小的病害目标。局部裁剪的验证结果不能直接代表整图识别效果。
+
 视觉语言模型使用兼容 Chat Completions 的图像输入接口。配置 .env 中的 VLM_BASE_URL（包含 /v1 等服务前缀）、VLM_MODEL 和 VLM_API_KEY 后重建识别容器。支持不要求 API Key 的本地服务。输出保存于识别尝试中，可在管理端审核页面与报告查看。未配置显示 DISABLED，失败显示 FAILED；不会生成代替模型的分析文本。
 
 本地 NVIDIA GPU 可使用 Docker 内的 Ollama 和 Qwen3-VL 2B：
