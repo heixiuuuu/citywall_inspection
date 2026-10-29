@@ -372,6 +372,16 @@ func (f *fakeStorage) Open(relKey string) (*os.File, error) {
 	return os.CreateTemp("", "cw-test-*")
 }
 
+func (f *fakeStorage) RemoveImage(key string) error {
+	for index, current := range f.keys {
+		if current == key {
+			f.keys = append(f.keys[:index], f.keys[index+1:]...)
+			break
+		}
+	}
+	return nil
+}
+
 type fakeRecognizer struct {
 	res *recognizer.Result
 	err error

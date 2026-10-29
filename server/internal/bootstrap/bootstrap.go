@@ -7,7 +7,6 @@ import (
 	"encoding/hex"
 	"log"
 	"net/http"
-	"os"
 
 	"github.com/gin-gonic/gin"
 
@@ -160,17 +159,7 @@ func (a *issueImageStore) Save(data []byte, mediaType string) (string, string, e
 }
 
 func (a *issueImageStore) Discard(key string) {
-	f, err := a.st.Open(key)
-	if err != nil {
-		log.Printf("open uncommitted issue image: %v", err)
-		return
-	}
-	name := f.Name()
-	if err := f.Close(); err != nil {
-		log.Printf("close uncommitted issue image: %v", err)
-		return
-	}
-	if err := os.Remove(name); err != nil {
+	if err := a.st.RemoveImage(key); err != nil {
 		log.Printf("remove uncommitted issue image: %v", err)
 	}
 }

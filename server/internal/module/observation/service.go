@@ -58,6 +58,7 @@ var (
 type Storage interface {
 	SaveImage(data []byte, mediaType string) (string, error)
 	Open(relKey string) (*os.File, error)
+	RemoveImage(relKey string) error
 }
 
 // RecognizerClient 抽象识别客户端。
@@ -320,6 +321,31 @@ func (s *service) AddImage(ctx context.Context, actor *middleware.Actor, obsID i
 			s.idemMu.Unlock()
 		}
 	}
+	var savedKey string
+	img, err := transactionValue(ctx, s, func(tx *service) (*Image, error) {
+		return tx.addImage(ctx, actor, obsID, mediaType, data, role, &savedKey)
+	})
+	if err != nil {
+		if savedKey != "" {
+			if discardErr := s.storage.RemoveImage(savedKey); discardErr != nil {
+				err = errors.Join(err, fmt.Errorf("discard uncommitted image: %w", discardErr))
+			}
+		}
+		return nil, err
+	}
+	if idempotencyKey != "" {
+		if s.idemStore != nil {
+			_ = s.idemStore.RecordIdempotent(ctx, actor.UserID, "upload_image", idempotencyKey, sha256Hex(data))
+		} else {
+			s.idemMu.Lock()
+			s.idemResults[idempotencyKey] = idemResult{img: img}
+			s.idemMu.Unlock()
+		}
+	}
+	return img, nil
+}
+
+func (s *service) addImage(ctx context.Context, actor *middleware.Actor, obsID int64, mediaType string, data []byte, role string, savedKey *string) (*Image, error) {
 	o, err := s.repo.GetByID(ctx, obsID)
 	if err != nil {
 		return nil, ErrNotFound
@@ -341,6 +367,7 @@ func (s *service) AddImage(ctx context.Context, actor *middleware.Actor, obsID i
 	if err != nil {
 		return nil, err
 	}
+	*savedKey = key
 	w, h := imageSize(data)
 	img := &Image{
 		StorageKey: key,
@@ -356,15 +383,6 @@ func (s *service) AddImage(ctx context.Context, actor *middleware.Actor, obsID i
 	}
 	if err := s.repo.LinkImage(ctx, obsID, img.ID, role); err != nil {
 		return nil, err
-	}
-	if idempotencyKey != "" {
-		if s.idemStore != nil {
-			_ = s.idemStore.RecordIdempotent(ctx, actor.UserID, "upload_image", idempotencyKey, sha256Hex(data))
-		} else {
-			s.idemMu.Lock()
-			s.idemResults[idempotencyKey] = idemResult{img: img}
-			s.idemMu.Unlock()
-		}
 	}
 	return img, nil
 }

@@ -26,6 +26,7 @@ type Storage interface {
 	SaveImage(data []byte, mediaType string) (string, error)
 	// Open 读取受控目录下的文件（调用方负责鉴权）。
 	Open(relKey string) (*os.File, error)
+	RemoveImage(relKey string) error
 	// SaveReport 将报告字节写入受控报告目录，返回相对 key。
 	SaveReport(data []byte) (string, error)
 	// OpenReport 读取受控报告目录下的文件（调用方负责鉴权）。
@@ -73,6 +74,21 @@ func (s *LocalStorage) SaveImage(data []byte, mediaType string) (string, error) 
 // Open 打开受控目录下的文件。路径穿越防护：仅允许 base 内的相对路径。
 func (s *LocalStorage) Open(relKey string) (*os.File, error) {
 	return openIn(s.cfg.ImageDir, relKey)
+}
+
+func (s *LocalStorage) RemoveImage(relKey string) error {
+	file, err := s.Open(relKey)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	name := file.Name()
+	if err := file.Close(); err != nil {
+		return err
+	}
+	return os.Remove(name)
 }
 
 // SaveReport 落盘 PDF 报告（随机名，防枚举）。
