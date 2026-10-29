@@ -34,6 +34,10 @@
               <rect :x="d.x1" :y="d.y1" :width="d.x2-d.x1" :height="d.y2-d.y1" fill="none" stroke="#ffd54f" stroke-width="2" vector-effect="non-scaling-stroke" />
               <text :x="d.x1" :y="Math.max(18, d.y1-5)" fill="#ffd54f" stroke="#222" stroke-width="0.6" paint-order="stroke" :font-size="Math.max(14, sizes[img.id][0]/45)">{{ categoryLabel(d.class_code) }} {{ (d.confidence*100).toFixed(1) }}%</text>
             </g>
+            <g v-for="box in manualBoxes(img.id)" :key="box.id">
+              <rect :x="box.x1" :y="box.y1" :width="box.x2-box.x1" :height="box.y2-box.y1" fill="none" stroke="#e15d48" stroke-width="2" vector-effect="non-scaling-stroke" />
+              <text :x="box.x1" :y="Math.max(18, box.y1-5)" fill="#e15d48" stroke="#222" stroke-width="0.6" paint-order="stroke" :font-size="Math.max(14, sizes[img.id][0]/45)">人工 · {{ categoryLabel(box.classCode) }}</text>
+            </g>
           </svg>
         </div>
         <el-alert v-else title="照片加载失败" type="warning" :closable="false" />
@@ -88,6 +92,17 @@ const locationWarning = computed(() => [
   location.value?.accuracy_m != null && location.value.accuracy_m > 30 ? '定位精度较低，请复核位置' : '',
 ].filter(Boolean).join('；'))
 const conclusions = computed(() => evidence.value?.conclusions.filter(conclusion => !snapshot.value || conclusion.id === snapshot.value.conclusion_revision_id) ?? [])
+function manualBoxes(imageId: number) {
+  const current = conclusions.value[conclusions.value.length - 1]
+  if (!current) return []
+  return (evidence.value?.items ?? []).filter(item => item.conclusion_revision_id === current.id && item.image_id === imageId && item.decision === 'ADD' && item.final_box_json).flatMap(item => {
+    try {
+      const box = JSON.parse(item.final_box_json)
+      if (!['x1', 'y1', 'x2', 'y2'].every(key => typeof box[key] === 'number' && Number.isFinite(box[key]))) return []
+      return [{ id: item.id, classCode: item.final_class_code, x1: box.x1 as number, y1: box.y1 as number, x2: box.x2 as number, y2: box.y2 as number }]
+    } catch { return [] }
+  })
+}
 const reviews = computed(() => evidence.value?.reviews.filter(review => !snapshot.value || review.submission_id === snapshot.value.id) ?? [])
 const images = ref<(ObservationImageMeta & { url: string })[]>([])
 const selected = reactive<Record<number, number>>({})

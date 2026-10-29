@@ -60,7 +60,7 @@ export interface Evidence {
   attempts: RecognitionAttempt[]
   detections: Detection[]
   conclusions: ConclusionRevision[]
-  items: { id: number; conclusion_revision_id: number; image_id: number; decision: string; final_class_code: string; description: string }[]
+  items: { id: number; conclusion_revision_id: number; image_id: number; decision: string; final_class_code: string; final_box_json: string; description: string }[]
   reviews: { id: number; submission_id: number; decision: string; reason: string; disposition: string; created_at: string }[]
 }
 
