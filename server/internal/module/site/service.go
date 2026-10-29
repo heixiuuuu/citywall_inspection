@@ -5,6 +5,7 @@ package site
 import (
 	"context"
 	"errors"
+	"math"
 	"strings"
 	"time"
 )
@@ -49,14 +50,14 @@ func (InspectionPoint) TableName() string { return "inspection_points" }
 
 // CreatePointInput 创建点位入参。
 type CreatePointInput struct {
-	SegmentID    int64   `json:"segment_id" binding:"required"`
-	Code         string  `json:"code" binding:"required"`
-	Name         string  `json:"name" binding:"required"`
-	Latitude     float64 `json:"latitude"`
-	Longitude    float64 `json:"longitude"`
-	RadiusM      float64 `json:"radius_m"`
-	LocationHint string  `json:"location_hint"`
-	Active       *bool   `json:"active"`
+	SegmentID    int64    `json:"segment_id" binding:"required"`
+	Code         string   `json:"code" binding:"required"`
+	Name         string   `json:"name" binding:"required"`
+	Latitude     *float64 `json:"latitude" binding:"required"`
+	Longitude    *float64 `json:"longitude" binding:"required"`
+	RadiusM      float64  `json:"radius_m"`
+	LocationHint string   `json:"location_hint"`
+	Active       *bool    `json:"active"`
 }
 
 type SegmentInput struct {
@@ -113,8 +114,8 @@ func (s *service) CreatePoint(ctx context.Context, in CreatePointInput) (*Inspec
 		SegmentID:    in.SegmentID,
 		Code:         in.Code,
 		Name:         in.Name,
-		Latitude:     in.Latitude,
-		Longitude:    in.Longitude,
+		Latitude:     *in.Latitude,
+		Longitude:    *in.Longitude,
 		RadiusM:      in.RadiusM,
 		LocationHint: in.LocationHint,
 		Active:       true,
@@ -130,8 +131,9 @@ func (s *service) CreatePoint(ctx context.Context, in CreatePointInput) (*Inspec
 
 func (s *service) validatePoint(ctx context.Context, in *CreatePointInput) error {
 	in.Code, in.Name = strings.TrimSpace(in.Code), strings.TrimSpace(in.Name)
-	if in.Code == "" || len(in.Code) > 64 || in.Name == "" || len([]rune(in.Name)) > 128 ||
-		in.Latitude < -90 || in.Latitude > 90 || in.Longitude < -180 || in.Longitude > 180 ||
+	if in.Code == "" || len([]rune(in.Code)) > 32 || in.Name == "" || len([]rune(in.Name)) > 128 || len([]rune(in.LocationHint)) > 255 ||
+		in.Latitude == nil || in.Longitude == nil || math.IsNaN(*in.Latitude) || math.IsNaN(*in.Longitude) || math.IsNaN(in.RadiusM) ||
+		*in.Latitude < -90 || *in.Latitude > 90 || *in.Longitude < -180 || *in.Longitude > 180 ||
 		in.RadiusM < 0 || in.RadiusM > 500 {
 		return ErrInvalidInput
 	}
@@ -153,7 +155,7 @@ func (s *service) UpdatePoint(ctx context.Context, id int64, in CreatePointInput
 		return nil, ErrPointNotFound
 	}
 	p.SegmentID, p.Code, p.Name = in.SegmentID, in.Code, in.Name
-	p.Latitude, p.Longitude, p.RadiusM, p.LocationHint = in.Latitude, in.Longitude, in.RadiusM, in.LocationHint
+	p.Latitude, p.Longitude, p.RadiusM, p.LocationHint = *in.Latitude, *in.Longitude, in.RadiusM, in.LocationHint
 	if in.Active != nil {
 		p.Active = *in.Active
 	}
@@ -165,7 +167,7 @@ func (s *service) UpdatePoint(ctx context.Context, id int64, in CreatePointInput
 
 func (s *service) saveSegment(ctx context.Context, segment *WallSegment, in SegmentInput) (*WallSegment, error) {
 	in.Code, in.Name = strings.TrimSpace(in.Code), strings.TrimSpace(in.Name)
-	if in.Code == "" || len(in.Code) > 64 || in.Name == "" || len([]rune(in.Name)) > 128 {
+	if in.Code == "" || len([]rune(in.Code)) > 32 || in.Name == "" || len([]rune(in.Name)) > 128 || len([]rune(in.Description)) > 512 {
 		return nil, ErrInvalidInput
 	}
 	segment.Code, segment.Name, segment.Description = in.Code, in.Name, in.Description

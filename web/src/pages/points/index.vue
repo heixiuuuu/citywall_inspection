@@ -31,21 +31,21 @@
     <el-dialog v-model="pointVisible" :title="pointId ? '编辑点位' : '新建点位'" width="560">
       <el-form label-width="100px">
         <el-form-item label="区段" required><el-select v-model="pointForm.segment_id"><el-option v-for="s in segments" :key="s.id" :label="s.name" :value="s.id" /></el-select></el-form-item>
-        <el-form-item label="编码" required><el-input v-model="pointForm.code" maxlength="64" /></el-form-item>
+        <el-form-item label="编码" required><el-input v-model="pointForm.code" maxlength="32" /></el-form-item>
         <el-form-item label="名称" required><el-input v-model="pointForm.name" maxlength="128" /></el-form-item>
-        <el-form-item label="纬度"><el-input-number v-model="pointForm.latitude" :min="-90" :max="90" :precision="7" /></el-form-item>
-        <el-form-item label="经度"><el-input-number v-model="pointForm.longitude" :min="-180" :max="180" :precision="7" /></el-form-item>
+        <el-form-item label="纬度" required><el-input-number v-model="pointForm.latitude" :min="-90" :max="90" :precision="7" placeholder="请输入纬度" /></el-form-item>
+        <el-form-item label="经度" required><el-input-number v-model="pointForm.longitude" :min="-180" :max="180" :precision="7" placeholder="请输入经度" /></el-form-item>
         <el-form-item label="定位半径(m)"><el-input-number v-model="pointForm.radius_m" :min="1" :max="500" /></el-form-item>
-        <el-form-item label="位置提示"><el-input v-model="pointForm.location_hint" /></el-form-item>
+        <el-form-item label="位置提示"><el-input v-model="pointForm.location_hint" maxlength="255" /></el-form-item>
         <el-form-item label="启用"><el-switch v-model="pointForm.active" /></el-form-item>
       </el-form>
       <template #footer><el-button @click="pointVisible = false">取消</el-button><el-button type="primary" :loading="saving" @click="submitPoint">保存</el-button></template>
     </el-dialog>
     <el-dialog v-model="segmentVisible" :title="segmentId ? '编辑城墙档案' : '新建城墙档案'" width="560">
       <el-form label-width="100px">
-        <el-form-item label="编码" required><el-input v-model="segmentForm.code" maxlength="64" /></el-form-item>
+        <el-form-item label="编码" required><el-input v-model="segmentForm.code" maxlength="32" /></el-form-item>
         <el-form-item label="区段名称" required><el-input v-model="segmentForm.name" maxlength="128" /></el-form-item>
-        <el-form-item label="档案说明"><el-input v-model="segmentForm.description" type="textarea" :rows="5" placeholder="位置范围、可见特征及巡检注意事项" /></el-form-item>
+        <el-form-item label="档案说明"><el-input v-model="segmentForm.description" type="textarea" :rows="5" maxlength="512" placeholder="位置范围、可见特征及巡检注意事项" /></el-form-item>
         <el-form-item label="启用"><el-switch v-model="segmentForm.active" /></el-form-item>
       </el-form>
       <template #footer><el-button @click="segmentVisible = false">取消</el-button><el-button type="primary" :loading="saving" @click="submitSegment">保存</el-button></template>
@@ -64,7 +64,7 @@ const pointVisible = ref(false)
 const segmentVisible = ref(false)
 const pointId = ref<number | null>(null)
 const segmentId = ref<number | null>(null)
-const pointForm = reactive({ segment_id: 0, code: '', name: '', latitude: 28.84, longitude: 121.13, radius_m: 50, location_hint: '', active: true })
+const pointForm = reactive({ segment_id: 0, code: '', name: '', latitude: null as number | null, longitude: null as number | null, radius_m: 50, location_hint: '', active: true })
 const segmentForm = reactive({ code: '', name: '', description: '', active: true })
 async function load() {
   loading.value = true
@@ -74,7 +74,7 @@ async function load() {
 }
 function editPoint(point?: InspectionPoint) {
   pointId.value = point?.id ?? null
-  Object.assign(pointForm, point ? { ...point, radius_m: point.radius_m ?? 50, location_hint: point.location_hint ?? '' } : { segment_id: segments.value[0]?.id ?? 0, code: '', name: '', latitude: 28.84, longitude: 121.13, radius_m: 50, location_hint: '', active: true })
+  Object.assign(pointForm, point ? { ...point, radius_m: point.radius_m ?? 50, location_hint: point.location_hint ?? '' } : { segment_id: segments.value[0]?.id ?? 0, code: '', name: '', latitude: null, longitude: null, radius_m: 50, location_hint: '', active: true })
   pointVisible.value = true
 }
 function editSegment(segment?: WallSegment) {
@@ -84,10 +84,13 @@ function editSegment(segment?: WallSegment) {
 }
 async function submitPoint() {
   if (!pointForm.segment_id || !pointForm.code.trim() || !pointForm.name.trim()) { ElMessage.warning('请填写区段、编码和名称'); return }
+  const { latitude, longitude } = pointForm
+  if (latitude == null || longitude == null || !Number.isFinite(latitude) || !Number.isFinite(longitude)) { ElMessage.warning('请填写有效的经纬度'); return }
+  const payload = { ...pointForm, latitude, longitude }
   saving.value = true
   try {
-    if (pointId.value) await updatePoint(pointId.value, pointForm)
-    else await createPoint(pointForm)
+    if (pointId.value) await updatePoint(pointId.value, payload)
+    else await createPoint(payload)
     pointVisible.value = false; ElMessage.success('点位已保存'); await load()
   } catch (e) { ElMessage.error(e instanceof Error ? e.message : '保存失败') }
   finally { saving.value = false }
