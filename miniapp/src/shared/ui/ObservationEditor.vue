@@ -53,13 +53,15 @@
       <view class="field-label">
         视觉识别 <text class="faint">候选仅作参考，不替代人工结论</text>
       </view>
-      <DetectionImage v-if="selectedImage.localPath" :src="selectedImage.localPath" :boxes="detections" @preview="previewImage" />
+      <DetectionImage v-if="selectedImage.localPath" :src="selectedImage.localPath" :boxes="detections" :manual-boxes="manualBoxes" :drawing="drawing" @draw="addBoxedConclusion" @preview="previewImage" />
       <view v-else class="detect-note">照片预览加载失败，请返回记录后重试。</view>
       <view class="detect-note">
         {{ selectedImage.role === 'OVERVIEW' ? '概览' : '细节' }} #{{ selectedImageId }} · {{ attempt ? (attempt.status === 'SUCCEEDED' ? `候选 ${detections.length} 个` : attempt.status === 'FAILED' ? '识别失败' : '识别中') : '尚未识别' }}
         <view v-if="attempt">{{ attempt.model_version || attempt.error_code }} · 未检出不代表正常</view>
       </view>
       <button class="btn-ghost" :disabled="busy" :loading="recognizing" @tap="runRecognition">{{ recognizing ? '正在识别' : '识别当前照片' }}</button>
+      <button class="btn-ghost" :disabled="busy || !selectedImage.localPath" @tap="drawing = !drawing">{{ drawing ? '取消框选' : '框选补录病害' }}</button>
+      <view v-if="drawing" class="faint">在照片上拖动框选病害位置</view>
       <view v-if="visionAnalysis?.status === 'SUCCEEDED'" class="detect-note analysis">
         <view>{{ visionAnalysis.description }}</view>
         <view>可能成因：{{ visionAnalysis.possible_causes.join('；') || '无法判断' }}</view>
@@ -149,10 +151,14 @@ const overall = ref('UNDETERMINED')
 const overallNote = ref('')
 const conclusionItems = ref([])
 const selectedImageId = ref(null)
+const drawing = ref(false)
 const recognitionByImage = ref({})
 const selectedImage = computed(() => images.value.find(image => image.imageId === selectedImageId.value))
 const attempt = computed(() => recognitionByImage.value[selectedImageId.value]?.attempt)
 const detections = computed(() => recognitionByImage.value[selectedImageId.value]?.detections || [])
+const manualBoxes = computed(() => conclusionItems.value.filter(item => item.imageId === selectedImageId.value && item.decision === 'ADD' && item.final_box_json).flatMap(item => {
+  try { return [JSON.parse(item.final_box_json)] } catch { return [] }
+}))
 const visionAnalysis = computed(() => { try { return JSON.parse(attempt.value?.analysis_json || 'null') } catch { return null } })
 const recognizing = ref(false)
 const submitting = ref(false)
@@ -337,6 +343,14 @@ function addConclusion() {
     final_class_code: '',
     description: '',
   })
+}
+
+function addBoxedConclusion(box) {
+  const image = selectedImage.value
+  if (!image) return
+  conclusionItems.value.push({ imageId: image.imageId, thumb: image.localPath, decision: 'ADD', final_class_code: '', description: '', final_box_json: JSON.stringify(box) })
+  drawing.value = false
+  uni.showToast({ title: '已框选，请选择病害类别', icon: 'none' })
 }
 
 function previewImage(current) { uni.previewImage({ current, urls: images.value.map(image => image.localPath).filter(Boolean) }) }

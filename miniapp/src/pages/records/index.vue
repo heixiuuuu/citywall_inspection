@@ -34,7 +34,7 @@
           <view class="title">现场照片</view>
           <view v-if="!images.length" class="muted">暂无照片</view>
           <view v-for="image in images" :key="image.imageId" class="item">
-            <DetectionImage v-if="image.localPath" :src="image.localPath" :boxes="latestDetections(image.imageId)" @preview="preview" />
+            <DetectionImage v-if="image.localPath" :src="image.localPath" :boxes="latestDetections(image.imageId)" :manual-boxes="manualBoxes(image.imageId)" @preview="preview" />
             <view v-else class="muted">图片加载失败</view>
             <view class="muted">{{ image.role === 'OVERVIEW' ? '概览' : image.role === 'DETAIL' ? '细节' : '历史照片' }} #{{ image.imageId }}</view>
           </view>
@@ -112,6 +112,13 @@ const locationWarning = computed(() => [
 ].filter(Boolean).join('；'))
 const shownReviews = computed(() => (evidence.value?.reviews || []).filter(review => !snapshot.value || review.submission_id === snapshot.value.id))
 const shownConclusions = computed(() => (evidence.value?.conclusions || []).filter(conclusion => !snapshot.value || conclusion.id === snapshot.value.conclusion_revision_id))
+function manualBoxes(imageId) {
+  const current = shownConclusions.value[shownConclusions.value.length - 1]
+  if (!current) return []
+  return (evidence.value?.items || []).filter(item => item.conclusion_revision_id === current.id && item.image_id === imageId && item.decision === 'ADD' && item.final_box_json).flatMap(item => {
+    try { return [JSON.parse(item.final_box_json)] } catch { return [] }
+  })
+}
 const shownAttempts = computed(() => (evidence.value?.attempts || []).filter(attempt => images.value.some(image => image.imageId === attempt.image_id) && (!snapshot.value || attempt.finished_at && Date.parse(attempt.finished_at) <= Date.parse(snapshot.value.submitted_at))))
 let generation = 0
 const hasMore = computed(() => records.value.length < total.value)
