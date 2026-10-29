@@ -41,8 +41,8 @@
           v-for="o in outcomes"
           :key="o.value"
           class="pill"
-          :class="{ on: outcome === o.value }"
-          @tap="outcome = o.value"
+          :class="{ on: overall === o.value }"
+          @tap="overall = o.value"
         >
           {{ o.label }}
         </view>
@@ -98,18 +98,7 @@
     </view>
 
     <view class="field">
-      <view class="field-label">总体结论</view>
-      <view class="pill-row">
-        <view
-          v-for="o in outcomes"
-          :key="'o' + o.value"
-          class="pill"
-          :class="{ on: overall === o.value }"
-          @tap="overall = o.value"
-        >
-          {{ o.label }}
-        </view>
-      </view>
+      <view class="field-label">补充说明</view>
       <view v-if="voluntary" class="description-label">现场描述 <text class="req">必填</text></view>
       <textarea class="input" v-model="overallNote" :placeholder="voluntary ? '描述发现的病害或异常情况' : '补充说明（可选）'" />
     </view>
@@ -156,7 +145,6 @@ const obs = ref(null)
 const images = ref([])
 const locationText = ref('')
 const location = ref(null)
-const outcome = ref(null)
 const overall = ref('UNDETERMINED')
 const overallNote = ref('')
 const conclusionItems = ref([])
@@ -240,7 +228,7 @@ async function loadExisting(id) {
     obs.value = record
     images.value = loaded.images
     locationText.value = record.location_text
-    outcome.value = record.inspection_outcome
+    overall.value = record.inspection_outcome || 'UNDETERMINED'
     if (record.latitude != null && record.longitude != null) {
       location.value = { latitude: record.latitude, longitude: record.longitude, accuracy_m: record.accuracy_m, captured_at: record.captured_at }
     }
@@ -367,7 +355,7 @@ async function persistDraft() {
   const updated = await updateObservation(obs.value.id, obs.value.revision, {
     ...(location.value || {}),
     location_text: locationText.value.trim() || '未填写',
-    inspection_outcome: outcome.value || overall.value,
+    inspection_outcome: overall.value,
   })
   obs.value = updated.data.observation
   await saveConclusion(obs.value.id, obs.value.revision, {
