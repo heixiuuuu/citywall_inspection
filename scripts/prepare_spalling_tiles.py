@@ -44,7 +44,8 @@ def main():
     source_manifest_bytes = source_manifest.read_bytes()
     output.mkdir(parents=True, exist_ok=False)
     seen = {}
-    manifest = {"source_manifest_sha256": hashlib.sha256(source_manifest_bytes).hexdigest(), "tile_size": args.size, "splits": {}}
+    manifest = {"source_manifest_sha256": hashlib.sha256(source_manifest_bytes).hexdigest(), "tile_size": args.size,
+                "positive_tiles": args.positive_tiles, "background_tiles": args.background_tiles, "splits": {}}
     for split in ("train", "val"):
         (output / "images" / split).mkdir(parents=True)
         (output / "labels" / split).mkdir(parents=True)
