@@ -112,6 +112,8 @@ C:\environment\citywall-cuda312\Scripts\python.exe scripts/train_model.py --data
 
 执行 `python scripts/prepare_spalling_tiles.py` 可从该数据集生成局部裁剪数据，保留原图的训练与验证划分，用于训练较小的病害目标。局部裁剪的验证结果不能直接代表整图识别效果。
 
+裁剪时可传入 `--background-tiles 1`，从训练正样本图中额外选择不包含已标注剥落框的局部背景，帮助学习易混淆的表面纹理；验证集不增加此类裁剪。
+
 视觉语言模型使用兼容 Chat Completions 的图像输入接口。使用外部服务时，配置 .env 中的 VLM_BASE_URL（包含 /v1 等服务前缀）、VLM_MODEL 和 VLM_API_KEY，并仅使用基础配置启动：`docker compose -f docker-compose.yml up -d --build --wait`。支持不要求 API Key 的本地服务。输出保存于识别尝试中，可在管理端审核页面与报告查看。未配置显示 DISABLED，失败显示 FAILED；不会生成代替模型的分析文本。
 
 本地 NVIDIA GPU 可使用 Docker 内的 Ollama 和 Qwen3-VL 2B：

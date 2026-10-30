@@ -33,8 +33,9 @@ def main():
     parser.add_argument("--output", type=Path, default=Path("data/yolo/dataset_cif_spalling_tiles"))
     parser.add_argument("--size", type=int, default=1280)
     parser.add_argument("--positive-tiles", type=int, default=3)
+    parser.add_argument("--background-tiles", type=int, default=0)
     args = parser.parse_args()
-    if args.size < 64 or args.positive_tiles < 1:
+    if args.size < 64 or args.positive_tiles < 1 or args.background_tiles < 0:
         parser.error("invalid crop settings")
     source, output = args.source.resolve(), args.output.resolve()
     if output == source or source in output.parents:
@@ -64,10 +65,23 @@ def main():
                 count = min(args.positive_tiles, len(boxes))
                 indices = [0] if count == 1 else [i * (len(boxes)-1) // (count-1) for i in range(count)]
                 centers = [((boxes[i][0]+boxes[i][2])/2, (boxes[i][1]+boxes[i][3])/2) for i in indices]
+                if split == "train" and args.background_tiles:
+                    candidates = [(width * x / 4, height * y / 4) for y in (1, 2, 3) for x in (1, 2, 3)]
+                    candidates.sort(key=lambda point: hashlib.sha256(f"{path.stem}:{point}".encode()).digest())
+                    background_crops = set()
+                    for x, y in candidates:
+                        left, right = bounds(x, width, args.size)
+                        top, bottom = bounds(y, height, args.size)
+                        crop = (left, top, right, bottom)
+                        if crop not in background_crops and not labels_in_crop(boxes, crop):
+                            background_crops.add(crop)
+                            centers.append((x, y))
+                            if len(background_crops) >= args.background_tiles:
+                                break
             else:
                 centers = [(width/2, height/2)]
             crops = set()
-            for x, y in centers:
+            for index, (x, y) in enumerate(centers):
                 left, right = bounds(x, width, args.size)
                 top, bottom = bounds(y, height, args.size)
                 crop = (left, top, right, bottom)
@@ -75,7 +89,7 @@ def main():
                     continue
                 crops.add(crop)
                 labels = labels_in_crop(boxes, crop)
-                if boxes and not labels:
+                if boxes and index < count and not labels:
                     raise ValueError(f"positive crop has no labels: {path.name}")
                 buffer = io.BytesIO()
                 image.crop(crop).save(buffer, format="JPEG", quality=95)
