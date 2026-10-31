@@ -53,6 +53,8 @@ npm run build:app
 
 当前检测采用类别分工：主权重位于 `data/yolo/weights/best.pt`，裂缝、泛碱和苔藓的专项权重位于 `data/yolo/weights/specialist.pt`，表面剥落权重位于 `data/yolo/weights/spalling.pt`，成员哈希保存在同目录 manifest.json。剥落模型训练场景以现代基础设施为主，候选误检和漏检较多，必须人工复核。缺失任一所需权重时返回 MODEL_UNAVAILABLE，保留失败尝试，巡检员可继续人工填写。
 
+部署所需权重和清单纳入仓库；训练数据和实验产物保留在本地，不随仓库分发。
+
 Python 使用 3.12。建议环境建在 `C:\environment\citywall-python312`：
 
 ```powershell

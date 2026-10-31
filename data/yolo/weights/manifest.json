@@ -1,0 +1,30 @@
+{
+  "model_version": "yolo_routed_msd_spalling_001",
+  "confidence_threshold": 0.35,
+  "primary": {
+    "file": "best.pt",
+    "sha256": "879e7dac6f7abddf11a9671840c4ce33c506d44ebba0a008534592aeb218b77e",
+    "imgsz": 640,
+    "classes": "all except specialist and spalling classes"
+  },
+  "specialist": {
+    "file": "specialist.pt",
+    "sha256": "94493e4971dd534cfe3bee1816bb4b34c706e835cb670be7b36f99fd2741bdc5",
+    "imgsz": 960,
+    "classes": [
+      "CRACK",
+      "EFFLORESCENCE",
+      "MOSS"
+    ]
+  },
+  "spalling": {
+    "file": "spalling.pt",
+    "sha256": "6115dca8597745b7f4e60a531c7772be62f822f18cf28822a4e023daf58d3c40",
+    "imgsz": 640,
+    "confidence_threshold": 0.25,
+    "tile_size": 1280,
+    "classes": [
+      "SURFACE_SPALLING"
+    ]
+  }
+}
