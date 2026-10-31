@@ -11,6 +11,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--image", type=Path, required=True)
     parser.add_argument("--require-vision", action="store_true")
+    parser.add_argument("--confirm-class", help="确认指定类别的一个识别候选")
     parser.add_argument("--output", type=Path, default=Path("C:/code/tmp/citywall-model-e2e"))
     args = parser.parse_args()
     base = os.getenv("CITY_WALL_API_BASE", "http://127.0.0.1:8080/api/v1")
@@ -50,8 +51,14 @@ def main():
         assert 0 <= detection["x1"] < detection["x2"] <= image["width"]
         assert 0 <= detection["y1"] < detection["y2"] <= image["height"]
         assert 0 <= detection["confidence"] <= 1
+    items = []
+    if args.confirm_class:
+        candidate = next((d for d in result["detections"] if d["class_code"] == args.confirm_class), None)
+        assert candidate, f"missing candidate: {args.confirm_class}"
+        items.append({"image_id": image["id"], "source_detection_id": candidate["id"], "decision": "CONFIRM",
+                      "final_class_code": args.confirm_class, "description": "仅验证候选复核流程。"})
     call("PUT", f"/observations/{oid}/conclusion", inspector_headers, json={
-        "revision": observation["revision"], "outcome": "UNDETERMINED", "items": [],
+        "revision": observation["revision"], "outcome": "SUSPECTED" if items else "UNDETERMINED", "items": items,
         "description": "公开数据集联调样本，人工未作现场判断。",
     })
     call("POST", f"/observations/{oid}/submit", inspector_headers, json={"revision": 2})
@@ -64,6 +71,9 @@ def main():
     call("POST", f"/tasks/{tid}/complete", admin_headers, json={"revision": current_task["revision"]})
     report = call("POST", f"/reports/task/{tid}", admin_headers)["report"]
     evidence = call("GET", f"/observations/{oid}", admin_headers)["evidence"]
+    if items:
+        assert any(item["source_detection_id"] == candidate["id"] and item["final_class_code"] == args.confirm_class
+                   for item in evidence["items"])
     assert json.loads(evidence["attempts"][0]["analysis_json"]) == analysis
     assert evidence["observation"]["status"] == "ACCEPTED"
     response = requests.get(base + f'/reports/{report["id"]}/file', headers=admin_headers, timeout=30)

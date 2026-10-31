@@ -152,6 +152,6 @@ C:\environment\citywall-python312\Scripts\python.exe -m pytest tests -q
 
 业务验收脚本会写入数据，由 verify.ps1 在隔离环境创建所需账号并统一执行。单独执行脚本时必须准备相同的测试数据；e2e_evidence.py 需要额外的 inspector_other 巡检账号，密码为 Insp123。CITY_WALL_API_BASE 指定测试服务，默认 http://127.0.0.1:8080/api/v1。
 
-真实模型联调使用 `scripts/verify_recognition.py --image 图片路径 --require-vision`，需安装测试依赖、部署专用权重并启用视觉模型。脚本创建明确标记的公开数据集演示任务，核验候选、辅助分析、人工复核、任务完成及 PDF 下载，将证据 JSON 和报告保存到 C:\code\tmp\citywall-model-e2e。该用例不代表现场病害判断或模型质量评估。
+真实模型联调使用 `scripts/verify_recognition.py --image 图片路径 --require-vision`，需安装测试依赖、部署专用权重并启用视觉模型。可添加 `--confirm-class SURFACE_SPALLING` 验证指定候选的人工确认。脚本创建明确标记的公开数据集演示任务，核验候选、辅助分析、人工复核、任务完成及 PDF 下载，将证据 JSON 和报告保存到 C:\code\tmp\citywall-model-e2e。该用例不代表现场病害判断或模型质量评估。
 
 接口定义见 [OpenAPI](server/api/openapi.yaml)，架构与边界见 [系统架构](docs/architecture.md)。
