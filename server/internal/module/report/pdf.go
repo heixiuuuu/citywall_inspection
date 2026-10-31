@@ -363,6 +363,9 @@ func (w *pdfWriter) findings(o *ObservationView) {
 		}
 		w.text(position, 9, 3)
 	}
+	if len(o.Attempts) > 0 {
+		w.text("识别候选仅供人工复核，可能误检或漏检；未检出不代表正常。", 9, 3)
+	}
 	for _, a := range o.Attempts {
 		w.text(fmt.Sprintf("图片 #%d 识别尝试 %d：%s（模型 %s，候选 %d 个）", a.ImageID, a.AttemptNo, reportLabel(a.Status), a.ModelVersion, len(a.Detections)), 9, 3)
 		if a.ErrorCode != "" {
