@@ -3,7 +3,7 @@
     <picker :range="options" range-key="label" :value="index" :disabled="disabled" @change="change">
       <view class="category">{{ categoryLabel(modelValue) }}<text v-if="!disabled"> ▾</text></view>
     </picker>
-    <view v-if="modelDependent" class="hint">可人工补录；自动识别需配置对应模型。</view>
+    <view v-if="modelDependent" class="hint">剥落识别可能误检或漏检，请人工确认，也可手动补录。</view>
   </view>
 </template>
 <script setup>

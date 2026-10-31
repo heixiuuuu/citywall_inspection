@@ -8,12 +8,15 @@
     "port": 4100
   },
   "recognition": {
-    "model_version": "yolo_routed_msd_001",
+    "model_version": "yolo_routed_msd_spalling_001",
     "detector_mode": "yolo",
     "weights_path": "data/yolo/weights/best.pt",
     "confidence_threshold": 0.35,
     "specialist_weights_path": "data/yolo/weights/specialist.pt",
     "specialist_class_codes": ["CRACK", "EFFLORESCENCE", "MOSS"],
+    "spalling_weights_path": "data/yolo/weights/spalling.pt",
+    "spalling_confidence_threshold": 0.25,
+    "spalling_tile_size": 1280,
     "max_image_bytes": 10485760,
     "allowed_formats": [
       "jpeg",

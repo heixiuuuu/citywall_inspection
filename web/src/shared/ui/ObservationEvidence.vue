@@ -18,7 +18,7 @@
       <p v-if="evidence.observation.admitted_at">受理：{{ evidence.observation.no_issue_reason ? `不立项 · ${evidence.observation.no_issue_reason}` : '已立项或关联问题' }} · {{ formatDateTime(evidence.observation.admitted_at) }}</p>
       <p v-else-if="evidence.observation.status === 'ACCEPTED'" class="hint">受理：尚未受理</p>
       <h4>现场照片与检测框</h4>
-      <p class="hint">候选仅供复核。未检出不能代替人工判断，置信度不表示严重程度。</p>
+      <p class="hint">候选仅供复核。剥落识别可能误检或漏检；未检出不能代替人工判断，置信度不表示严重程度。</p>
       <article v-for="img in images" :key="img.id">
         <div class="image-toolbar">
           <span>{{ img.role === 'OVERVIEW' ? '概览' : img.role === 'DETAIL' ? '细节' : '历史照片' }} #{{ img.id }}</span>

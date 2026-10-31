@@ -51,7 +51,7 @@
 
     <view class="field" v-if="selectedImage">
       <view class="field-label">
-        视觉识别 <text class="faint">候选仅作参考，不替代人工结论</text>
+        视觉识别 <text class="faint">候选仅作参考，不替代人工结论；剥落候选可能误检或漏检</text>
       </view>
       <DetectionImage v-if="selectedImage.localPath" :src="selectedImage.localPath" :boxes="detections" :manual-boxes="manualBoxes" :drawing="drawing" @draw="addBoxedConclusion" @preview="previewImage" />
       <view v-else class="detect-note">照片预览加载失败，请返回记录后重试。</view>
