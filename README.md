@@ -23,7 +23,7 @@
 powershell -ExecutionPolicy Bypass -File scripts/start.ps1
 ```
 
-首次启动会创建 .env 并在缺少视觉模型时下载模型；已有镜像可使用 `scripts/start.ps1 -SkipBuild`。管理端：[http://localhost:5173](http://localhost:5173)。业务 API：[http://localhost:8080/healthz](http://localhost:8080/healthz)。MySQL 仅绑定本机，数据卷名为 citywall_mysql-data，图片与报告卷名为 citywall_server-data。端口冲突时在 .env 修改 MYSQL_PORT、SERVER_PORT 或 WEB_PORT。
+首次启动会创建 .env，并检查模型版本、权重路径和哈希；缺少视觉模型时会下载模型。已有镜像可使用 `scripts/start.ps1 -SkipBuild`。管理端：[http://localhost:5173](http://localhost:5173)。业务 API：[http://localhost:8080/healthz](http://localhost:8080/healthz)。MySQL 仅绑定本机，数据卷名为 citywall_mysql-data，图片与报告卷名为 citywall_server-data。端口冲突时在 .env 修改 MYSQL_PORT、SERVER_PORT 或 WEB_PORT。
 
 | 账号 | 密码 | 角色 |
 | --- | --- | --- |
