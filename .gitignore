@@ -9,6 +9,7 @@ data/yolo/weights/*
 !data/yolo/weights/specialist.pt
 !data/yolo/weights/spalling.pt
 !data/yolo/weights/manifest.json
+!data/yolo/weights/evaluation.json
 
 # ===== 运行时生成 =====
 *.log
