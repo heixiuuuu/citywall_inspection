@@ -23,6 +23,43 @@ tags:
   - name: review
     description: 审核
 paths:
+  /api/v1/overview:
+    get:
+      tags: [overview]
+      summary: 巡检工作台概况（管理员或审核员）
+      description: |
+        返回全库当前业务状态。待受理为审核通过且尚未受理的记录。
+        超期任务不含草稿和终态。病害按审核通过记录最后提交冻结的结论项计数，排除误检。
+        定位质量统计已提交记录的当前字段；识别失败仅统计当前关联照片的最新尝试。
+      responses:
+        '200':
+          description: 成功，data.summary 包含统计快照
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      summary:
+                        type: object
+                        properties:
+                          generated_at: { type: string, format: date-time }
+                          tasks: { type: array, items: { $ref: '#/components/schemas/OverviewCount' } }
+                          records: { type: array, items: { $ref: '#/components/schemas/OverviewCount' } }
+                          issues: { type: array, items: { $ref: '#/components/schemas/OverviewCount' } }
+                          categories: { type: array, items: { $ref: '#/components/schemas/OverviewCount' } }
+                          overdue_tasks: { type: integer }
+                          pending_admission: { type: integer }
+                          urgent_issues: { type: integer }
+                          active_points: { type: integer }
+                          missing_location: { type: integer }
+                          low_accuracy: { type: integer }
+                          failed_recognition: { type: integer }
+        '401': { description: 未登录 }
+        '403': { description: 无查看全库概况权限 }
+        '503': { description: 数据库不可用 }
   /healthz:
     get:
       tags: [system]
@@ -1215,6 +1252,12 @@ components:
                   message: { type: string }
               request_id: { type: string }
   schemas:
+    OverviewCount:
+      type: object
+      required: [code, total]
+      properties:
+        code: { type: string }
+        total: { type: integer }
     SegmentInput:
       type: object
       required: [code, name]

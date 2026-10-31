@@ -3,16 +3,16 @@
     <div class="toolbar">
       <el-button v-if="isAdmin" type="primary" @click="openCreate">新建任务</el-button>
       <el-button @click="load">刷新</el-button>
-      <el-tag
+      <el-check-tag :checked="!activeStatus" @change="activeStatus = ''">全部</el-check-tag>
+      <el-check-tag
         v-for="s in statusFilter"
         :key="s.value"
-        :type="s.type"
-        size="small"
+        :checked="activeStatus === s.value"
         class="tag-filter"
-        @click="activeStatus = activeStatus === s.value ? '' : s.value"
+        @change="activeStatus = activeStatus === s.value ? '' : s.value"
       >
         {{ s.label }}
-      </el-tag>
+      </el-check-tag>
     </div>
 
     <el-table :data="tasks" v-loading="loading" stripe>
@@ -25,7 +25,7 @@
       </el-table-column>
       <el-table-column label="负责人" min-width="130"><template #default="{row}">{{ assigneeName(row.assignee_id) }}</template></el-table-column>
       <el-table-column label="截止" width="120">
-        <template #default="{ row }">{{ row.due_at ? row.due_at.slice(0, 10) : '—' }}</template>
+        <template #default="{ row }"><span :class="{ overdue: isOverdue(row) }">{{ row.due_at ? row.due_at.slice(0, 10) : '—' }}</span><el-tag v-if="isOverdue(row)" type="warning" size="small">已超期</el-tag></template>
       </el-table-column>
       <el-table-column prop="revision" label="版本" width="70" />
       <el-table-column label="操作" width="300" fixed="right">
@@ -54,7 +54,7 @@
     </div>
 
     <!-- 创建任务 -->
-    <el-dialog v-model="createVisible" title="新建巡检任务" width="520">
+    <el-dialog v-model="createVisible" title="新建巡检任务" width="520" :close-on-click-modal="false">
       <el-form :model="createForm" label-width="100px">
         <el-form-item label="标题" required>
           <el-input v-model="createForm.title" placeholder="如：东城墙 2 号段巡检" />
@@ -113,6 +113,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { fetchTasks, createTask, fetchTask, dispatchTask, completeTask, cancelTask, fetchAssignees, type Assignee } from '@/shared/api/task'
 import { fetchPoints, type InspectionPoint } from '@/shared/api/site'
@@ -125,15 +126,21 @@ const statusFilter = [
   { value: 'DRAFT', label: '草稿', type: 'info' },
   { value: 'ASSIGNED', label: '已派发', type: 'primary' },
   { value: 'IN_PROGRESS', label: '采集中', type: 'warning' },
+  { value: 'RETURNED', label: '退回补正', type: 'warning' },
   { value: 'PENDING_REVIEW', label: '待审核', type: 'danger' },
   { value: 'COMPLETED', label: '已完成', type: 'success' },
+  { value: 'CANCELLED', label: '已取消', type: 'info' },
 ] as const
 
 const tasks = ref<any[]>([])
 const points = ref<InspectionPoint[]>([])
 const assignees = ref<Assignee[]>([])
 const loading = ref(false)
-const activeStatus = ref('')
+const route = useRoute()
+const activeStatus = ref(typeof route.query.status === 'string' && statusFilter.some(s => s.value === route.query.status) ? route.query.status : '')
+function isOverdue(row: { due_at: string | null; status: string }) {
+  return !!row.due_at && ['ASSIGNED', 'IN_PROGRESS', 'RETURNED', 'PENDING_REVIEW'].includes(row.status) && Date.parse(row.due_at) < Date.now()
+}
 const page = ref(1)
 const pageSize = 20
 const total = ref(0)

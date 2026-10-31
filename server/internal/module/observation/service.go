@@ -802,15 +802,16 @@ func (s *service) ListPendingReview(ctx context.Context, actor *middleware.Actor
 
 // ListInput 记录列表查询条件。
 type ListInput struct {
-	TaskPointID int64
-	Status      string
-	TaskID      int64
-	Source      string
-	PointID     int64
-	DateFrom    string
-	DateTo      string
-	Page        int
-	PageSize    int
+	PendingAdmission bool
+	TaskPointID      int64
+	Status           string
+	TaskID           int64
+	Source           string
+	PointID          int64
+	DateFrom         string
+	DateTo           string
+	Page             int
+	PageSize         int
 }
 
 // ListResult 分页列表结果。
@@ -834,15 +835,16 @@ func (s *service) List(ctx context.Context, actor *middleware.Actor, in ListInpu
 	}
 	limit, offset := pageSize, (page-1)*pageSize
 	q := ListQuery{
-		TaskPointID: in.TaskPointID,
-		ReporterID:  actor.UserID,
-		IsAdmin:     isAdmin,
-		Status:      in.Status,
-		TaskID:      in.TaskID,
-		Source:      in.Source,
-		PointID:     in.PointID,
-		Limit:       limit,
-		Offset:      offset,
+		PendingAdmission: in.PendingAdmission,
+		TaskPointID:      in.TaskPointID,
+		ReporterID:       actor.UserID,
+		IsAdmin:          isAdmin,
+		Status:           in.Status,
+		TaskID:           in.TaskID,
+		Source:           in.Source,
+		PointID:          in.PointID,
+		Limit:            limit,
+		Offset:           offset,
 	}
 	if in.DateFrom != "" {
 		if t, err := time.Parse(time.RFC3339, in.DateFrom); err == nil {

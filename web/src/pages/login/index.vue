@@ -45,7 +45,7 @@ async function submit() {
     localStorage.setItem('city_wall_roles', JSON.stringify(session.roles))
     localStorage.setItem('city_wall_user', JSON.stringify(session.user))
     ElMessage.success('登录成功')
-    const redirect = (route.query.redirect as string) || '/tasks'
+    const redirect = (route.query.redirect as string) || (session.roles.some(role => ['ADMIN', 'REVIEWER'].includes(role)) ? '/overview' : '/tasks')
     router.replace(redirect)
   } catch (e) {
     ElMessage.error('登录失败，请检查账号密码或服务状态')

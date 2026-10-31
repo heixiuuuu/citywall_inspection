@@ -2,16 +2,16 @@
   <div class="page">
     <div class="toolbar">
       <el-button @click="load">刷新</el-button>
-      <el-tag
+      <el-check-tag :checked="!activeStatus" @change="activeStatus = ''">全部</el-check-tag>
+      <el-check-tag
         v-for="s in statusFilter"
         :key="s.value"
-        :type="s.type"
-        size="small"
+        :checked="activeStatus === s.value"
         class="tag-filter"
-        @click="activeStatus = activeStatus === s.value ? '' : s.value"
+        @change="activeStatus = activeStatus === s.value ? '' : s.value"
       >
         {{ s.label }}
-      </el-tag>
+      </el-check-tag>
     </div>
 
     <el-table :data="issues" v-loading="loading" stripe>
@@ -189,6 +189,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { formatDateTime } from '@/shared/ui/time'
 import ObservationEvidence from '@/shared/ui/ObservationEvidence.vue'
@@ -221,7 +222,8 @@ const statusFilter = Object.entries(ISSUE_STATUS).map(([value, s]) => ({ value, 
 
 const issues = ref<Issue[]>([])
 const loading = ref(false)
-const activeStatus = ref('')
+const route = useRoute()
+const activeStatus = ref(typeof route.query.status === 'string' && route.query.status in ISSUE_STATUS ? route.query.status : '')
 const page = ref(1)
 const pageSize = 20
 const total = ref(0)

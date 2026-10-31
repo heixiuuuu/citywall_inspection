@@ -1,6 +1,7 @@
 <template>
   <div class="page">
     <div class="toolbar">
+      <el-checkbox v-model="pendingAdmission" @change="search">仅待受理</el-checkbox>
       <el-select v-model="filter.status" placeholder="审核状态" clearable style="width: 130px">
         <el-option label="草稿" value="DRAFT" />
         <el-option label="待审核" value="SUBMITTED" />
@@ -90,6 +91,7 @@
 
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
+import { useRoute } from 'vue-router'
 import { outcomeLabel, observationStatusLabel as statusText } from '@/shared/ui/labels'
 import IssueAdmission from '@/shared/ui/IssueAdmission.vue'
 import ObservationEvidence from '@/shared/ui/ObservationEvidence.vue'
@@ -102,9 +104,11 @@ const loading = ref(false)
 const page = ref(1)
 const pageSize = 20
 const total = ref(0)
+const route = useRoute()
+const pendingAdmission = ref(route.query.pending_admission === '1')
 
 const filter = reactive<{ status: string; source: string; task_id: number | undefined; point_id: number | undefined }>({
-  status: '',
+  status: typeof route.query.status === 'string' ? route.query.status : '',
   source: '',
   task_id: undefined,
   point_id: undefined,
@@ -123,6 +127,7 @@ async function load() {
   loading.value = true
   try {
     const res = await fetchObservations({
+      pending_admission: pendingAdmission.value,
       status: filter.status || undefined,
       source: filter.source || undefined,
       task_id: filter.task_id,
@@ -147,6 +152,7 @@ function search() {
 }
 
 function reset() {
+  pendingAdmission.value = false
   filter.status = ''
   filter.source = ''
   filter.task_id = undefined

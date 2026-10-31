@@ -333,23 +333,24 @@ func (r *GORMRepository) ListByStatuses(ctx context.Context, statuses []string) 
 
 // ListQuery 记录列表过滤条件（按任务/点位/来源/时间/审核状态）。
 type ListQuery struct {
-	TaskPointID int64
-	ReporterID  int64
-	IsAdmin     bool
-	Status      string
-	TaskID      int64
-	Source      string
-	PointID     int64
-	DateFrom    *time.Time
-	DateTo      *time.Time
-	Limit       int
-	Offset      int
+	PendingAdmission bool
+	TaskPointID      int64
+	ReporterID       int64
+	IsAdmin          bool
+	Status           string
+	TaskID           int64
+	Source           string
+	PointID          int64
+	DateFrom         *time.Time
+	DateTo           *time.Time
+	Limit            int
+	Offset           int
 }
 
 // ListPage 分页查询（管理员/审核员看全部，巡检员只看自己的上报）。
 func (r *GORMRepository) ListPage(ctx context.Context, q ListQuery) ([]Observation, error) {
 	var obs []Observation
-	base := r.db.WithContext(ctx).Order("updated_at DESC")
+	base := r.db.WithContext(ctx).Select("observations.*").Order("observations.updated_at DESC, observations.id DESC")
 	base = applyObservationFilter(base, q)
 	if q.Limit > 0 {
 		base = base.Limit(q.Limit)
@@ -369,20 +370,23 @@ func (r *GORMRepository) CountObservations(ctx context.Context, q ListQuery) (in
 
 // applyObservationFilter 组装过滤条件。
 func applyObservationFilter(db *gorm.DB, q ListQuery) *gorm.DB {
+	if q.PendingAdmission {
+		db = db.Where("observations.status = ? AND observations.admitted_at IS NULL", ObsAccepted)
+	}
 	if q.TaskPointID > 0 {
 		db = db.Where("observations.task_point_id = ?", q.TaskPointID)
 	}
 	if !q.IsAdmin {
-		db = db.Where("reporter_id = ?", q.ReporterID)
+		db = db.Where("observations.reporter_id = ?", q.ReporterID)
 	}
 	if q.Status != "" {
-		db = db.Where("status = ?", q.Status)
+		db = db.Where("observations.status = ?", q.Status)
 	}
 	if q.Source != "" {
-		db = db.Where("source = ?", q.Source)
+		db = db.Where("observations.source = ?", q.Source)
 	}
 	if q.PointID > 0 {
-		db = db.Where("point_id = ?", q.PointID)
+		db = db.Where("observations.point_id = ?", q.PointID)
 	}
 	if q.TaskID > 0 {
 		// 任务过滤：observations.task_point_id → task_points.id，且 task_points.task_id = ?
@@ -390,10 +394,10 @@ func applyObservationFilter(db *gorm.DB, q ListQuery) *gorm.DB {
 			Where("task_points.task_id = ?", q.TaskID)
 	}
 	if q.DateFrom != nil {
-		db = db.Where("created_at >= ?", *q.DateFrom)
+		db = db.Where("observations.created_at >= ?", *q.DateFrom)
 	}
 	if q.DateTo != nil {
-		db = db.Where("created_at <= ?", *q.DateTo)
+		db = db.Where("observations.created_at <= ?", *q.DateTo)
 	}
 	return db
 }

@@ -128,6 +128,7 @@ export async function loadImageBlob(imageId: number): Promise<string> {
 
 /** 现场记录检索（按任务/时间/点位/来源/审核状态过滤）。 */
 export interface ObservationListParams {
+  pending_admission?: boolean
   status?: string
   source?: string
   task_id?: number
@@ -147,6 +148,7 @@ export interface ObservationListResult {
 
 export async function fetchObservations(params: ObservationListParams = {}): Promise<ObservationListResult> {
   const qs = new URLSearchParams()
+  if (params.pending_admission) qs.set('pending_admission', '1')
   if (params.status) qs.set('status', params.status)
   if (params.source) qs.set('source', params.source)
   if (params.task_id) qs.set('task_id', String(params.task_id))

@@ -3,6 +3,7 @@
     <el-aside width="220px" class="aside">
       <div class="brand">古城墙病害巡检</div>
       <el-menu :default-active="$route.path" router class="menu">
+        <el-menu-item v-if="canReview" index="/overview"><span>巡检工作台</span></el-menu-item>
         <el-menu-item index="/tasks">
           <span>任务管理</span>
         </el-menu-item>
@@ -106,7 +107,15 @@ function logout() {
   color: #6b6b6b;
 }
 .main {
-  background: #f5f1e8;
-  padding: 20px;
+  background: var(--app-background);
+  padding: var(--space-section);
+}
+@media (max-width: 760px) {
+  .layout { flex-direction: column; }
+  .aside { width: 100% !important; }
+  .brand { padding: 12px 16px 4px; }
+  .menu { display: flex; overflow-x: auto; }
+  .menu :deep(.el-menu-item) { height: 44px; flex-shrink: 0; padding: 0 16px; }
+  .main { padding: var(--space-content); }
 }
 </style>

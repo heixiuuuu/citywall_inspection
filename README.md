@@ -37,6 +37,8 @@ powershell -ExecutionPolicy Bypass -File scripts/start.ps1
 
 ## 巡检端
 
+管理端登录后，管理员和审核员进入巡检工作台，查看待审核、待受理、待分配及待核验事项。任务状态和待办可直接进入对应列表；巡检员进入本人任务。工作台展示全库当前数据，公开样本演示记录也纳入统计，不能将其视作真实现场采样。
+
 ```powershell
 cd miniapp
 npm ci

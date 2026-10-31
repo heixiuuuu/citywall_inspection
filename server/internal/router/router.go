@@ -15,6 +15,7 @@ import (
 
 // Handlers 聚合各模块 Handler，供 Router 注册。
 type Handlers struct {
+	Overview    *api.OverviewHandler
 	Identity    *api.IdentityHandler
 	Site        *api.SiteHandler
 	Task        *api.TaskHandler
@@ -39,6 +40,9 @@ func Router(h Handlers, tm *authn.TokenManager, reqIDHeader string, idemSvc idem
 
 	v1 := engine.Group("/api/v1")
 	{
+		if h.Overview != nil {
+			v1.GET("/overview", authed, h.Overview.Get)
+		}
 		// 身份：登录无需认证，其余需 token。
 		v1.POST("/auth/login", h.Identity.Login)
 		v1.POST("/auth/wechat-login", h.Identity.WechatLogin)

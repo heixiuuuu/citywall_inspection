@@ -18,8 +18,14 @@ const loginRoute: RouteRecordRaw = {
 const adminRoutes: RouteRecordRaw = {
   path: '/',
   component: () => import('@/layouts/AdminLayout.vue'),
-  redirect: '/tasks',
+  redirect: '/overview',
   children: [
+    {
+      path: 'overview',
+      name: 'overview',
+      component: () => import('@/pages/overview/index.vue'),
+      meta: { title: '巡检工作台', roles: ['ADMIN', 'REVIEWER'] },
+    },
     {
       path: 'tasks',
       name: 'tasks',

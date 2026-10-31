@@ -1,0 +1,36 @@
+:root {
+  --brand: #25584f;
+  --brand-soft: #6b9386;
+  --text-strong: #283732;
+  --text-main: #3f4b45;
+  --text-muted: #768079;
+  --app-background: #f2f3ee;
+  --surface: #fff;
+  --surface-subtle: #f7f8f4;
+  --surface-hover: #edf3ec;
+  --surface-sunken: #e9eee7;
+  --radius-control: 8px;
+  --radius-panel: 16px;
+  --space-content: 16px;
+  --space-section: 24px;
+  --el-color-primary: var(--brand);
+  --el-color-primary-light-3: #668a78;
+  --el-color-primary-light-5: #92ac9e;
+  --el-color-primary-light-7: #becfc5;
+  --el-color-primary-light-8: #d4e1d9;
+  --el-color-primary-light-9: #eaf1ed;
+  --el-color-primary-dark-2: #1d463f;
+  --el-border-radius-base: var(--radius-control);
+}
+
+body { color: var(--text-main); line-height: 1.6; }
+button, input, select, textarea, table, time, strong, .el-statistic { font-variant-numeric: tabular-nums; }
+button, a, input, textarea { -webkit-tap-highlight-color: transparent; }
+a:focus-visible, button:focus-visible { outline: 2px solid var(--brand-soft); outline-offset: 3px; }
+.el-table { --el-table-header-bg-color: var(--surface-subtle); --el-table-header-text-color: var(--text-muted); }
+.el-table th.el-table__cell { font-weight: 500; }
+.el-table .el-table__cell { padding: 13px 0; }
+.el-select-dropdown__wrap { max-height: 264px; }
+.el-drawer__header { color: var(--text-strong); margin-bottom: 16px; }
+.el-check-tag { font-weight: 400; }
+.el-dialog { max-width: calc(100vw - 32px); }

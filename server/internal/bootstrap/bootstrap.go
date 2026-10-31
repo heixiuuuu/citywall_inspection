@@ -21,6 +21,7 @@ import (
 	"citywall/server/internal/module/identity"
 	"citywall/server/internal/module/issue"
 	"citywall/server/internal/module/observation"
+	"citywall/server/internal/module/overview"
 	"citywall/server/internal/module/report"
 	"citywall/server/internal/module/site"
 	"citywall/server/internal/module/task"
@@ -125,6 +126,7 @@ func New(cfg *config.Config) (*App, error) {
 		Observation: api.NewObservationHandler(obsSvc, cfg.Upload.IdempotencyKeyHeader),
 	}
 	if app.dbReady {
+		h.Overview = api.NewOverviewHandler(overview.NewQuery(db))
 		h.Issue = api.NewIssueHandler(issueSvc)
 		h.Report = api.NewReportHandler(reportSvc)
 	}
@@ -132,6 +134,7 @@ func New(cfg *config.Config) (*App, error) {
 	if app.dbReady {
 		h.Audit = api.NewAuditHandler(audit.NewQueryService(audit.NewGORMRepository(db)))
 	} else {
+		h.Overview = api.NewOverviewHandler(nil)
 		h.Audit = api.NewAuditHandler(audit.NewQueryService(nil))
 	}
 	app.engine = router.Router(h, tm, cfg.Upload.RequestIDHeader, idemSvc, cfg.Upload.IdempotencyKeyHeader)
