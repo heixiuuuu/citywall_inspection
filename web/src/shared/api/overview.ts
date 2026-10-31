@@ -8,6 +8,7 @@ export interface Overview {
   issues: OverviewCount[]
   categories: OverviewCount[]
   overdue_tasks: number
+  due_follow_ups: number
   pending_admission: number
   urgent_issues: number
   active_points: number

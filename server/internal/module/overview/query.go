@@ -1,6 +1,7 @@
 package overview
 
 import (
+	"citywall/server/internal/module/issue"
 	"context"
 	"database/sql"
 	"time"
@@ -20,6 +21,7 @@ type Summary struct {
 	Issues            []Count   `json:"issues"`
 	Categories        []Count   `json:"categories"`
 	OverdueTasks      int64     `json:"overdue_tasks"`
+	DueFollowUps      int64     `json:"due_follow_ups"`
 	PendingAdmission  int64     `json:"pending_admission"`
 	UrgentIssues      int64     `json:"urgent_issues"`
 	ActivePoints      int64     `json:"active_points"`
@@ -33,6 +35,7 @@ type Query struct{ db *gorm.DB }
 func NewQuery(db *gorm.DB) *Query { return &Query{db: db} }
 
 func (q *Query) Load(ctx context.Context, now time.Time) (*Summary, error) {
+	now = now.UTC()
 	s := &Summary{GeneratedAt: now.UTC(), Tasks: []Count{}, Records: []Count{}, Issues: []Count{}, Categories: []Count{}}
 	err := q.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		for _, group := range []struct {
@@ -62,6 +65,11 @@ func (q *Query) Load(ctx context.Context, now time.Time) (*Summary, error) {
 			if err := tx.Raw(query.sql, query.args...).Scan(query.target).Error; err != nil {
 				return err
 			}
+		}
+		var err error
+		s.DueFollowUps, err = issue.NewGORMRepository(tx).CountIssues(ctx, 0, true, issue.ListFilter{FollowUpBefore: &now})
+		if err != nil {
+			return err
 		}
 		// 已审核记录仅使用最后提交冻结的人工结论，排除误检与历史版本。
 		return tx.Raw(`SELECT ci.final_class_code AS code, COUNT(*) AS total

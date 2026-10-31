@@ -3,6 +3,7 @@ package issue
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -46,13 +47,28 @@ func (f *fakeIssueRepo) GetByID(_ context.Context, id int64) (*Issue, error) {
 	return &cp, nil
 }
 
-func (f *fakeIssueRepo) ListPage(_ context.Context, actorID int64, isAdmin bool, status string, limit, offset int) ([]Issue, error) {
+func (f *fakeIssueRepo) ListPage(_ context.Context, actorID int64, isAdmin bool, filter ListFilter, limit, offset int) ([]Issue, error) {
 	var out []Issue
 	for _, i := range f.issues {
 		if !isAdmin && (i.AssigneeID == nil || *i.AssigneeID != actorID) {
 			continue
 		}
-		if status != "" && i.Status != status {
+		if filter.Status != "" && i.Status != filter.Status {
+			continue
+		}
+		if filter.Keyword != "" && !strings.Contains(i.Title, filter.Keyword) && !strings.Contains(i.LocationText, filter.Keyword) {
+			continue
+		}
+		if filter.PriorityCode != "" && i.PriorityCode != filter.PriorityCode {
+			continue
+		}
+		if filter.ActiveOnly && i.Status == StatusClosed {
+			continue
+		}
+		if filter.AssigneeID > 0 && (i.AssigneeID == nil || *i.AssigneeID != filter.AssigneeID) {
+			continue
+		}
+		if filter.FollowUpBefore != nil && (i.Status != StatusMonitoring || i.NextFollowUpAt == nil || i.NextFollowUpAt.After(*filter.FollowUpBefore)) {
 			continue
 		}
 		out = append(out, *i)
@@ -60,8 +76,8 @@ func (f *fakeIssueRepo) ListPage(_ context.Context, actorID int64, isAdmin bool,
 	return out, nil
 }
 
-func (f *fakeIssueRepo) CountIssues(_ context.Context, actorID int64, isAdmin bool, status string) (int64, error) {
-	items, _ := f.ListPage(context.Background(), actorID, isAdmin, status, 0, 0)
+func (f *fakeIssueRepo) CountIssues(_ context.Context, actorID int64, isAdmin bool, filter ListFilter) (int64, error) {
+	items, _ := f.ListPage(context.Background(), actorID, isAdmin, filter, 0, 0)
 	return int64(len(items)), nil
 }
 

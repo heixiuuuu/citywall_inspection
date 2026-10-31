@@ -63,7 +63,7 @@ const metrics = computed(() => {
   return [
     { label: '巡检任务', value: sum(s.tasks), hint: `已完成 ${count(s.tasks, 'COMPLETED')} 项`, to: '/tasks' },
     { label: '现场记录', value: sum(s.records), hint: `审核通过 ${count(s.records, 'ACCEPTED')} 条`, to: '/records' },
-    { label: '未关闭问题', value: sum(s.issues) - count(s.issues, 'CLOSED'), hint: `需尽快核实 ${s.urgent_issues} 项`, to: '/issues' },
+    { label: '未关闭问题', value: sum(s.issues) - count(s.issues, 'CLOSED'), hint: `需尽快核实 ${s.urgent_issues} 项`, to: '/issues?active_only=1' },
     { label: '超期未完成任务', value: s.overdue_tasks, hint: '已派发且超过截止时间', to: '/tasks?overdue=1' },
   ]
 })
@@ -74,6 +74,7 @@ const todos = computed(() => {
     { label: '通过记录待受理', hint: '建立问题、关联台账或说明不立项原因', value: s.pending_admission, to: '/records?status=ACCEPTED&pending_admission=1' },
     { label: '问题待分配', hint: '明确责任人，推进后续处置', value: count(s.issues, 'UNASSIGNED'), to: '/issues?status=UNASSIGNED' },
     { label: '处置结果待核验', hint: '核对处理结果并完成关闭或退回', value: count(s.issues, 'PENDING_VERIFICATION'), to: '/issues?status=PENDING_VERIFICATION' },
+    { label: '观察问题到期复查', hint: '按最近一次观察安排复查，补充现场变化', value: s.due_follow_ups, to: '/issues?follow_up_due=1' },
     { label: '任务待完成确认', hint: '确认点位记录与审核结果', value: count(s.tasks, 'PENDING_REVIEW'), to: '/tasks?status=PENDING_REVIEW' },
   ]
 })

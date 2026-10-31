@@ -14,8 +14,8 @@ type Repository interface {
 	ListAssignees(ctx context.Context) ([]Assignee, error)
 	Insert(ctx context.Context, i *Issue) error
 	GetByID(ctx context.Context, id int64) (*Issue, error)
-	ListPage(ctx context.Context, actorID int64, isAdmin bool, status string, limit, offset int) ([]Issue, error)
-	CountIssues(ctx context.Context, actorID int64, isAdmin bool, status string) (int64, error)
+	ListPage(ctx context.Context, actorID int64, isAdmin bool, filter ListFilter, limit, offset int) ([]Issue, error)
+	CountIssues(ctx context.Context, actorID int64, isAdmin bool, filter ListFilter) (int64, error)
 
 	UpdateStatus(ctx context.Context, id, fromRevision int64, status string) (int64, error)
 	Close(ctx context.Context, id, fromRevision int64, reason string) (int64, error)
@@ -65,7 +65,7 @@ func (r *GORMRepository) Insert(ctx context.Context, i *Issue) error {
 
 func (r *GORMRepository) GetByID(ctx context.Context, id int64) (*Issue, error) {
 	var i Issue
-	query := r.db.WithContext(ctx)
+	query := r.db.WithContext(ctx).Select(issueProjection)
 	if r.inTransaction {
 		query = query.Clauses(clause.Locking{Strength: "UPDATE"})
 	}
@@ -75,15 +75,21 @@ func (r *GORMRepository) GetByID(ctx context.Context, id int64) (*Issue, error) 
 	return &i, nil
 }
 
-func (r *GORMRepository) ListPage(ctx context.Context, actorID int64, isAdmin bool, status string, limit, offset int) ([]Issue, error) {
-	var items []Issue
-	q := r.db.WithContext(ctx).Order("opened_at DESC")
+const latestFollowUp = `(SELECT a.planned_follow_up_at FROM issue_actions a WHERE a.issue_id = issues.id AND a.action_type = 'OBSERVE' ORDER BY a.id DESC LIMIT 1)`
+
+const issueProjection = `issues.*,
+	COALESCE((SELECT display_name FROM users WHERE users.id = issues.assignee_id), '') AS assignee_name,
+	COALESCE((SELECT name FROM wall_segments WHERE wall_segments.id = issues.segment_id), '') AS segment_name,
+	COALESCE((SELECT name FROM inspection_points WHERE inspection_points.id = issues.point_id), '') AS point_name,
+	CASE WHEN issues.status = 'MONITORING' THEN ` + latestFollowUp + ` ELSE NULL END AS next_follow_up_at`
+
+func (r *GORMRepository) ListPage(ctx context.Context, actorID int64, isAdmin bool, filter ListFilter, limit, offset int) ([]Issue, error) {
+	items := []Issue{}
+	q := r.db.WithContext(ctx).Select(issueProjection).Order("opened_at DESC, id DESC")
 	if !isAdmin {
 		q = q.Where("assignee_id = ?", actorID)
 	}
-	if status != "" {
-		q = q.Where("status = ?", status)
-	}
+	q = applyListFilter(q, filter)
 	if limit > 0 {
 		q = q.Limit(limit)
 		if offset > 0 {
@@ -93,16 +99,36 @@ func (r *GORMRepository) ListPage(ctx context.Context, actorID int64, isAdmin bo
 	return items, q.Find(&items).Error
 }
 
-func (r *GORMRepository) CountIssues(ctx context.Context, actorID int64, isAdmin bool, status string) (int64, error) {
+func (r *GORMRepository) CountIssues(ctx context.Context, actorID int64, isAdmin bool, filter ListFilter) (int64, error) {
 	var total int64
 	q := r.db.WithContext(ctx).Model(&Issue{})
 	if !isAdmin {
 		q = q.Where("assignee_id = ?", actorID)
 	}
-	if status != "" {
-		q = q.Where("status = ?", status)
-	}
+	q = applyListFilter(q, filter)
 	return total, q.Count(&total).Error
+}
+
+func applyListFilter(q *gorm.DB, filter ListFilter) *gorm.DB {
+	if filter.Status != "" {
+		q = q.Where("issues.status = ?", filter.Status)
+	}
+	if filter.Keyword != "" {
+		q = q.Where("(LOCATE(?, issues.title) > 0 OR LOCATE(?, issues.location_text) > 0)", filter.Keyword, filter.Keyword)
+	}
+	if filter.PriorityCode != "" {
+		q = q.Where("issues.priority_code = ?", filter.PriorityCode)
+	}
+	if filter.AssigneeID > 0 {
+		q = q.Where("issues.assignee_id = ?", filter.AssigneeID)
+	}
+	if filter.ActiveOnly {
+		q = q.Where("issues.status <> ?", StatusClosed)
+	}
+	if filter.FollowUpBefore != nil {
+		q = q.Where("issues.status = ? AND "+latestFollowUp+" <= ?", StatusMonitoring, *filter.FollowUpBefore)
+	}
+	return q
 }
 
 func (r *GORMRepository) UpdateStatus(ctx context.Context, id, fromRevision int64, status string) (int64, error) {
@@ -138,6 +164,7 @@ func (r *GORMRepository) InsertAction(ctx context.Context, a *IssueAction) error
 func (r *GORMRepository) ListActions(ctx context.Context, issueID int64) ([]IssueAction, error) {
 	var items []IssueAction
 	err := r.db.WithContext(ctx).
+		Select("issue_actions.*, COALESCE((SELECT display_name FROM users WHERE users.id = issue_actions.actor_id), '') AS actor_name").
 		Where("issue_id = ?", issueID).
 		Order("created_at ASC, id ASC").
 		Find(&items).Error

@@ -4,6 +4,10 @@
 import { request } from './http'
 
 export interface Issue {
+	assignee_name: string
+	segment_name: string
+	point_name: string
+	next_follow_up_at: string | null
   id: number
   title: string
   segment_id: number | null
@@ -21,6 +25,7 @@ export interface Issue {
 }
 
 export interface IssueAction {
+	actor_name: string
   images: IssueActionImage[]
   id: number
   issue_id: number
@@ -77,8 +82,14 @@ export interface AdmitResult {
   already_admitted: boolean
 }
 
-export function fetchIssues(params: { status?: string; page?: number; page_size?: number }) {
+export interface IssueListParams { status?: string; keyword?: string; priority_code?: string; only_mine?: boolean; active_only?: boolean; follow_up_due?: boolean; page?: number; page_size?: number }
+export function fetchIssues(params: IssueListParams = {}) {
   const q = new URLSearchParams()
+  if (params.keyword) q.set('keyword', params.keyword)
+  if (params.priority_code) q.set('priority_code', params.priority_code)
+  if (params.only_mine) q.set('only_mine', '1')
+  if (params.active_only) q.set('active_only', '1')
+  if (params.follow_up_due) q.set('follow_up_due', '1')
   if (params.status) q.set('status', params.status)
   if (params.page) q.set('page', String(params.page))
   if (params.page_size) q.set('page_size', String(params.page_size))

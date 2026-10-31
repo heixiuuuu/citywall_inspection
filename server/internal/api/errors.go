@@ -50,7 +50,7 @@ func writeErr(c *gin.Context, err error) {
 		writeError(c, http.StatusRequestEntityTooLarge, "IMAGE_TOO_LARGE", err.Error())
 	case errors.Is(err, imageutil.ErrInvalidImage):
 		writeError(c, http.StatusUnprocessableEntity, "INVALID_IMAGE", err.Error())
-	case errors.Is(err, site.ErrInvalidInput), errors.Is(err, task.ErrInvalidAssignee), errors.Is(err, issue.ErrInvalidAssignee):
+	case errors.Is(err, site.ErrInvalidInput), errors.Is(err, task.ErrInvalidAssignee), errors.Is(err, issue.ErrInvalidAssignee), errors.Is(err, issue.ErrInvalidFilter), errors.Is(err, issue.ErrInvalidAction):
 		writeError(c, http.StatusBadRequest, "VALIDATION_ERROR", err.Error())
 	case errors.Is(err, site.ErrPointNotFound), errors.Is(err, site.ErrSegmentNotFound):
 		writeError(c, http.StatusNotFound, "NOT_FOUND", err.Error())

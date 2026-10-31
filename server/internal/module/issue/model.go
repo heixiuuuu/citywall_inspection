@@ -35,6 +35,10 @@ const (
 
 // Issue 病害问题。task_id 不存在于本表：来源通过 issue_observations 关联现场记录追溯。
 type Issue struct {
+	AssigneeName   string     `gorm:"->;-:migration;column:assignee_name" json:"assignee_name"`
+	SegmentName    string     `gorm:"->;-:migration;column:segment_name" json:"segment_name"`
+	PointName      string     `gorm:"->;-:migration;column:point_name" json:"point_name"`
+	NextFollowUpAt *time.Time `gorm:"->;-:migration;column:next_follow_up_at" json:"next_follow_up_at"`
 	ID             int64      `gorm:"primaryKey;column:id" json:"id"`
 	Title          string     `gorm:"column:title" json:"title"`
 	SegmentID      *int64     `gorm:"column:segment_id" json:"segment_id"`
@@ -66,6 +70,7 @@ type IssueObservation struct {
 
 // IssueAction 处置动作（建议/进展/观察/申请核验/核验通过/退回/重开/指派）。
 type IssueAction struct {
+	ActorName         string        `gorm:"->;-:migration;column:actor_name" json:"actor_name"`
 	Images            []ActionImage `gorm:"-" json:"images"`
 	ID                int64         `gorm:"primaryKey;column:id" json:"id"`
 	IssueID           int64         `gorm:"column:issue_id" json:"issue_id"`

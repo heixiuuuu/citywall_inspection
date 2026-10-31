@@ -19,7 +19,7 @@ import { uploadIssueActionImage, type IssueActionImage } from '@/shared/api/issu
 import { loadImageBlob } from '@/shared/api/observation'
 
 const props = defineProps<{ issueId: number; actionId: number; images: IssueActionImage[]; canUpload: boolean }>()
-const emit = defineEmits<{ uploaded: [] }>()
+const emit = defineEmits<{ uploaded: []; uploading: [pending: boolean] }>()
 const photos = ref<{ id: number; url: string }[]>([])
 const loading = ref(false)
 const uploading = ref(false)
@@ -43,6 +43,7 @@ function beforeUpload(file: UploadRawFile) {
 }
 async function upload(options: UploadRequestOptions) {
   uploading.value = true
+  emit('uploading', true)
   try {
     const result = await uploadIssueActionImage(props.issueId, props.actionId, options.file)
     ElMessage.success('处置照片已保存')
@@ -51,7 +52,7 @@ async function upload(options: UploadRequestOptions) {
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : '照片上传失败')
     throw error
-  } finally { uploading.value = false }
+  } finally { uploading.value = false; emit('uploading', false) }
 }
 </script>
 

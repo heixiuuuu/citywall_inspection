@@ -1,6 +1,7 @@
 <template>
     <el-dialog v-model="visible" title="受理问题" width="560" :close-on-click-modal="false" :close-on-press-escape="!admitting" :show-close="!admitting">
-      <el-form label-width="100px">
+      <el-alert v-if="sourceLocation" :title="`来源：${sourceLocation}`" type="info" :closable="false" class="source-notice" />
+      <el-form label-width="100px" :disabled="admitting || loadingContext">
         <el-form-item label="受理方式" required>
           <el-radio-group v-model="admitMode">
             <el-radio value="NEW">新建问题</el-radio>
@@ -10,14 +11,10 @@
         </el-form-item>
         <template v-if="admitMode === 'NEW'">
           <el-form-item label="标题" required>
-            <el-input v-model="admitForm.title" placeholder="如：南门段墙体裂缝" />
+            <el-input v-model="admitForm.title" maxlength="128" placeholder="如：南门段墙体裂缝" />
           </el-form-item>
           <el-form-item label="优先级" required>
-            <el-select v-model="admitForm.priority_code" style="width: 160px">
-              <el-option label="关注" value="WATCH" />
-              <el-option label="需处理" value="PROCESS" />
-              <el-option label="尽快核实" value="URGENT" />
-            </el-select>
+            <el-radio-group v-model="admitForm.priority_code"><el-radio value="WATCH">关注</el-radio><el-radio value="PROCESS">需处理</el-radio><el-radio value="URGENT">尽快核实</el-radio></el-radio-group>
           </el-form-item>
           <el-form-item label="描述">
             <el-input v-model="admitForm.description" type="textarea" :rows="2" placeholder="问题描述与初步判断" />
@@ -28,9 +25,7 @@
         </template>
         <template v-else-if="admitMode === 'LINK'">
           <el-form-item label="关联问题" required>
-            <el-select v-model="admitForm.link_issue_ids" multiple filterable style="width: 100%" placeholder="选择开放中的问题">
-              <el-option v-for="i in openIssues" :key="i.id" :label="`#${i.id} ${i.title}`" :value="i.id" />
-            </el-select>
+            <IssueSelect :key="observationId" v-model="admitForm.link_issue_ids" />
           </el-form-item>
         </template>
         <template v-else>
@@ -41,20 +36,25 @@
       </el-form>
       <template #footer>
         <el-button :disabled="admitting" @click="visible = false">取消</el-button>
-        <el-button type="primary" :loading="admitting" @click="submitAdmit">提交受理</el-button>
+        <el-button type="primary" :loading="admitting" :disabled="loadingContext" @click="submitAdmit">提交受理</el-button>
       </template>
     </el-dialog>
 </template>
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
-import { fetchIssues, admitObservation, type Issue } from '@/shared/api/issue'
+import { admitObservation } from '@/shared/api/issue'
+import { fetchEvidence } from '@/shared/api/observation'
+import { categoryLabel } from '@/shared/ui/labels'
+import IssueSelect from './IssueSelect.vue'
 const props = defineProps<{ modelValue: boolean; observationId: number }>()
 const emit = defineEmits(['update:modelValue', 'admitted'])
 const visible = computed({ get: () => props.modelValue, set: value => emit('update:modelValue', value) })
 const admitting = ref(false)
 const admitMode = ref<'NEW' | 'LINK' | 'NONE'>('NEW')
-const openIssues = ref<Issue[]>([])
+const sourceLocation = ref('')
+const loadingContext = ref(false)
+let generation = 0
 const admitForm = ref<{
   title: string
   priority_code: 'WATCH' | 'PROCESS' | 'URGENT'
@@ -64,24 +64,29 @@ const admitForm = ref<{
   no_issue_reason: string
 }>({ title: '', priority_code: 'WATCH', description: '', priority_reason: '', link_issue_ids: [], no_issue_reason: '' })
 
-watch(() => props.modelValue, value => { if (value) resetForm() })
+watch(() => [props.modelValue, props.observationId], () => { if (props.modelValue) void resetForm(); else generation++ })
 async function resetForm() {
+  const current = ++generation
   admitMode.value = 'NEW'
   admitForm.value = { title: '', priority_code: 'WATCH', description: '', priority_reason: '', link_issue_ids: [], no_issue_reason: '' }
-  openIssues.value = []
+  sourceLocation.value = ''
+  loadingContext.value = true
   try {
-    let page = 1, loaded = 0
-    while (true) {
-      const res = await fetchIssues({ page, page_size: 100 })
-      openIssues.value.push(...res.items.filter(item => item.status !== 'CLOSED'))
-      loaded += res.items.length
-      if (!res.items.length || loaded >= res.total) break
-      page++
-    }
-  } catch { ElMessage.error('关联问题加载失败，请关闭后重试') }
+    const evidence = await fetchEvidence(props.observationId)
+    if (current !== generation) return
+    sourceLocation.value = evidence.observation.location_text || `现场记录 #${props.observationId}`
+    const submission = [...evidence.submissions].sort((a, b) => b.submission_no - a.submission_no)[0]
+    const conclusion = evidence.conclusions.find(item => item.id === submission?.conclusion_revision_id)
+    const classes = [...new Set(evidence.items.filter(item => item.conclusion_revision_id === conclusion?.id && ['CONFIRM', 'MODIFY', 'ADD'].includes(item.decision)).map(item => categoryLabel(item.final_class_code)))]
+    admitForm.value.title = `${sourceLocation.value}${classes.length ? ` · ${classes.join('、')}` : ''}`.slice(0, 128)
+    admitForm.value.description = conclusion?.description || ''
+    if (conclusion?.priority_code && ['WATCH', 'PROCESS', 'URGENT'].includes(conclusion.priority_code)) admitForm.value.priority_code = conclusion.priority_code as 'WATCH' | 'PROCESS' | 'URGENT'
+  } catch { if (current === generation) ElMessage.warning('来源摘要暂时无法加载，可手动填写受理信息') }
+  finally { if (current === generation) loadingContext.value = false }
 }
 
 async function submitAdmit() {
+  if (admitting.value || loadingContext.value) return
   if (admitMode.value === 'NEW' && !admitForm.value.title.trim()) {
     ElMessage.warning('请填写问题标题')
     return
@@ -98,10 +103,10 @@ async function submitAdmit() {
   try {
     const payload =
       admitMode.value === 'NEW'
-        ? { new_issues: [{ title: admitForm.value.title, priority_code: admitForm.value.priority_code, description: admitForm.value.description || undefined, priority_reason: admitForm.value.priority_reason || undefined }] }
+        ? { new_issues: [{ title: admitForm.value.title.trim(), priority_code: admitForm.value.priority_code, description: admitForm.value.description.trim() || undefined, priority_reason: admitForm.value.priority_reason.trim() || undefined }] }
         : admitMode.value === 'LINK'
           ? { link_issue_ids: admitForm.value.link_issue_ids }
-          : { no_issue_reason: admitForm.value.no_issue_reason }
+          : { no_issue_reason: admitForm.value.no_issue_reason.trim() }
     const res = await admitObservation(props.observationId, payload)
     const a = res.admit
     if (a.already_admitted) ElMessage.info(a.no_issue_reason ? `该记录已不立项：${a.no_issue_reason}` : '该记录已受理（返回已有关联）')
@@ -116,3 +121,6 @@ async function submitAdmit() {
   }
 }
 </script>
+<style scoped>
+.source-notice { margin-bottom: var(--space-content); }
+</style>

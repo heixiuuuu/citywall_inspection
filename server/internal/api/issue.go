@@ -45,9 +45,14 @@ func (h *IssueHandler) List(c *gin.Context) {
 		return
 	}
 	in := issue.ListInput{
-		Status:   c.Query("status"),
-		Page:     queryInt(c, "page", 1),
-		PageSize: queryInt(c, "page_size", 20),
+		Keyword:      c.Query("keyword"),
+		PriorityCode: c.Query("priority_code"),
+		OnlyMine:     c.Query("only_mine") == "1",
+		ActiveOnly:   c.Query("active_only") == "1",
+		FollowUpDue:  c.Query("follow_up_due") == "1",
+		Status:       c.Query("status"),
+		Page:         queryInt(c, "page", 1),
+		PageSize:     queryInt(c, "page_size", 20),
 	}
 	res, err := h.service.List(context.Background(), actor, in)
 	if err != nil {

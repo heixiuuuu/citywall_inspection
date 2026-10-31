@@ -29,6 +29,8 @@ var (
 	ErrAdmitInvalid     = errors.New("issue: invalid admission input")
 	ErrAdmitNotAccepted = errors.New("issue: observation not accepted or already admitted")
 	ErrActionImageMiss  = errors.New("issue: action not found")
+	ErrInvalidFilter    = errors.New("issue: invalid status or priority filter")
+	ErrInvalidAction    = errors.New("issue: invalid action type or follow-up time")
 )
 
 // ObservationAccess 由 observation 模块实现：受理时校验记录状态并取审核决定。
@@ -72,9 +74,23 @@ type ActionInput struct {
 
 // ListInput 台账查询。
 type ListInput struct {
-	Status   string
-	Page     int
-	PageSize int
+	Keyword      string
+	PriorityCode string
+	OnlyMine     bool
+	ActiveOnly   bool
+	FollowUpDue  bool
+	Status       string
+	Page         int
+	PageSize     int
+}
+
+type ListFilter struct {
+	Status         string
+	Keyword        string
+	PriorityCode   string
+	AssigneeID     int64
+	ActiveOnly     bool
+	FollowUpBefore *time.Time
 }
 
 // ListResult 分页台账结果。
@@ -193,6 +209,16 @@ func (s *service) Reopen(ctx context.Context, actor *middleware.Actor, id, revis
 }
 
 func (s *service) List(ctx context.Context, actor *middleware.Actor, in ListInput) (*ListResult, error) {
+	switch in.PriorityCode {
+	case "", PriorityWatch, PriorityProcess, PriorityUrgent:
+	default:
+		return nil, ErrInvalidFilter
+	}
+	switch in.Status {
+	case "", StatusUnassigned, StatusOpen, StatusInProgress, StatusMonitoring, StatusPendingVerification, StatusClosed:
+	default:
+		return nil, ErrInvalidFilter
+	}
 	isAdmin := hasAdminOrReviewer(actor)
 	page, pageSize := in.Page, in.PageSize
 	if page < 1 {
@@ -204,11 +230,19 @@ func (s *service) List(ctx context.Context, actor *middleware.Actor, in ListInpu
 	if pageSize > 100 {
 		pageSize = 100
 	}
-	items, err := s.repo.ListPage(ctx, actor.UserID, isAdmin, in.Status, pageSize, (page-1)*pageSize)
+	filter := ListFilter{Status: in.Status, Keyword: strings.TrimSpace(in.Keyword), PriorityCode: in.PriorityCode, ActiveOnly: in.ActiveOnly}
+	if in.OnlyMine {
+		filter.AssigneeID = actor.UserID
+	}
+	if in.FollowUpDue {
+		now := time.Now().UTC()
+		filter.FollowUpBefore = &now
+	}
+	items, err := s.repo.ListPage(ctx, actor.UserID, isAdmin, filter, pageSize, (page-1)*pageSize)
 	if err != nil {
 		return nil, err
 	}
-	total, err := s.repo.CountIssues(ctx, actor.UserID, isAdmin, in.Status)
+	total, err := s.repo.CountIssues(ctx, actor.UserID, isAdmin, filter)
 	if err != nil {
 		return nil, err
 	}
@@ -257,6 +291,7 @@ func (s *service) assign(ctx context.Context, actor *middleware.Actor, id, revis
 	for _, user := range users {
 		if user.ID == assigneeID {
 			eligible = true
+			i.AssigneeName = user.DisplayName
 			break
 		}
 	}
@@ -305,6 +340,13 @@ func (s *service) assign(ctx context.Context, actor *middleware.Actor, id, revis
 
 // AddAction 追加建议/进展/观察并驱动状态流转（OPEN→IN_PROGRESS、IN_PROGRESS↔MONITORING）。
 func (s *service) addAction(ctx context.Context, actor *middleware.Actor, id, revision int64, in ActionInput) (*Issue, error) {
+	in.Content = strings.TrimSpace(in.Content)
+	if in.Content == "" {
+		return nil, ErrReasonRequired
+	}
+	if in.ActionType != ActionObserve && in.PlannedFollowUpAt != nil {
+		return nil, ErrInvalidAction
+	}
 	i, err := s.repo.GetByID(ctx, id)
 	if err != nil {
 		return nil, ErrNotFound
@@ -340,6 +382,8 @@ func (s *service) addAction(ctx context.Context, actor *middleware.Actor, id, re
 		}
 	case ActionRequestVerify:
 		return s.requestVerification(ctx, actor, id, revision, in.Content)
+	default:
+		return nil, ErrInvalidAction
 	}
 	action := &IssueAction{
 		IssueID: id, ActorID: actor.UserID, ActionType: in.ActionType,
@@ -357,6 +401,11 @@ func (s *service) addAction(ctx context.Context, actor *middleware.Actor, id, re
 		return nil, ErrStatusConflict
 	}
 	i.Status = next
+	if in.ActionType == ActionObserve {
+		i.NextFollowUpAt = in.PlannedFollowUpAt
+	} else if next != StatusMonitoring {
+		i.NextFollowUpAt = nil
+	}
 	i.Revision++
 	s.audit.Record(ctx, &audit.Event{
 		EntityType: "issue", EntityID: id, Action: "action:" + in.ActionType, ActorID: actor.UserID,
@@ -367,6 +416,10 @@ func (s *service) addAction(ctx context.Context, actor *middleware.Actor, id, re
 
 // RequestVerification 责任人提交处理/观察结论，进入待核验。
 func (s *service) requestVerification(ctx context.Context, actor *middleware.Actor, id, revision int64, content string) (*Issue, error) {
+	content = strings.TrimSpace(content)
+	if content == "" {
+		return nil, ErrReasonRequired
+	}
 	i, err := s.repo.GetByID(ctx, id)
 	if err != nil {
 		return nil, ErrNotFound
@@ -393,6 +446,7 @@ func (s *service) requestVerification(ctx context.Context, actor *middleware.Act
 		return nil, ErrStatusConflict
 	}
 	i.Status = StatusPendingVerification
+	i.NextFollowUpAt = nil
 	i.Revision++
 	s.audit.Record(ctx, &audit.Event{
 		EntityType: "issue", EntityID: id, Action: "request_verify", ActorID: actor.UserID,
@@ -458,6 +512,7 @@ func (s *service) verify(ctx context.Context, actor *middleware.Actor, id, revis
 		return nil, ErrStatusConflict
 	}
 	i.Status = next
+	i.NextFollowUpAt = nil
 	i.Revision++
 	if next == StatusClosed {
 		now := time.Now().UTC()
@@ -501,6 +556,7 @@ func (s *service) reopen(ctx context.Context, actor *middleware.Actor, id, revis
 		return nil, ErrStatusConflict
 	}
 	i.Status = StatusOpen
+	i.NextFollowUpAt = nil
 	i.ClosedAt = nil
 	i.CloseReason = ""
 	i.Revision++
