@@ -8,8 +8,11 @@
       </view>
       <button class="btn-mini" @tap="logout">退出</button>
     </view>
-    <button class="btn-mini" style="margin-bottom: 24rpx" @tap="openRecords">我的巡检记录</button>
+    <view class="actions"><button class="btn-mini" @tap="openRecords">我的巡检记录</button><button class="btn-mini primary-action" @tap="goReport">＋ 主动上报</button></view>
+    <view class="search"><input v-model="keyword" placeholder="搜索任务名称" class="search-input" /><button class="btn-mini" @tap="load(true)">搜索</button></view>
+    <view class="filter-row"><label @tap="toggleOverdue"><text class="filter-check">{{ overdueOnly ? '☑' : '☐' }}</text> 仅超期任务</label><text v-if="!loading" class="faint">共 {{ total }} 项</text></view>
 
+    <scroll-view scroll-x class="segment-scroll">
     <view class="segment">
       <view
         v-for="(tab, i) in tabs"
@@ -21,11 +24,13 @@
         {{ tab.label }}
       </view>
     </view>
+    </scroll-view>
 
-    <view v-if="loading" class="empty">加载中…</view>
-    <view v-else-if="!filtered.length" class="empty">暂无任务</view>
+    <view v-if="loading && !tasks.length" class="empty">正在加载任务…</view>
+    <view v-else-if="loadFailed" class="empty">任务加载失败，请检查网络<button class="btn-mini retry" @tap="load(page === 0)">重新加载</button></view>
+    <view v-else-if="!tasks.length" class="empty">{{ keyword.trim() || overdueOnly ? '没有符合条件的任务' : '当前状态暂无任务' }}</view>
 
-    <view v-for="t in filtered" :key="t.id" class="card" @tap="openTask(t.id)">
+    <view v-for="t in tasks" :key="t.id" class="card" @tap="openTask(t.id)">
       <view class="row">
         <view class="grow title-sm">{{ t.title }}</view>
         <view class="tag" :class="statusClass(t.status)">{{ statusText(t.status) }}</view>
@@ -33,18 +38,18 @@
       </view>
       <view class="meta">
         <text>负责人：{{ assigneeLabel(t.assignee_id) }}</text>
-        <text v-if="t.due_at">截止 {{ dueLabel(t.due_at) }}</text>
+        <text v-if="t.due_at" :class="{ 'overdue': isOverdue(t) }">截止 {{ dueLabel(t.due_at) }}{{ isOverdue(t) ? ' · 已超期' : '' }}</text>
       </view>
     </view>
 
-    <view class="fab" @tap="goReport">＋</view>
     <button v-if="tasks.length < total" class="btn-mini" :loading="loading" @tap="load(false)">加载更多任务（{{ tasks.length }}/{{ total }}）</button>
+    <view v-else-if="tasks.length && !loading" class="list-end">已显示全部任务</view>
   </view>
 </template>
 
 <script setup>
 import { computed, ref } from 'vue'
-import { onShow, onReachBottom, onPullDownRefresh } from '@dcloudio/uni-app'
+import { onShow, onReachBottom, onPullDownRefresh, onUnload } from '@dcloudio/uni-app'
 import { getTasks } from '../../shared/api/task'
 import { getToken, clearToken, getUser } from '../../shared/auth/auth'
 import { statusText, statusClass } from '../../shared/ui/status'
@@ -53,8 +58,10 @@ const tabs = [
   { label: '全部', value: '' },
   { label: '待执行', value: 'ASSIGNED' },
   { label: '采集中', value: 'IN_PROGRESS' },
+  { label: '退回补正', value: 'RETURNED' },
   { label: '待审核', value: 'PENDING_REVIEW' },
   { label: '已完成', value: 'COMPLETED' },
+  { label: '已取消', value: 'CANCELLED' },
 ]
 const activeTab = ref(0)
 const tasks = ref([])
@@ -62,12 +69,13 @@ const loading = ref(false)
 const user = getUser()
 const page = ref(0)
 const total = ref(0)
+const keyword = ref('')
+const overdueOnly = ref(false)
+const loadFailed = ref(false)
 let generation = 0
 
 const userName = computed(() => (user && user.display_name) || '巡检员')
 const initial = computed(() => (userName.value ? userName.value.slice(0, 1) : '巡'))
-
-const filtered = computed(() => tasks.value)
 
 onShow(() => {
   if (!getToken()) {
@@ -78,20 +86,25 @@ onShow(() => {
 })
 onReachBottom(() => { if (tasks.value.length < total.value) load(false) })
 onPullDownRefresh(async () => { try { await load(true) } finally { uni.stopPullDownRefresh() } })
+onUnload(() => { generation++ })
 
 function changeTab(index) { activeTab.value = index; load(true) }
+function toggleOverdue() { overdueOnly.value = !overdueOnly.value; load(true) }
+function isOverdue(task) { return task.due_at && ['ASSIGNED', 'IN_PROGRESS', 'RETURNED', 'PENDING_REVIEW'].includes(task.status) && Date.parse(task.due_at) < Date.now() }
 async function load(reset = true) {
   if (loading.value && !reset) return
   const token = reset ? ++generation : generation
   const nextPage = reset ? 1 : page.value + 1
   loading.value = true
+  loadFailed.value = false
+  if (reset) { tasks.value = []; page.value = 0; total.value = 0 }
   try {
-    const response = await getTasks({ page: nextPage, page_size: 20, status: tabs[activeTab.value].value })
+    const response = await getTasks({ page: nextPage, page_size: 20, status: tabs[activeTab.value].value, keyword: keyword.value.trim(), overdue: overdueOnly.value ? '1' : '' })
     if (token !== generation) return
     tasks.value = reset ? response.data.tasks || [] : [...tasks.value, ...(response.data.tasks || [])]
     page.value = nextPage
     total.value = response.data.total
-  } catch { uni.showToast({ title: '加载任务失败', icon: 'none' }) }
+  } catch { if (token === generation) loadFailed.value = true }
   finally { if (token === generation) loading.value = false }
 }
 
@@ -161,16 +174,19 @@ function logout() {
   line-height: 1.6;
 }
 .segment {
-  display: flex;
+  display: inline-flex;
+  min-width: 100%;
+  box-sizing: border-box;
   background: #fff;
   border-radius: 16rpx;
   padding: 8rpx;
   margin-bottom: 24rpx;
 }
 .seg {
-  flex: 1;
+  flex: none;
+  min-width: 100rpx;
   text-align: center;
-  padding: 14rpx 0;
+  padding: 14rpx 12rpx;
   border-radius: 12rpx;
   font-size: 26rpx;
   color: #6b6b6b;
@@ -218,6 +234,7 @@ function logout() {
 }
 .meta {
   display: flex;
+  flex-wrap: wrap;
   gap: 24rpx;
   font-size: 24rpx;
   color: #6b6b6b;
@@ -229,20 +246,16 @@ function logout() {
   font-size: 26rpx;
   padding: 80rpx 0;
 }
-.fab {
-  position: fixed;
-  right: 32rpx;
-  bottom: 64rpx;
-  width: 96rpx;
-  height: 96rpx;
-  border-radius: 50%;
-  background: #2f6f63;
-  color: #fff;
-  font-size: 44rpx;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: 0 8rpx 20rpx rgba(47, 111, 99, 0.35);
-  z-index: 5;
-}
+.actions, .search, .filter-row { display: flex; align-items: center; gap: 20rpx; margin-bottom: 24rpx; }
+.actions .btn-mini { flex: 1; margin: 0; }
+.primary-action { background: #2f6f63; color: #fff; }
+.search { background: #fff; padding: 12rpx 16rpx; border-radius: 16rpx; }
+.search-input { flex: 1; min-width: 0; font-size: 26rpx; }
+.search .btn-mini { margin: 0; }
+.filter-row { justify-content: space-between; font-size: 24rpx; color: #6b6b6b; }
+.filter-check { color: #2f6f63; }
+.segment-scroll { white-space: nowrap; margin-bottom: 24rpx; }
+.overdue { color: #b66b25; }
+.retry { width: 220rpx; margin-top: 24rpx; }
+.list-end { text-align: center; padding: 20rpx 0; color: #9b9b9b; font-size: 24rpx; }
 </style>

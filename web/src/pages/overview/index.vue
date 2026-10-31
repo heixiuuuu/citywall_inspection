@@ -64,7 +64,7 @@ const metrics = computed(() => {
     { label: '巡检任务', value: sum(s.tasks), hint: `已完成 ${count(s.tasks, 'COMPLETED')} 项`, to: '/tasks' },
     { label: '现场记录', value: sum(s.records), hint: `审核通过 ${count(s.records, 'ACCEPTED')} 条`, to: '/records' },
     { label: '未关闭问题', value: sum(s.issues) - count(s.issues, 'CLOSED'), hint: `需尽快核实 ${s.urgent_issues} 项`, to: '/issues' },
-    { label: '超期未完成任务', value: s.overdue_tasks, hint: '已派发且超过截止时间', to: '/tasks' },
+    { label: '超期未完成任务', value: s.overdue_tasks, hint: '已派发且超过截止时间', to: '/tasks?overdue=1' },
   ]
 })
 const todos = computed(() => {

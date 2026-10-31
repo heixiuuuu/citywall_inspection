@@ -113,7 +113,7 @@
     </el-drawer>
 
     <!-- 指派 -->
-    <el-dialog v-model="assignVisible" title="指派/改派责任人" width="420">
+    <el-dialog v-model="assignVisible" title="指派/改派责任人" width="420" :close-on-click-modal="false">
       <el-form label-width="100px">
         <el-form-item label="责任人" required>
           <el-select v-model="assignForm.assignee_id" filterable :loading="assigneeLoading" :disabled="assigneeLoading || busy" placeholder="选择责任人" style="width: 100%">
@@ -131,7 +131,7 @@
     </el-dialog>
 
     <!-- 处置动作 -->
-    <el-dialog v-model="actionVisible" title="提交处置动作" width="480">
+    <el-dialog v-model="actionVisible" title="提交处置动作" width="480" :close-on-click-modal="false">
       <el-form label-width="100px">
         <el-form-item label="动作类型" required>
           <el-radio-group v-model="actionForm.action_type">
@@ -154,7 +154,7 @@
     </el-dialog>
 
     <!-- 申请核验 -->
-    <el-dialog v-model="verifyRequestVisible" title="申请核验" width="480">
+    <el-dialog v-model="verifyRequestVisible" title="申请核验" width="480" :close-on-click-modal="false">
       <el-form label-width="100px">
         <el-form-item label="核验说明" required>
           <el-input v-model="verifyRequestContent" type="textarea" :rows="3" placeholder="说明处理结论与证据情况" />
@@ -167,7 +167,7 @@
     </el-dialog>
 
     <!-- 核验 -->
-    <el-dialog v-model="verifyVisible" title="核验问题" width="480">
+    <el-dialog v-model="verifyVisible" title="核验问题" width="480" :close-on-click-modal="false">
       <el-form label-width="100px">
         <el-form-item label="结论" required>
           <el-radio-group v-model="verifyForm.decision">

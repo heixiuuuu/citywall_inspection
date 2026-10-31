@@ -3,6 +3,7 @@ package task
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
 	"citywall/server/internal/middleware"
@@ -54,8 +55,8 @@ type Repository interface {
 	InsertTaskPoints(ctx context.Context, taskID int64, pointIDs []int64) error
 	GetByID(ctx context.Context, id int64) (*Task, error)
 	ListByActor(ctx context.Context, actorID int64, isAdmin bool) ([]Task, error)
-	ListPage(ctx context.Context, actorID int64, isAdmin bool, status string, limit, offset int) ([]Task, error)
-	CountTasks(ctx context.Context, actorID int64, isAdmin bool, status string) (int64, error)
+	ListPage(ctx context.Context, actorID int64, isAdmin bool, filter ListFilter, limit, offset int) ([]Task, error)
+	CountTasks(ctx context.Context, actorID int64, isAdmin bool, filter ListFilter) (int64, error)
 	UpdateStatus(ctx context.Context, id int64, fromRevision int64, status string) (int64, error)
 	CancelTask(ctx context.Context, id int64, fromRevision int64, reason string) (int64, error)
 	ListPoints(ctx context.Context, taskID int64) ([]TaskPoint, error)
@@ -75,9 +76,17 @@ type PointSnapshot struct {
 
 // ListInput 列表查询条件。
 type ListInput struct {
+	Keyword  string
+	Overdue  bool
 	Status   string
 	Page     int
 	PageSize int
+}
+
+type ListFilter struct {
+	Status    string
+	Keyword   string
+	DueBefore *time.Time
 }
 
 // ListResult 分页列表结果。
@@ -257,11 +266,16 @@ func (s *service) List(ctx context.Context, actor *middleware.Actor, in ListInpu
 		pageSize = 100
 	}
 	limit, offset := pageSize, (page-1)*pageSize
-	tasks, err := s.repo.ListPage(ctx, actor.UserID, isAdmin, in.Status, limit, offset)
+	filter := ListFilter{Status: in.Status, Keyword: strings.TrimSpace(in.Keyword)}
+	if in.Overdue {
+		now := time.Now().UTC()
+		filter.DueBefore = &now
+	}
+	tasks, err := s.repo.ListPage(ctx, actor.UserID, isAdmin, filter, limit, offset)
 	if err != nil {
 		return nil, err
 	}
-	total, err := s.repo.CountTasks(ctx, actor.UserID, isAdmin, in.Status)
+	total, err := s.repo.CountTasks(ctx, actor.UserID, isAdmin, filter)
 	if err != nil {
 		return nil, err
 	}

@@ -84,6 +84,8 @@ func (h *TaskHandler) List(c *gin.Context) {
 		return
 	}
 	in := task.ListInput{
+		Keyword:  c.Query("keyword"),
+		Overdue:  c.Query("overdue") == "1",
 		Status:   c.Query("status"),
 		Page:     queryInt(c, "page", 1),
 		PageSize: queryInt(c, "page_size", 20),

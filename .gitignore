@@ -1,6 +1,7 @@
 # ===== 数据与文档（本地素材与设计稿，不入库） =====
 data/*
 !data/.gitkeep
+!data/README.md
 !data/yolo/
 data/yolo/*
 !data/yolo/weights/

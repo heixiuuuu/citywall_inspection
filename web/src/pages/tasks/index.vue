@@ -3,6 +3,11 @@
     <div class="toolbar">
       <el-button v-if="isAdmin" type="primary" @click="openCreate">新建任务</el-button>
       <el-button @click="load">刷新</el-button>
+      <el-input v-model="keyword" placeholder="搜索任务名称" clearable style="width: 210px" @clear="search" />
+      <el-button @click="search">查询</el-button>
+      <el-checkbox v-model="overdueOnly" @change="search">仅超期任务</el-checkbox>
+    </div>
+    <div class="toolbar" aria-label="任务状态筛选">
       <el-check-tag :checked="!activeStatus" @change="activeStatus = ''">全部</el-check-tag>
       <el-check-tag
         v-for="s in statusFilter"
@@ -57,7 +62,7 @@
     <el-dialog v-model="createVisible" title="新建巡检任务" width="520" :close-on-click-modal="false">
       <el-form :model="createForm" label-width="100px">
         <el-form-item label="标题" required>
-          <el-input v-model="createForm.title" placeholder="如：东城墙 2 号段巡检" />
+          <el-input v-model="createForm.title" maxlength="128" placeholder="如：东城墙 2 号段巡检" />
         </el-form-item>
         <el-form-item label="巡检员" required>
           <el-select v-model="createForm.assignee_id" filterable placeholder="选择有效巡检员" style="width:100%">
@@ -68,7 +73,7 @@
           <el-date-picker v-model="createForm.due_at" type="datetime" value-format="YYYY-MM-DDTHH:mm:ssZ" />
         </el-form-item>
         <el-form-item label="说明">
-          <el-input v-model="createForm.description" type="textarea" :rows="2" />
+          <el-input v-model="createForm.description" type="textarea" :rows="2" maxlength="512" show-word-limit />
         </el-form-item>
         <el-form-item label="点位" required>
           <el-select v-model="createForm.point_ids" multiple filterable placeholder="选择点位" style="width: 100%">
@@ -85,6 +90,7 @@
     <!-- 任务详情 -->
     <el-drawer v-model="detailVisible" title="任务详情" size="560">
       <div v-if="detail">
+        <div v-if="canReview" class="toolbar"><el-button @click="$router.push({ path: '/records', query: { task_id: detail.task.id } })">查看现场记录</el-button><el-button type="primary" @click="$router.push({ path: '/reports', query: { task_id: detail.task.id } })">生成任务报告</el-button></div>
         <el-descriptions :column="2" border>
           <el-descriptions-item label="标题">{{ detail.task.title }}</el-descriptions-item>
           <el-descriptions-item label="状态">
@@ -92,13 +98,13 @@
           </el-descriptions-item>
           <el-descriptions-item label="负责人">{{ assigneeName(detail.task.assignee_id) }}</el-descriptions-item>
           <el-descriptions-item label="版本">{{ detail.task.revision }}</el-descriptions-item>
-          <el-descriptions-item label="截止">{{ detail.task.due_at || '—' }}</el-descriptions-item>
+          <el-descriptions-item label="截止">{{ formatDateTime(detail.task.due_at) }}</el-descriptions-item>
           <el-descriptions-item label="说明">{{ detail.task.description || '—' }}</el-descriptions-item>
         </el-descriptions>
         <h4 class="subtitle">点位列表</h4>
         <el-table :data="detail.points" size="small" stripe>
           <el-table-column prop="sequence_no" label="#" width="56" />
-          <el-table-column prop="snapshot_name" label="快照名称" min-width="140" />
+          <el-table-column label="点位名称" min-width="140"><template #default="{ row }">{{ row.snapshot_name || points.find(p => p.id === row.point_id)?.name || `点位 #${row.point_id}` }}</template></el-table-column>
           <el-table-column prop="snapshot_location_hint" label="位置提示" min-width="140" />
           <el-table-column label="坐标" min-width="160">
             <template #default="{ row }">
@@ -114,6 +120,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
+import { formatDateTime } from '@/shared/ui/time'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { fetchTasks, createTask, fetchTask, dispatchTask, completeTask, cancelTask, fetchAssignees, type Assignee } from '@/shared/api/task'
 import { fetchPoints, type InspectionPoint } from '@/shared/api/site'
@@ -138,6 +145,9 @@ const assignees = ref<Assignee[]>([])
 const loading = ref(false)
 const route = useRoute()
 const activeStatus = ref(typeof route.query.status === 'string' && statusFilter.some(s => s.value === route.query.status) ? route.query.status : '')
+const keyword = ref('')
+const overdueOnly = ref(route.query.overdue === '1')
+function search() { page.value = 1; void load() }
 function isOverdue(row: { due_at: string | null; status: string }) {
   return !!row.due_at && ['ASSIGNED', 'IN_PROGRESS', 'RETURNED', 'PENDING_REVIEW'].includes(row.status) && Date.parse(row.due_at) < Date.now()
 }
@@ -180,6 +190,8 @@ async function load() {
   loading.value = true
   try {
     const res = await fetchTasks({
+      keyword: keyword.value.trim() || undefined,
+      overdue: overdueOnly.value,
       status: activeStatus.value || undefined,
       page: page.value,
       page_size: pageSize,
@@ -230,19 +242,22 @@ function statusType(s: string) {
 }
 
 function openCreate() {
+  Object.assign(createForm, { title: '', assignee_id: undefined, due_at: null, description: '', point_ids: [] })
   loadAssignees()
+  loadPoints()
   createVisible.value = true
 }
 
 async function create() {
-  if (!createForm.title || !createForm.assignee_id || !createForm.point_ids.length) {
+  if (creating.value) return
+  if (!createForm.title.trim() || !createForm.assignee_id || !createForm.point_ids.length) {
     ElMessage.warning('请填写标题并选择巡检员和点位')
     return
   }
   creating.value = true
   try {
     await createTask({
-      title: createForm.title,
+      title: createForm.title.trim(),
       assignee_id: createForm.assignee_id,
       due_at: createForm.due_at ?? undefined,
       description: createForm.description || undefined,
@@ -320,6 +335,7 @@ async function cancel(row: any) {
 </script>
 
 <style scoped>
+.overdue { color: var(--el-color-warning); display: block; }
 .page {
   background: #fff;
   border-radius: 12px;

@@ -50,10 +50,10 @@
     </div>
 
     <!-- 生成任务报告 -->
-    <el-dialog v-model="taskVisible" title="生成任务报告" width="420">
+    <el-dialog v-model="taskVisible" title="生成任务报告" width="520" :close-on-click-modal="false">
       <el-form label-width="110px">
-        <el-form-item label="任务 ID" required>
-          <el-input-number v-model="taskId" :min="1" style="width: 100%" />
+        <el-form-item label="巡检任务" required>
+          <TaskSelect v-model="taskId" />
         </el-form-item>
         <p class="tip">报告将包含任务下所有点位：正常点、疑似病害点、批准未覆盖点、照片、人工与模型结论差异、审核意见与关联问题状态。</p>
       </el-form>
@@ -64,7 +64,7 @@
     </el-dialog>
 
     <!-- 生成范围报告 -->
-    <el-dialog v-model="rangeVisible" title="生成时间范围报告" width="420">
+    <el-dialog v-model="rangeVisible" title="生成时间范围报告" width="520" :close-on-click-modal="false">
       <el-form label-width="110px">
         <el-form-item label="开始时间" required>
           <el-date-picker v-model="rangeStart" type="datetime" value-format="YYYY-MM-DDTHH:mm:ssZ" style="width: 100%" />
@@ -84,6 +84,8 @@
 <script setup lang="ts">
 import { formatDateTime } from '@/shared/ui/time'
 import { onMounted, ref } from 'vue'
+import { useRoute } from 'vue-router'
+import TaskSelect from '@/shared/ui/TaskSelect.vue'
 import { ElMessage } from 'element-plus'
 import { fetchReports, createTaskReport, createRangeReport, retryReport, loadReportBlob, type Report } from '@/shared/api/report'
 
@@ -96,11 +98,16 @@ const total = ref(0)
 const taskVisible = ref(false)
 const rangeVisible = ref(false)
 const creating = ref(false)
-const taskId = ref(1)
+const taskId = ref<number>()
 const rangeStart = ref('')
 const rangeEnd = ref('')
 
-onMounted(load)
+const route = useRoute()
+onMounted(() => {
+  void load()
+  const initialTask = Number(route.query.task_id)
+  if (Number.isSafeInteger(initialTask) && initialTask > 0) { taskId.value = initialTask; taskVisible.value = true }
+})
 
 async function load() {
   loading.value = true
@@ -130,10 +137,11 @@ function openRangeReport() {
 }
 
 async function createTask() {
+  if (!taskId.value) { ElMessage.warning('请选择巡检任务'); return }
   creating.value = true
   try {
     const r = await createTaskReport(taskId.value)
-    ElMessage.success(`报告已生成（#${r.id}，状态 ${r.status}）`)
+    ElMessage.success(`报告 #${r.id}：${statusText(r.status)}`)
     taskVisible.value = false
     load()
   } catch (e: any) {
@@ -148,10 +156,11 @@ async function createRange() {
     ElMessage.warning('起止时间必填')
     return
   }
+  if (Date.parse(rangeStart.value) >= Date.parse(rangeEnd.value)) { ElMessage.warning('结束时间须晚于开始时间'); return }
   creating.value = true
   try {
     const r = await createRangeReport(rangeStart.value, rangeEnd.value)
-    ElMessage.success(`范围报告已生成（#${r.id}，状态 ${r.status}）`)
+    ElMessage.success(`范围报告 #${r.id}：${statusText(r.status)}`)
     rangeVisible.value = false
     load()
   } catch (e: any) {
@@ -164,7 +173,7 @@ async function createRange() {
 async function retry(row: Report) {
   try {
     const r = await retryReport(row.id)
-    ElMessage.success(`已重新生成（#${r.id}，状态 ${r.status}）`)
+    ElMessage.success(`报告 #${r.id}：${statusText(r.status)}`)
     load()
   } catch (e: any) {
     ElMessage.error(e?.message || '重试失败')
@@ -195,6 +204,7 @@ async function download(row: Report) {
   display: flex;
   align-items: center;
   gap: 10px;
+  flex-wrap: wrap;
   margin-bottom: 14px;
 }
 .hint {

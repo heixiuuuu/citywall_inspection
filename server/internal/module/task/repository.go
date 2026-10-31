@@ -76,15 +76,13 @@ func (r *GORMRepository) ListByActor(ctx context.Context, actorID int64, isAdmin
 }
 
 // ListPage 分页 + 状态过滤查询（offset/limit 为 0 时不分页）。
-func (r *GORMRepository) ListPage(ctx context.Context, actorID int64, isAdmin bool, status string, limit, offset int) ([]Task, error) {
+func (r *GORMRepository) ListPage(ctx context.Context, actorID int64, isAdmin bool, filter ListFilter, limit, offset int) ([]Task, error) {
 	var tasks []Task
-	q := r.db.WithContext(ctx).Order("created_at DESC")
+	q := r.db.WithContext(ctx).Order("created_at DESC, id DESC")
 	if !isAdmin {
 		q = q.Where("assignee_id = ?", actorID)
 	}
-	if status != "" {
-		q = q.Where("status = ?", status)
-	}
+	q = applyListFilter(q, filter)
 	if limit > 0 {
 		q = q.Limit(limit)
 		if offset > 0 {
@@ -95,16 +93,27 @@ func (r *GORMRepository) ListPage(ctx context.Context, actorID int64, isAdmin bo
 }
 
 // CountTasks 统计任务数（与 ListPage 同一过滤条件）。
-func (r *GORMRepository) CountTasks(ctx context.Context, actorID int64, isAdmin bool, status string) (int64, error) {
+func (r *GORMRepository) CountTasks(ctx context.Context, actorID int64, isAdmin bool, filter ListFilter) (int64, error) {
 	var total int64
 	q := r.db.WithContext(ctx).Model(&Task{})
 	if !isAdmin {
 		q = q.Where("assignee_id = ?", actorID)
 	}
-	if status != "" {
-		q = q.Where("status = ?", status)
-	}
+	q = applyListFilter(q, filter)
 	return total, q.Count(&total).Error
+}
+
+func applyListFilter(q *gorm.DB, filter ListFilter) *gorm.DB {
+	if filter.Status != "" {
+		q = q.Where("status = ?", filter.Status)
+	}
+	if filter.Keyword != "" {
+		q = q.Where("LOCATE(?, title) > 0", filter.Keyword)
+	}
+	if filter.DueBefore != nil {
+		q = q.Where("due_at < ? AND status IN ?", *filter.DueBefore, []string{StatusAssigned, StatusInProgress, StatusReturned, StatusPendingReview})
+	}
+	return q
 }
 
 func (r *GORMRepository) UpdateStatus(ctx context.Context, id int64, fromRevision int64, status string) (int64, error) {

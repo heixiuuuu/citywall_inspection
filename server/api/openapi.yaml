@@ -331,9 +331,11 @@ paths:
           $ref: '#/components/responses/Conflict'
     get:
       tags: [task]
-      summary: 任务列表（按权限过滤，支持状态过滤与分页）
+      summary: 任务列表（按权限过滤，支持名称、超期和状态筛选）
       parameters:
-        - { name: status, in: query, required: false, schema: { type: string, enum: [DRAFT, ASSIGNED, IN_PROGRESS, PENDING_REVIEW, COMPLETED, CANCELLED] } }
+        - { name: keyword, in: query, required: false, description: 任务名称包含的文字, schema: { type: string } }
+        - { name: overdue, in: query, required: false, description: 仅返回已派发且超过截止时间的非终态任务, schema: { type: string, enum: ['1'] } }
+        - { name: status, in: query, required: false, schema: { type: string, enum: [DRAFT, ASSIGNED, IN_PROGRESS, RETURNED, PENDING_REVIEW, COMPLETED, CANCELLED] } }
         - { name: page, in: query, required: false, schema: { type: integer, minimum: 1, default: 1 } }
         - { name: page_size, in: query, required: false, schema: { type: integer, minimum: 1, maximum: 100, default: 20 } }
       responses:
@@ -482,6 +484,7 @@ paths:
       tags: [observation]
       summary: 记录列表（管理员/审核员全部，巡检员自己的上报；状态过滤 + 分页）
       parameters:
+        - { name: pending_admission, in: query, required: false, description: 仅返回审核通过且尚未受理的记录, schema: { type: string, enum: ['1'] } }
         - { name: task_id, in: query, required: false, schema: { type: integer, minimum: 1 } }
         - { name: task_point_id, in: query, required: false, schema: { type: integer, minimum: 1 } }
         - { name: status, in: query, required: false, schema: { type: string, enum: [DRAFT, SUBMITTED, RETURNED, ACCEPTED, REJECTED] } }

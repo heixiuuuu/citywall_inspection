@@ -30,11 +30,11 @@
     </el-table>
 
     <!-- 审核对话框 -->
-    <el-dialog v-model="reviewVisible" title="审核记录" width="min(960px, 95vw)" destroy-on-close>
+    <el-dialog v-model="reviewVisible" title="审核记录" width="min(960px, 95vw)" destroy-on-close :close-on-click-modal="false">
       <div v-if="current" class="review-body">
         <el-descriptions :column="2" border>
           <el-descriptions-item label="ID">{{ current.id }}</el-descriptions-item>
-          <el-descriptions-item label="来源">{{ current.source }}</el-descriptions-item>
+          <el-descriptions-item label="来源">{{ current.source === 'TASK' ? '任务巡检' : '主动上报' }}</el-descriptions-item>
           <el-descriptions-item label="位置">{{ current.location_text }}</el-descriptions-item>
           <el-descriptions-item label="现场判断">{{ outcomeText(current.inspection_outcome) }}</el-descriptions-item>
           <el-descriptions-item label="上报人ID">{{ current.reporter_id }}</el-descriptions-item>

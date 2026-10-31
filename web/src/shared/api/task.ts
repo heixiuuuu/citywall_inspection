@@ -52,6 +52,8 @@ export interface CreateTaskPayload {
 }
 
 export interface TaskListParams {
+  keyword?: string
+  overdue?: boolean
   status?: string
   page?: number
   page_size?: number
@@ -66,6 +68,8 @@ export interface TaskListResult {
 
 export async function fetchTasks(params: TaskListParams = {}): Promise<TaskListResult> {
   const qs = new URLSearchParams()
+  if (params.keyword) qs.set('keyword', params.keyword)
+  if (params.overdue) qs.set('overdue', '1')
   if (params.status) qs.set('status', params.status)
   qs.set('page', String(params.page ?? 1))
   qs.set('page_size', String(params.page_size ?? 20))

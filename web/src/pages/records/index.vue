@@ -13,8 +13,8 @@
         <el-option label="任务巡检" value="TASK" />
         <el-option label="主动上报" value="VOLUNTARY" />
       </el-select>
-      <el-input-number v-model="filter.task_id" :min="1" placeholder="任务 ID" controls-position="right" style="width: 130px" />
-      <el-input-number v-model="filter.point_id" :min="1" placeholder="点位 ID" controls-position="right" style="width: 130px" />
+      <div style="width: 240px"><TaskSelect v-model="filter.task_id" /></div>
+      <el-select v-model="filter.point_id" filterable clearable placeholder="选择巡检点位" style="width: 220px"><el-option v-for="point in points" :key="point.id" :value="point.id" :label="`${point.name}（${point.code}）`" /></el-select>
       <el-date-picker v-model="dateRange" type="datetimerange" value-format="YYYY-MM-DDTHH:mm:ssZ" range-separator="至" start-placeholder="开始时间" end-placeholder="结束时间" style="width: 360px" />
       <el-button type="primary" @click="search">查询</el-button>
       <el-button @click="reset">重置</el-button>
@@ -38,7 +38,7 @@
       <el-table-column label="受理" width="100"><template #default="{ row }">{{ row.admitted_at ? (row.no_issue_reason ? '不立项' : '已受理') : row.status === 'ACCEPTED' ? '待受理' : '—' }}</template></el-table-column>
       <el-table-column prop="reporter_id" label="上报人" width="80" />
       <el-table-column label="点位" width="110">
-        <template #default="{ row }">{{ row.task_point_id ?? (row.point_id ?? '—') }}</template>
+        <template #default="{ row }">{{ points.find(point => point.id === row.point_id)?.name || (row.point_id ? `点位 #${row.point_id}` : '未关联点位') }}</template>
       </el-table-column>
       <el-table-column label="位置" min-width="170" show-overflow-tooltip>
         <template #default="{ row }">{{ row.location_text || `${row.latitude?.toFixed(5) ?? ''},${row.longitude?.toFixed(5) ?? ''}` }}</template>
@@ -92,6 +92,8 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
 import { useRoute } from 'vue-router'
+import TaskSelect from '@/shared/ui/TaskSelect.vue'
+import { fetchPoints, type InspectionPoint } from '@/shared/api/site'
 import { outcomeLabel, observationStatusLabel as statusText } from '@/shared/ui/labels'
 import IssueAdmission from '@/shared/ui/IssueAdmission.vue'
 import ObservationEvidence from '@/shared/ui/ObservationEvidence.vue'
@@ -106,11 +108,12 @@ const pageSize = 20
 const total = ref(0)
 const route = useRoute()
 const pendingAdmission = ref(route.query.pending_admission === '1')
+const points = ref<InspectionPoint[]>([])
 
 const filter = reactive<{ status: string; source: string; task_id: number | undefined; point_id: number | undefined }>({
   status: typeof route.query.status === 'string' ? route.query.status : '',
   source: '',
-  task_id: undefined,
+  task_id: Number(route.query.task_id) > 0 ? Number(route.query.task_id) : undefined,
   point_id: undefined,
 })
 const dateRange = ref<[string, string] | null>(null)
@@ -121,7 +124,7 @@ function openAdmission(id: number) { admitRecordId.value = id; admitVisible.valu
 const detailVisible = ref(false)
 const detail = ref<Observation | null>(null)
 
-onMounted(load)
+onMounted(() => { void load(); void fetchPoints(true).then(result => { points.value = result }).catch(() => { ElMessage.warning('点位选项暂时不可用，可继续检索记录') }) })
 
 async function load() {
   loading.value = true
@@ -147,6 +150,7 @@ async function load() {
 }
 
 function search() {
+  if (dateRange.value && Date.parse(dateRange.value[0]) > Date.parse(dateRange.value[1])) { ElMessage.warning('结束时间不能早于开始时间'); return }
   page.value = 1
   load()
 }

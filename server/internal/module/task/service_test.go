@@ -3,6 +3,7 @@ package task
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"citywall/server/internal/middleware"
@@ -99,13 +100,13 @@ func (f *fakeRepo) ListByActor(_ context.Context, actorID int64, isAdmin bool) (
 	return out, nil
 }
 
-func (f *fakeRepo) ListPage(_ context.Context, actorID int64, isAdmin bool, status string, limit, offset int) ([]Task, error) {
+func (f *fakeRepo) ListPage(_ context.Context, actorID int64, isAdmin bool, filter ListFilter, limit, offset int) ([]Task, error) {
 	var out []Task
 	for _, t := range f.tasks {
 		if !(isAdmin || t.AssigneeID == actorID) {
 			continue
 		}
-		if status != "" && t.Status != status {
+		if !matchesListFilter(t, filter) {
 			continue
 		}
 		out = append(out, *t)
@@ -122,18 +123,31 @@ func (f *fakeRepo) ListPage(_ context.Context, actorID int64, isAdmin bool, stat
 	return out[offset : offset+limit], nil
 }
 
-func (f *fakeRepo) CountTasks(_ context.Context, actorID int64, isAdmin bool, status string) (int64, error) {
+func (f *fakeRepo) CountTasks(_ context.Context, actorID int64, isAdmin bool, filter ListFilter) (int64, error) {
 	var n int64
 	for _, t := range f.tasks {
 		if !(isAdmin || t.AssigneeID == actorID) {
 			continue
 		}
-		if status != "" && t.Status != status {
+		if !matchesListFilter(t, filter) {
 			continue
 		}
 		n++
 	}
 	return n, nil
+}
+
+func matchesListFilter(t *Task, filter ListFilter) bool {
+	if filter.Status != "" && t.Status != filter.Status {
+		return false
+	}
+	if filter.Keyword != "" && !strings.Contains(t.Title, filter.Keyword) {
+		return false
+	}
+	if filter.DueBefore != nil {
+		return t.DueAt != nil && t.DueAt.Before(*filter.DueBefore) && (t.Status == StatusAssigned || t.Status == StatusInProgress || t.Status == StatusReturned || t.Status == StatusPendingReview)
+	}
+	return true
 }
 
 func (f *fakeRepo) UpdateStatus(_ context.Context, id int64, fromRevision int64, status string) (int64, error) {
