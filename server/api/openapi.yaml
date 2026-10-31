@@ -630,7 +630,7 @@ paths:
                       decision: { type: string, enum: [CONFIRM, MODIFY, REJECT, ADD] }
                       final_class_code:
                         type: string
-                        description: 人工判定类别。SURFACE_SPALLING 表示表面剥落，与 SURFACE_DISSOLUTION 表面溶蚀独立；当前仅支持人工记录，不代表模型已训练该类。
+                        description: 人工判定类别。SURFACE_SPALLING 表示表面剥落，与 SURFACE_DISSOLUTION 表面溶蚀独立；模型候选须由人工复核。
                       final_box_json:
                         type: string
                         description: 可省略的人工定位框 JSON 字符串，包含数值 x1、y1、x2、y2。坐标使用 EXIF 方向归一后的原图像素，须满足 0≤x1<x2≤width、0≤y1<y2≤height；无效内容返回 400，结论与记录版本不变。
