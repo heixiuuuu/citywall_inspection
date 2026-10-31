@@ -1321,6 +1321,11 @@ components:
         id: { type: integer }
         task_id: { type: integer }
         point_id: { type: integer }
+        point_name: { type: string, description: 当前点位档案名称，已派发任务展示时优先使用 snapshot_name }
+        observation_id: { type: [integer, 'null'], description: 对应现场记录编号，无记录时为 null }
+        observation_reporter_id: { type: [integer, 'null'] }
+        observation_status: { type: string, description: 对应现场记录当前状态，无记录时为空字符串 }
+        observation_outcome: { type: string, description: 对应现场记录当前结论，无结论时为空字符串 }
         sequence_no: { type: integer }
         snapshot_name: { type: [string, 'null'] }
         snapshot_segment_id: { type: [integer, 'null'] }

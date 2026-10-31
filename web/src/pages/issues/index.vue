@@ -163,6 +163,7 @@
         </el-form-item>
         <el-form-item v-if="actionForm.action_type === 'OBSERVE'" label="复查时间">
           <el-date-picker v-model="actionForm.planned_follow_up_at" type="datetime" value-format="YYYY-MM-DDTHH:mm:ssZ" />
+          <p class="schedule-hint">留空表示本次不安排后续复查。</p>
         </el-form-item>
       </el-form>
       <template #footer>
@@ -567,4 +568,5 @@ function syncFilterQuery() {
 .result-count { font-size: 13px; white-space: nowrap; color: var(--text-muted); }
 .follow-up-due { display: block; color: var(--el-color-warning-dark-2); }
 .follow-up-notice { margin-bottom: var(--space-content); }
+.schedule-hint { margin: 4px 0 0; font-size: 12px; color: var(--text-muted); }
 </style>

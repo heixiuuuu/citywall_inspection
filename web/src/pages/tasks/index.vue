@@ -88,7 +88,7 @@
     </el-dialog>
 
     <!-- 任务详情 -->
-    <el-drawer v-model="detailVisible" title="任务详情" size="560">
+    <el-drawer v-model="detailVisible" title="任务详情" size="min(1000px, 95vw)" destroy-on-close>
       <div v-if="detail">
         <div v-if="canReview" class="toolbar"><el-button @click="$router.push({ path: '/records', query: { task_id: detail.task.id } })">查看现场记录</el-button><el-button type="primary" @click="$router.push({ path: '/reports', query: { task_id: detail.task.id } })">生成任务报告</el-button></div>
         <el-descriptions :column="2" border>
@@ -102,9 +102,14 @@
           <el-descriptions-item label="说明">{{ detail.task.description || '—' }}</el-descriptions-item>
         </el-descriptions>
         <h4 class="subtitle">点位列表</h4>
-        <el-table :data="detail.points" size="small" stripe>
+        <div class="progress-summary"><span>已提交 <strong>{{ submittedPointCount }}</strong> / {{ detail.points.length }}</span><span>审核通过 <strong>{{ acceptedPointCount }}</strong></span><span>退回补正 <strong>{{ returnedPointCount }}</strong></span></div>
+        <el-progress :percentage="detail.points.length ? Math.round(submittedPointCount / detail.points.length * 100) : 0" :show-text="false" />
+        <el-table :data="detail.points" row-key="id" size="small" stripe class="point-table">
+          <el-table-column type="expand"><template #default="{ row }"><ObservationEvidence v-if="row.observation_id && (canReview || row.observation_reporter_id === myId)" :observation-id="row.observation_id" /><el-empty v-else :description="row.observation_id ? '该记录由其他人员采集，请联系管理员查看' : '该点位尚未创建现场记录'" :image-size="56" /></template></el-table-column>
           <el-table-column prop="sequence_no" label="#" width="56" />
-          <el-table-column label="点位名称" min-width="140"><template #default="{ row }">{{ row.snapshot_name || points.find(p => p.id === row.point_id)?.name || `点位 #${row.point_id}` }}</template></el-table-column>
+          <el-table-column label="点位名称" min-width="140"><template #default="{ row }">{{ row.snapshot_name || row.point_name || `点位 #${row.point_id}` }}</template></el-table-column>
+          <el-table-column label="记录状态" min-width="105"><template #default="{ row }"><el-tag v-if="row.observation_id" :type="pointStatusType(row.observation_status)" size="small">{{ observationStatusLabel(row.observation_status) }}</el-tag><span v-else class="muted">待采集</span></template></el-table-column>
+          <el-table-column label="现场结论" min-width="105"><template #default="{ row }">{{ outcomeLabel(row.observation_outcome) }}</template></el-table-column>
           <el-table-column prop="snapshot_location_hint" label="位置提示" min-width="140" />
           <el-table-column label="坐标" min-width="160">
             <template #default="{ row }">
@@ -121,6 +126,8 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { formatDateTime } from '@/shared/ui/time'
+import { observationStatusLabel, outcomeLabel } from '@/shared/ui/labels'
+import ObservationEvidence from '@/shared/ui/ObservationEvidence.vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { fetchTasks, createTask, fetchTask, dispatchTask, completeTask, cancelTask, fetchAssignees, type Assignee } from '@/shared/api/task'
 import { fetchPoints, type InspectionPoint } from '@/shared/api/site'
@@ -128,6 +135,7 @@ import { fetchPoints, type InspectionPoint } from '@/shared/api/site'
 const roles: string[] = JSON.parse(localStorage.getItem('city_wall_roles') ?? '[]')
 const isAdmin = computed(() => roles.includes('ADMIN'))
 const canReview = computed(() => roles.includes('REVIEWER') || roles.includes('ADMIN'))
+const myId = Number(JSON.parse(localStorage.getItem('city_wall_user') ?? 'null')?.id ?? 0)
 
 const statusFilter = [
   { value: 'DRAFT', label: '草稿', type: 'info' },
@@ -173,6 +181,13 @@ const createForm = reactive<{ title: string; assignee_id: number | undefined; du
 
 const detailVisible = ref(false)
 const detail = ref<any>(null)
+const submittedPointCount = computed(() => detail.value?.points.filter((point: { observation_status: string }) => ['SUBMITTED', 'ACCEPTED'].includes(point.observation_status)).length ?? 0)
+const acceptedPointCount = computed(() => detail.value?.points.filter((point: { observation_status: string }) => point.observation_status === 'ACCEPTED').length ?? 0)
+const returnedPointCount = computed(() => detail.value?.points.filter((point: { observation_status: string }) => point.observation_status === 'RETURNED').length ?? 0)
+function pointStatusType(status: string) {
+  const types = { DRAFT: 'info', SUBMITTED: 'primary', RETURNED: 'warning', ACCEPTED: 'success', REJECTED: 'danger' } as const
+  return status in types ? types[status as keyof typeof types] : 'info'
+}
 
 onMounted(() => {
   load()
@@ -335,6 +350,10 @@ async function cancel(row: any) {
 </script>
 
 <style scoped>
+.progress-summary { display: flex; gap: var(--space-section); flex-wrap: wrap; margin-bottom: var(--space-content); font-size: 13px; color: var(--text-muted); }
+.progress-summary strong { color: var(--brand); font-weight: 600; }
+.point-table { margin-top: var(--space-content); }
+.muted { color: var(--text-muted); }
 .overdue { color: var(--el-color-warning); display: block; }
 .page {
   background: #fff;

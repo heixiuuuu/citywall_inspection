@@ -4,7 +4,7 @@ package issue
 
 import "time"
 
-// 问题状态（04 文档 7.4）。
+// 问题状态。
 const (
 	StatusUnassigned          = "UNASSIGNED"           // 待分配
 	StatusOpen                = "OPEN"                 // 已分配待跟进

@@ -37,7 +37,7 @@ func (h *IssueHandler) ListAssignees(c *gin.Context) {
 	writeData(c, http.StatusOK, gin.H{"items": users})
 }
 
-// List 问题台账（管理员/审核员全部，巡检员仅被指派；支持 status/page/page_size）。
+// List 问题台账（管理员/审核员全部，巡检员仅被指派；筛选条件同时作用于结果与总数）。
 func (h *IssueHandler) List(c *gin.Context) {
 	actor, ok := middleware.GetActor(c)
 	if !ok {

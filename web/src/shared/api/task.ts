@@ -31,6 +31,11 @@ export interface Task {
 }
 
 export interface TaskPoint {
+  point_name: string
+  observation_id: number | null
+  observation_reporter_id: number | null
+  observation_status: string
+  observation_outcome: string
   id: number
   task_id: number
   point_id: number

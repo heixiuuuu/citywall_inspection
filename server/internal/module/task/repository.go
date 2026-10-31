@@ -146,11 +146,15 @@ func (r *GORMRepository) CancelTask(ctx context.Context, id int64, fromRevision 
 }
 
 func (r *GORMRepository) ListPoints(ctx context.Context, taskID int64) ([]TaskPoint, error) {
-	var pts []TaskPoint
-	return pts, r.db.WithContext(ctx).
-		Where("task_id = ?", taskID).
-		Order("sequence_no").
+	pts := []TaskPoint{}
+	err := r.db.WithContext(ctx).
+		Select("task_points.*, COALESCE(p.name, '') AS point_name, o.id AS observation_id, o.reporter_id AS observation_reporter_id, COALESCE(o.status, '') AS observation_status, COALESCE(o.inspection_outcome, '') AS observation_outcome").
+		Joins("LEFT JOIN inspection_points p ON p.id = task_points.point_id").
+		Joins("LEFT JOIN observations o ON o.task_point_id = task_points.id").
+		Where("task_points.task_id = ?", taskID).
+		Order("task_points.sequence_no").
 		Find(&pts).Error
+	return pts, err
 }
 
 func (r *GORMRepository) FillPointSnapshots(ctx context.Context, taskID int64, snaps []PointSnapshot) error {

@@ -1,10 +1,10 @@
 // Package task 承载巡检任务与任务点领域模型。
-// 字段与 04 数据模型文档保持一致；状态转移规则由 Service 校验，Repository 只做数据访问。
+// 状态转移规则由 Service 校验，Repository 只做数据访问。
 package task
 
 import "time"
 
-// 任务状态（04 文档 7.1）。
+// 任务状态。
 const (
 	StatusDraft         = "DRAFT"          // 草稿
 	StatusAssigned      = "ASSIGNED"       // 待执行
@@ -35,19 +35,24 @@ type Task struct {
 // TaskPoint 任务点：草稿阶段仅登记 point_id 与序号，派发时写入点位快照，
 // 后续修改基础点位不改旧任务。
 type TaskPoint struct {
-	AssigneeID           int64     `gorm:"->;column:assignee_id" json:"-"`
-	TaskStatus           string    `gorm:"->;column:task_status" json:"-"`
-	ID                   int64     `gorm:"primaryKey;column:id" json:"id"`
-	TaskID               int64     `gorm:"column:task_id;index:idx_task_seq" json:"task_id"`
-	PointID              int64     `gorm:"column:point_id" json:"point_id"`
-	SequenceNo           int       `gorm:"column:sequence_no;index:idx_task_seq" json:"sequence_no"`
-	SnapshotName         *string   `gorm:"column:snapshot_name" json:"snapshot_name"`
-	SnapshotSegmentID    *int64    `gorm:"column:snapshot_segment_id" json:"snapshot_segment_id"`
-	SnapshotLatitude     *float64  `gorm:"column:snapshot_latitude" json:"snapshot_latitude"`
-	SnapshotLongitude    *float64  `gorm:"column:snapshot_longitude" json:"snapshot_longitude"`
-	SnapshotRadiusM      *float64  `gorm:"column:snapshot_radius_m" json:"snapshot_radius_m"`
-	SnapshotLocationHint *string   `gorm:"column:snapshot_location_hint" json:"snapshot_location_hint"`
-	CreatedAt            time.Time `gorm:"column:created_at" json:"created_at"`
+	PointName             string    `gorm:"->;-:migration;column:point_name" json:"point_name"`
+	ObservationID         *int64    `gorm:"->;-:migration;column:observation_id" json:"observation_id"`
+	ObservationReporterID *int64    `gorm:"->;-:migration;column:observation_reporter_id" json:"observation_reporter_id"`
+	ObservationStatus     string    `gorm:"->;-:migration;column:observation_status" json:"observation_status"`
+	ObservationOutcome    string    `gorm:"->;-:migration;column:observation_outcome" json:"observation_outcome"`
+	AssigneeID            int64     `gorm:"->;column:assignee_id" json:"-"`
+	TaskStatus            string    `gorm:"->;column:task_status" json:"-"`
+	ID                    int64     `gorm:"primaryKey;column:id" json:"id"`
+	TaskID                int64     `gorm:"column:task_id;index:idx_task_seq" json:"task_id"`
+	PointID               int64     `gorm:"column:point_id" json:"point_id"`
+	SequenceNo            int       `gorm:"column:sequence_no;index:idx_task_seq" json:"sequence_no"`
+	SnapshotName          *string   `gorm:"column:snapshot_name" json:"snapshot_name"`
+	SnapshotSegmentID     *int64    `gorm:"column:snapshot_segment_id" json:"snapshot_segment_id"`
+	SnapshotLatitude      *float64  `gorm:"column:snapshot_latitude" json:"snapshot_latitude"`
+	SnapshotLongitude     *float64  `gorm:"column:snapshot_longitude" json:"snapshot_longitude"`
+	SnapshotRadiusM       *float64  `gorm:"column:snapshot_radius_m" json:"snapshot_radius_m"`
+	SnapshotLocationHint  *string   `gorm:"column:snapshot_location_hint" json:"snapshot_location_hint"`
+	CreatedAt             time.Time `gorm:"column:created_at" json:"created_at"`
 }
 
 // TableName 显式表名。
