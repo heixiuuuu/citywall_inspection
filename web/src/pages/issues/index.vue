@@ -1,11 +1,12 @@
 <template>
   <div class="page">
-    <div class="page-heading"><div><h1>问题台账</h1><p>从现场发现到处置核验，跟进每一项问题。</p></div><span class="result-count">共 {{ total }} 项</span></div>
+    <PageHeading title="问题台账" description="从现场发现到处置核验，跟进每一项问题。"><span class="result-count">共 {{ total }} 项</span></PageHeading>
+    <el-alert v-if="loadError && issues.length" :title="loadError" description="当前保留上次加载的台账内容。" type="error" :closable="false" class="load-notice" />
     <div class="toolbar">
       <el-input v-model="keyword" placeholder="搜索问题名称或位置" clearable style="width: 260px" @clear="search" />
       <el-button type="primary" @click="search">查询</el-button>
       <el-button @click="resetFilters">重置</el-button>
-      <el-button @click="load">刷新</el-button>
+      <el-button :loading="loading" @click="load">刷新</el-button>
     </div>
     <div class="toolbar">
       <el-checkbox v-model="onlyMine">我负责的</el-checkbox>
@@ -13,20 +14,10 @@
       <el-checkbox v-model="followUpDue">到期需复查</el-checkbox>
       <el-radio-group v-model="priority" size="small" aria-label="问题优先级"><el-radio-button value="">全部优先级</el-radio-button><el-radio-button v-for="(item, code) in ISSUE_PRIORITY" :key="code" :value="code">{{ item.label }}</el-radio-button></el-radio-group>
     </div>
-    <div class="toolbar" aria-label="问题状态筛选">
-      <el-check-tag :checked="!activeStatus" @change="activeStatus = ''">全部</el-check-tag>
-      <el-check-tag
-        v-for="s in statusFilter"
-        :key="s.value"
-        :checked="activeStatus === s.value"
-        class="tag-filter"
-        @change="activeStatus = activeStatus === s.value ? '' : s.value"
-      >
-        {{ s.label }}
-      </el-check-tag>
-    </div>
+    <StatusFilter v-model="activeStatus" :options="statusFilter" label="问题状态筛选" />
 
     <el-table :data="issues" v-loading="loading" stripe>
+      <template #empty><ListFeedback :error="loadError" title="当前没有符合条件的问题" description="可清除名称或状态筛选；新受理的问题会显示在这里。" icon="issues" @retry="load" /></template>
       <el-table-column prop="id" label="ID" width="64" />
       <el-table-column prop="title" label="标题" min-width="180" />
       <el-table-column label="状态" width="110">
@@ -211,6 +202,9 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { formatDateTime } from '@/shared/ui/time'
+import PageHeading from '@/shared/ui/PageHeading.vue'
+import ListFeedback from '@/shared/ui/ListFeedback.vue'
+import StatusFilter from '@/shared/ui/StatusFilter.vue'
 import ObservationEvidence from '@/shared/ui/ObservationEvidence.vue'
 import IssueActionPhotos from '@/shared/ui/IssueActionPhotos.vue'
 import {
@@ -241,6 +235,7 @@ const statusFilter = Object.entries(ISSUE_STATUS).map(([value, s]) => ({ value, 
 
 const issues = ref<Issue[]>([])
 const loading = ref(false)
+const loadError = ref('')
 const route = useRoute()
 const router = useRouter()
 const keyword = ref(typeof route.query.keyword === 'string' ? route.query.keyword : '')
@@ -297,13 +292,14 @@ onMounted(load)
 async function load() {
   const current = ++listGeneration
   loading.value = true
+  loadError.value = ''
   try {
     const res = await fetchIssues({ status: activeStatus.value || undefined, keyword: keyword.value.trim(), priority_code: priority.value, only_mine: onlyMine.value, active_only: activeOnly.value, follow_up_due: followUpDue.value, page: page.value, page_size: pageSize })
     if (current !== listGeneration) return
     issues.value = res.items
     total.value = res.total
-  } catch {
-    if (current === listGeneration) ElMessage.error('加载问题台账失败')
+  } catch (error) {
+    if (current === listGeneration) loadError.value = error instanceof Error ? error.message : '问题台账加载失败，请重新加载。'
   } finally {
     if (current === listGeneration) loading.value = false
   }
@@ -521,9 +517,6 @@ function syncFilterQuery() {
   flex-wrap: wrap;
   margin-bottom: 14px;
 }
-.tag-filter {
-  cursor: pointer;
-}
 .pager {
   display: flex;
   justify-content: flex-end;
@@ -562,9 +555,6 @@ function syncFilterQuery() {
   flex-wrap: wrap;
   gap: 10px;
 }
-.page-heading { display: flex; align-items: center; justify-content: space-between; gap: var(--space-content); margin-bottom: var(--space-section); }
-.page-heading h1 { margin: 0; font-size: 22px; font-weight: 600; color: var(--text-strong); }
-.page-heading p { margin: 4px 0 0; font-size: 13px; color: var(--text-muted); }
 .result-count { font-size: 13px; white-space: nowrap; color: var(--text-muted); }
 .follow-up-due { display: block; color: var(--el-color-warning-dark-2); }
 .follow-up-notice { margin-bottom: var(--space-content); }

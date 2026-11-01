@@ -1,6 +1,7 @@
 <template>
   <section v-loading="loading" class="evidence">
     <el-alert v-if="error" :title="error" type="error" :closable="false" />
+    <el-button v-if="error" class="evidence-retry" @click="loadEvidence(props.observationId)">重新加载证据</el-button>
     <template v-if="evidence">
       <div v-if="evidence.submissions?.length" class="image-toolbar">
         <span>查看版本</span>
@@ -22,13 +23,14 @@
       <article v-for="img in images" :key="img.id">
         <div class="image-toolbar">
           <span>{{ img.role === 'OVERVIEW' ? '概览' : img.role === 'DETAIL' ? '细节' : '历史照片' }} #{{ img.id }}</span>
+          <el-button v-if="img.url" link type="primary" @click="openPhoto(img.id)">放大照片</el-button>
           <el-select v-if="attemptsFor(img.id).length" v-model="selected[img.id]" style="width: 260px" size="small">
             <el-option v-for="a in attemptsFor(img.id)" :key="a.id" :value="a.id" :label="`第 ${a.attempt_no} 次 · ${a.model_version || attemptLabel(a.status)}`" />
           </el-select>
           <span v-else class="hint">{{ snapshot ? '提交时无已完成识别' : '尚未识别' }}</span>
         </div>
         <div v-if="img.url" class="image-stage">
-          <img :src="img.url" :alt="`现场照片 #${img.id}`" @load="measure(img.id, $event)" />
+          <img :src="img.url" :alt="`现场照片 #${img.id}`" role="button" tabindex="0" aria-label="放大查看现场照片" @click="openPhoto(img.id)" @keydown.enter.prevent="openPhoto(img.id)" @keydown.space.prevent="openPhoto(img.id)" @load="measure(img.id, $event)" />
           <svg v-if="sizes[img.id]" :viewBox="`0 0 ${sizes[img.id][0]} ${sizes[img.id][1]}`" preserveAspectRatio="none">
             <g v-for="d in detectionsFor(img.id)" :key="d.id">
               <rect :x="d.x1" :y="d.y1" :width="d.x2-d.x1" :height="d.y2-d.y1" fill="none" stroke="#ffd54f" stroke-width="2" vector-effect="non-scaling-stroke" />
@@ -40,7 +42,7 @@
             </g>
           </svg>
         </div>
-        <el-alert v-else title="照片加载失败" type="warning" :closable="false" />
+        <div v-else><el-alert title="照片加载失败，可重新加载后查看。" type="warning" :closable="false" /><el-button text type="primary" @click="loadImages">重新加载照片</el-button></div>
         <p v-if="attemptFor(img.id)" class="hint">{{ attemptLabel(attemptFor(img.id)?.status) }} {{ attemptFor(img.id)?.error_code }} · 候选 {{ detectionsFor(img.id).length }} 个</p>
         <div v-if="analysisFor(img.id)" class="analysis">
           <h4>视觉语言模型辅助分析</h4>
@@ -73,6 +75,7 @@
         <p v-if="r.reason">审核原因：{{ r.reason }}</p>
       </article>
     </template>
+    <el-image-viewer v-if="viewingPhoto" :url-list="previewUrls" :initial-index="previewIndex" :teleported="true" @close="viewingPhoto = false" />
   </section>
 </template>
 <script setup lang="ts">
@@ -109,9 +112,13 @@ const selected = reactive<Record<number, number>>({})
 const sizes = reactive<Record<number, [number, number]>>({})
 const loading = ref(false)
 const error = ref('')
+const viewingPhoto = ref(false)
+const previewIndex = ref(0)
+const previewUrls = computed(() => images.value.filter(image => image.url).map(image => image.url))
+function openPhoto(id: number) { const image = images.value.find(image => image.id === id); if (!image?.url) return; previewIndex.value = previewUrls.value.indexOf(image.url); viewingPhoto.value = true }
 let generation = 0
-function release() { images.value.forEach(i => { if (i.url) URL.revokeObjectURL(i.url) }); images.value = [] }
-watch(() => props.observationId, async id => {
+function release() { viewingPhoto.value = false; images.value.forEach(i => { if (i.url) URL.revokeObjectURL(i.url) }); images.value = [] }
+async function loadEvidence(id: number) {
   const current = ++generation
   release()
   evidence.value = undefined
@@ -127,7 +134,8 @@ watch(() => props.observationId, async id => {
     await loadImages()
   } catch (e) { if (current === generation) error.value = e instanceof Error ? e.message : '记录加载失败' }
   finally { if (current === generation) loading.value = false }
-}, { immediate: true })
+}
+watch(() => props.observationId, loadEvidence, { immediate: true })
 watch(submissionId, () => { if (evidence.value) loadImages() })
 async function loadImages() {
   const current = ++generation
@@ -160,9 +168,11 @@ function measure(id: number, event: Event) {
 .evidence { min-height: 100px; }
 .hint { color: #777; font-size: 12px; }
 article { margin-bottom: 20px; }
-.image-toolbar { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
+.image-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 8px; }
 .image-stage { position: relative; line-height: 0; background: #182c29; }
-.image-stage img { width: 100%; height: auto; }
+.image-stage img { width: 100%; height: auto; cursor: zoom-in; }
+.image-stage img:focus-visible { outline: none; box-shadow: var(--focus-soft); }
+.evidence-retry { margin-top: var(--space-tight); }
 .image-stage svg { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
 .analysis, .conclusion { background: #f5f7f7; padding: 12px; border-radius: 8px; }
 </style>

@@ -1,5 +1,7 @@
 <template>
   <div class="page">
+    <PageHeading title="记录检索" description="查阅现场证据、人工判断和历次审核意见，继续处理待受理记录。" />
+    <el-alert v-if="loadError && rows.length" :title="loadError" description="当前保留上次加载的内容。" type="error" :closable="false" class="load-notice" />
     <div class="toolbar">
       <el-checkbox v-model="pendingAdmission" @change="search">仅待受理</el-checkbox>
       <el-select v-model="filter.status" placeholder="审核状态" clearable style="width: 130px">
@@ -18,10 +20,11 @@
       <el-date-picker v-model="dateRange" type="datetimerange" value-format="YYYY-MM-DDTHH:mm:ssZ" range-separator="至" start-placeholder="开始时间" end-placeholder="结束时间" style="width: 360px" />
       <el-button type="primary" @click="search">查询</el-button>
       <el-button @click="reset">重置</el-button>
-      <el-button @click="load">刷新</el-button>
+      <el-button :loading="loading" @click="load">刷新</el-button>
     </div>
 
     <el-table :data="rows" v-loading="loading" stripe>
+      <template #empty><ListFeedback :error="loadError" title="没有找到对应记录" description="可调整任务、点位或时间范围后重新查询。" icon="records" @retry="load" /></template>
       <el-table-column prop="id" label="ID" width="64" />
       <el-table-column label="来源" width="100">
         <template #default="{ row }">
@@ -93,6 +96,8 @@
 import { onMounted, reactive, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import TaskSelect from '@/shared/ui/TaskSelect.vue'
+import PageHeading from '@/shared/ui/PageHeading.vue'
+import ListFeedback from '@/shared/ui/ListFeedback.vue'
 import { fetchPoints, type InspectionPoint } from '@/shared/api/site'
 import { outcomeLabel, observationStatusLabel as statusText } from '@/shared/ui/labels'
 import IssueAdmission from '@/shared/ui/IssueAdmission.vue'
@@ -103,6 +108,8 @@ import { fetchObservations, type Observation } from '@/shared/api/observation'
 
 const rows = ref<Observation[]>([])
 const loading = ref(false)
+const loadError = ref('')
+let loadGeneration = 0
 const page = ref(1)
 const pageSize = 20
 const total = ref(0)
@@ -127,7 +134,9 @@ const detail = ref<Observation | null>(null)
 onMounted(() => { void load(); void fetchPoints(true).then(result => { points.value = result }).catch(() => { ElMessage.warning('点位选项暂时不可用，可继续检索记录') }) })
 
 async function load() {
+  const current = ++loadGeneration
   loading.value = true
+  loadError.value = ''
   try {
     const res = await fetchObservations({
       pending_admission: pendingAdmission.value,
@@ -140,12 +149,13 @@ async function load() {
       page: page.value,
       page_size: pageSize,
     })
-    rows.value = res.items
+    if (current !== loadGeneration) return
+    rows.value = res.items ?? []
     total.value = res.total
-  } catch {
-    ElMessage.error('加载记录失败')
+  } catch (error) {
+    if (current === loadGeneration) loadError.value = error instanceof Error ? error.message : '记录加载失败，请重新加载。'
   } finally {
-    loading.value = false
+    if (current === loadGeneration) loading.value = false
   }
 }
 

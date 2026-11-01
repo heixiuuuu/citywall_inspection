@@ -1,5 +1,6 @@
 <template>
   <div class="page" v-loading="loading">
+    <PageHeading title="城墙档案" description="维护城墙区段、巡检点位与定位提示，为任务派发提供清晰依据。" />
     <div class="toolbar">
       <el-button type="primary" @click="editPoint()">新建点位</el-button>
       <el-button @click="editSegment()">新建城墙区段</el-button>
@@ -61,6 +62,7 @@
 </template>
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
+import PageHeading from '@/shared/ui/PageHeading.vue'
 import { ElMessage } from 'element-plus'
 import { fetchPoints, fetchSegments, createPoint, updatePoint, saveSegment, type InspectionPoint, type WallSegment } from '@/shared/api/site'
 const points = ref<InspectionPoint[]>([])

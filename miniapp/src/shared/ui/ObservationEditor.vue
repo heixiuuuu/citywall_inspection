@@ -1,5 +1,6 @@
 <template>
   <view class="page">
+    <view class="editor-feedback" :class="{ 'feedback-error': feedbackError, 'feedback-saved': !feedbackError && savedFingerprint === draftFingerprint }"><text>{{ feedbackText }}</text><button v-if="!obs && feedbackError" size="mini" @tap="retryRecord">重新加载</button></view>
     <view v-if="returnReason" class="return-reason">退回原因：{{ returnReason }}</view>
     <view class="field">
       <view class="field-label">
@@ -29,7 +30,7 @@
       <view class="field-label">位置 <text class="req">必填</text></view>
       <view class="loc-box">
         <view class="loc-line"><view class="loc-dot" />位置描述：{{ locationText || '待填写' }}</view>
-        <input class="input" v-model="locationText" placeholder="填写具体位置描述" />
+        <input class="input" v-model="locationText" :disabled="submitting" placeholder="填写具体位置描述" />
         <LocationCapture :value="location" :disabled="busy" @pending="locationBusy = $event" @change="location = $event" />
       </view>
     </view>
@@ -42,7 +43,7 @@
           :key="o.value"
           class="pill"
           :class="{ on: overall === o.value }"
-          @tap="overall = o.value"
+          @tap="selectOutcome(o.value)"
         >
           {{ o.label }}
         </view>
@@ -89,25 +90,26 @@
           <view class="grow">
             <view class="row">
               <view class="chip" :class="'c-' + it.decision.toLowerCase()">{{ decisionText(it.decision) }}</view>
-              <CategoryPicker v-model="it.final_class_code" :disabled="it.decision === 'REJECT'" @update:model-value="changeCategory(it)" />
+              <CategoryPicker v-model="it.final_class_code" :disabled="submitting || it.decision === 'REJECT'" @update:model-value="changeCategory(it)" />
             </view>
-            <input class="input-sm" v-model="it.description" placeholder="补充描述（可选）" />
+            <input class="input-sm" v-model="it.description" :disabled="submitting" placeholder="补充描述（可选）" />
           </view>
-          <view class="del" @tap="removeConclusion(i)">×</view>
+          <view v-if="!busy" class="del" @tap="removeConclusion(i)">×</view>
         </view>
-        <button class="btn-ghost" @tap="addConclusion">＋ 添加结论项</button>
+        <button class="btn-ghost" :disabled="busy" @tap="addConclusion">＋ 添加结论项</button>
       </view>
     </view>
 
     <view class="field">
       <view class="field-label">补充说明</view>
       <view v-if="voluntary" class="description-label">现场描述 <text class="req">必填</text></view>
-      <textarea class="input" v-model="overallNote" :placeholder="voluntary ? '描述发现的病害或异常情况' : '补充说明（可选）'" />
+      <textarea class="input" v-model="overallNote" :disabled="submitting" :placeholder="voluntary ? '描述发现的病害或异常情况' : '补充说明（可选）'" />
     </view>
+    <view class="readiness"><view class="readiness-title">提交前检查 <text>{{ readiness.filter(item => item.ready).length }}/{{ readiness.length }}</text></view><view class="readiness-items"><text v-for="item in readiness" :key="item.label" :class="{ ready: item.ready }">{{ item.ready ? '✓' : '○' }} {{ item.label }}</text></view></view>
 
     <view class="bottombar">
-      <button class="btn-ghost" :disabled="busy" :loading="submitting" @tap="saveDraft">保存草稿</button>
-      <button class="btn-primary" :disabled="busy" :loading="submitting" @tap="submit">{{ voluntary ? '提交上报' : '提交记录' }}</button>
+      <button class="btn-ghost" :disabled="busy || !obs" :loading="submitting && pendingAction === 'DRAFT'" @tap="saveDraft">{{ submitting && pendingAction === 'DRAFT' ? '正在保存…' : '保存草稿' }}</button>
+      <button class="btn-primary" :disabled="busy || !obs" :loading="submitting && pendingAction === 'SUBMIT'" @tap="submit">{{ submitting && pendingAction === 'SUBMIT' ? '正在提交…' : voluntary ? '提交上报' : '提交记录' }}</button>
       <view class="note">{{ voluntary ? '主动上报将由审核员在管理端审核，可驳回' : '保存草稿后可继续补充 · 提交后进入待审核' }}</view>
     </view>
   </view>
@@ -119,6 +121,7 @@ import LocationCapture from './LocationCapture.vue'
 import CategoryPicker from './CategoryPicker.vue'
 import DetectionImage from './DetectionImage.vue'
 import { categoryLabel } from './categories'
+import { formatTime } from './time'
 import { loadImageContent } from '../api/request'
 import {
   createObservation,
@@ -166,9 +169,24 @@ const photoBusy = ref(false)
 const locationBusy = ref(false)
 const busy = computed(() => recognizing.value || submitting.value || photoBusy.value || locationBusy.value)
 const returnReason = ref('')
+const feedbackError = ref('')
+const pendingAction = ref('')
+const savedFingerprint = ref(null)
+const savedAt = ref('')
+const draftFingerprint = computed(() => JSON.stringify({ location: location.value, location_text: locationText.value, outcome: overall.value, description: overallNote.value, items: conclusionItems.value.map(item => ({ image_id: item.imageId, source_detection_id: item.source_detection_id ?? null, final_box_json: item.final_box_json ?? null, decision: item.decision, final_class_code: item.final_class_code, description: item.description })) }))
+const feedbackText = computed(() => feedbackError.value || (submitting.value ? pendingAction.value === 'DRAFT' ? '正在保存草稿，请稍候…' : '正在提交记录，请稍候…' : !obs.value ? '正在准备现场记录…' : savedFingerprint.value === draftFingerprint.value ? `草稿已保存${savedAt.value ? ' · ' + formatTime(savedAt.value) : ''}` : savedFingerprint.value ? '内容已修改，请保存草稿或提交记录。' : '可先保存草稿，稍后继续补充。'))
+const readiness = computed(() => [
+  { label: '概览照片', ready: images.value.some(image => image.role === 'OVERVIEW') },
+  { label: '位置说明', ready: !!locationText.value.trim() },
+  { label: '现场判断', ready: !!overall.value },
+  ...(voluntary.value ? [{ label: '现场定位', ready: !!location.value }, { label: '现场描述', ready: !!overallNote.value.trim() }] : []),
+])
+function selectOutcome(value) { if (!submitting.value) overall.value = value }
+function retryRecord() { feedbackError.value = ''; if (props.query.observationId) void loadExisting(Number(props.query.observationId)); else void boot() }
 let disposed = false
 
 function useCandidate(detection, decision) {
+  if (submitting.value) return
   const image = images.value.find(i => i.imageId === selectedImageId.value)
   const existing = conclusionItems.value.findIndex(i => i.source_detection_id === detection.id)
   const item = {
@@ -204,7 +222,7 @@ async function boot() {
       // 点位已有记录：加载已有草稿/退回记录，退回补正时允许继续提交。
       await resumeExisting()
     } else {
-      uni.showToast({ title: '创建记录失败', icon: 'none' })
+      feedbackError.value = '记录准备失败，请检查网络后重新加载。'
     }
   }
 }
@@ -216,7 +234,7 @@ async function resumeExisting() {
     if (!record) throw new Error('record missing')
     await loadExisting(record.id)
   } catch {
-    uni.showToast({ title: '加载已有记录失败', icon: 'none' })
+    feedbackError.value = '已有记录暂时无法加载，请重试。'
   }
 }
 
@@ -251,8 +269,9 @@ async function loadExisting(id) {
     }
     selectedImageId.value = images.value[0]?.imageId || null
     if (record.status === 'RETURNED') returnReason.value = evidence.reviews[evidence.reviews.length - 1]?.reason || '请补充现场信息'
+    if (latest) savedFingerprint.value = draftFingerprint.value
   } catch {
-    uni.showToast({ title: '加载已有记录失败', icon: 'none' })
+    feedbackError.value = '已有记录暂时无法加载，请重试。'
   }
 }
 
@@ -382,6 +401,8 @@ async function persistDraft() {
     })),
   })
   obs.value.revision++
+  savedFingerprint.value = draftFingerprint.value
+  savedAt.value = new Date().toISOString()
 }
 
 function validateConclusionItems() {
@@ -399,10 +420,12 @@ function validateConclusionItems() {
 async function saveDraft() {
   if (!obs.value || busy.value || disposed) return
   if (!validateConclusionItems()) return
+  feedbackError.value = ''
+  pendingAction.value = 'DRAFT'
   submitting.value = true
   try { await persistDraft(); uni.showToast({ title: '草稿已保存', icon: 'success' }) }
-  catch { uni.showToast({ title: '保存失败，请检查记录状态', icon: 'none' }) }
-  finally { submitting.value = false }
+  catch { feedbackError.value = '草稿未能完整保存，请检查网络或记录状态后重试。' }
+  finally { submitting.value = false; pendingAction.value = '' }
 }
 
 async function submit() {
@@ -413,19 +436,30 @@ async function submit() {
   if (voluntary.value && !overallNote.value.trim()) { uni.showToast({ title: '请填写现场描述', icon: 'none' }); return }
   if (!images.value.some(image => image.role === 'OVERVIEW')) { uni.showToast({ title: '缺少概览图', icon: 'none' }); return }
   if (!overall.value) { uni.showToast({ title: '请选择总体结论', icon: 'none' }); return }
+  feedbackError.value = ''
+  pendingAction.value = 'SUBMIT'
+  let draftSaved = false
   submitting.value = true
   try {
     await persistDraft()
+    draftSaved = true
     await submitObservation(obs.value.id, obs.value.revision)
     uni.showToast({ title: '已提交，等待审核', icon: 'success' })
     uni.redirectTo({ url: `/pages/records/index?observationId=${obs.value.id}` })
   } catch (error) {
-    uni.showToast({ title: error?.statusCode === 409 ? '记录已更新，请返回后重试' : '提交失败，请检查必填项', icon: 'none' })
-  } finally { submitting.value = false }
+    feedbackError.value = (draftSaved ? '草稿已保存，但提交未完成。' : '记录提交未完成。') + (error?.statusCode === 409 ? '记录状态已变化，请返回后重新打开。' : '请检查网络和填写内容后重试。')
+  } finally { submitting.value = false; pendingAction.value = '' }
 }
 </script>
 
 <style scoped>
+.editor-feedback { background: #edf4ef; color: #2f6f63; padding: 20rpx; border-radius: 16rpx; margin-bottom: 24rpx; font-size: 24rpx; line-height: 1.6; }
+.feedback-error { background: #fcf0ed; color: #ad4e3e; }
+.feedback-saved { background: #e6f0e9; }
+.readiness { background: #fff; border-radius: 16rpx; padding: 24rpx; margin-bottom: 24rpx; }
+.readiness-title { display: flex; justify-content: space-between; font-size: 26rpx; color: #465b51; }
+.readiness-items { display: flex; flex-wrap: wrap; gap: 16rpx 24rpx; margin-top: 16rpx; font-size: 24rpx; color: #8a8271; }
+.readiness-items .ready { color: #2f6f63; }
 .page {
   min-height: 100vh;
   background: #f5f1e8;

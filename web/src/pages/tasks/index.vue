@@ -1,26 +1,18 @@
 <template>
   <div class="page">
+    <PageHeading title="任务管理" description="派发巡检安排，按点位跟进采集、审核与完成进展。" />
+    <el-alert v-if="loadError && tasks.length" :title="loadError" description="当前保留上次加载的内容。" type="error" :closable="false" class="load-notice" />
     <div class="toolbar">
       <el-button v-if="isAdmin" type="primary" @click="openCreate">新建任务</el-button>
-      <el-button @click="load">刷新</el-button>
+      <el-button :loading="loading" @click="load">刷新</el-button>
       <el-input v-model="keyword" placeholder="搜索任务名称" clearable style="width: 210px" @clear="search" />
       <el-button @click="search">查询</el-button>
       <el-checkbox v-model="overdueOnly" @change="search">仅超期任务</el-checkbox>
     </div>
-    <div class="toolbar" aria-label="任务状态筛选">
-      <el-check-tag :checked="!activeStatus" @change="activeStatus = ''">全部</el-check-tag>
-      <el-check-tag
-        v-for="s in statusFilter"
-        :key="s.value"
-        :checked="activeStatus === s.value"
-        class="tag-filter"
-        @change="activeStatus = activeStatus === s.value ? '' : s.value"
-      >
-        {{ s.label }}
-      </el-check-tag>
-    </div>
+    <StatusFilter v-model="activeStatus" :options="statusFilter" label="任务状态筛选" />
 
     <el-table :data="tasks" v-loading="loading" stripe>
+      <template #empty><ListFeedback :error="loadError" title="当前没有符合条件的任务" description="试试切换状态或清除名称筛选；新任务创建后会显示在这里。" icon="tasks" @retry="load" /></template>
       <el-table-column prop="id" label="ID" width="64" />
       <el-table-column prop="title" label="标题" min-width="180" />
       <el-table-column label="状态" width="110">
@@ -128,6 +120,9 @@ import { useRoute } from 'vue-router'
 import { formatDateTime } from '@/shared/ui/time'
 import { observationStatusLabel, outcomeLabel } from '@/shared/ui/labels'
 import ObservationEvidence from '@/shared/ui/ObservationEvidence.vue'
+import PageHeading from '@/shared/ui/PageHeading.vue'
+import ListFeedback from '@/shared/ui/ListFeedback.vue'
+import StatusFilter from '@/shared/ui/StatusFilter.vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { fetchTasks, createTask, fetchTask, dispatchTask, completeTask, cancelTask, fetchAssignees, type Assignee } from '@/shared/api/task'
 import { fetchPoints, type InspectionPoint } from '@/shared/api/site'
@@ -151,6 +146,8 @@ const tasks = ref<any[]>([])
 const points = ref<InspectionPoint[]>([])
 const assignees = ref<Assignee[]>([])
 const loading = ref(false)
+const loadError = ref('')
+let loadGeneration = 0
 const route = useRoute()
 const activeStatus = ref(typeof route.query.status === 'string' && statusFilter.some(s => s.value === route.query.status) ? route.query.status : '')
 const keyword = ref('')
@@ -202,7 +199,9 @@ async function loadAssignees() {
 function assigneeName(id: number) { return assignees.value.find(user => user.id === id)?.display_name || `#${id}` }
 
 async function load() {
+  const current = ++loadGeneration
   loading.value = true
+  loadError.value = ''
   try {
     const res = await fetchTasks({
       keyword: keyword.value.trim() || undefined,
@@ -211,12 +210,13 @@ async function load() {
       page: page.value,
       page_size: pageSize,
     })
-    tasks.value = res.tasks
+    if (current !== loadGeneration) return
+    tasks.value = res.tasks ?? []
     total.value = res.total
-  } catch {
-    ElMessage.error('加载任务失败')
+  } catch (error) {
+    if (current === loadGeneration) loadError.value = error instanceof Error ? error.message : '任务加载失败，请重新加载。'
   } finally {
-    loading.value = false
+    if (current === loadGeneration) loading.value = false
   }
 }
 
@@ -362,12 +362,10 @@ async function cancel(row: any) {
 }
 .toolbar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 10px;
   margin-bottom: 14px;
-}
-.tag-filter {
-  cursor: pointer;
 }
 .pager {
   display: flex;
