@@ -92,14 +92,34 @@ export function uploadImage(observationId, localPath, imageRole) {
       url: `${getBaseUrl()}/observations/${observationId}/images`,
       filePath: localPath,
       name: 'image',
+      timeout: 110000,
       formData: { image_role: imageRole },
-      header: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      header: {
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        'X-Request-Id': genRequestId(),
+      },
       success(res) {
-        if (res.statusCode >= 200 && res.statusCode < 300) {
-          resolve(JSON.parse(res.data))
+        if (res.statusCode === 401) {
+          reject({ statusCode: res.statusCode, data: res.data })
+          notify('登录已过期，请重新登录')
+          toLogin()
           return
         }
-        reject({ statusCode: res.statusCode, data: JSON.parse(res.data) })
+        let data
+        try {
+          data = typeof res.data === 'string' ? JSON.parse(res.data) : res.data
+        } catch {
+          reject({
+            statusCode: res.statusCode,
+            data: { error: { code: 'INVALID_RESPONSE', message: '上传响应格式错误，请重试' } },
+          })
+          return
+        }
+        if (res.statusCode >= 200 && res.statusCode < 300) {
+          resolve(data)
+          return
+        }
+        reject({ statusCode: res.statusCode, data })
       },
       fail: reject,
     })

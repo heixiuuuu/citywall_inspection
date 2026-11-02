@@ -296,8 +296,8 @@ function chooseImage() {
         selectedImageId.value = image.id
         imageId = image.id
         uni.showToast({ title: '上传成功', icon: 'success' })
-      } catch {
-        if (!disposed) uni.showToast({ title: '上传失败', icon: 'none' })
+      } catch (e) {
+        if (!disposed && e?.statusCode !== 401) uni.showToast({ title: '上传失败', icon: 'none' })
       } finally { photoBusy.value = false }
       if (imageId && role === 'OVERVIEW') runRecognitionOn(imageId)
     },

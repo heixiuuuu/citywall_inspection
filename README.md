@@ -134,7 +134,7 @@ docker compose -f docker-compose.yml -f docker-compose.vision.yml up -d --build 
 
 ## 验证
 
-完整软件验收使用隔离的 Docker 项目，执行单元检查、前端构建、数据库集成测试及业务闭环，结束后自动删除测试容器与数据卷：
+完整软件验收使用隔离的 Docker 项目，执行单元检查、上传异常回归、前端构建、数据库集成测试及业务闭环，结束后自动删除测试容器与数据卷：
 
 ```powershell
 C:\environment\citywall-python312\Scripts\python.exe -m pip install -r scripts/requirements-test.txt
@@ -142,6 +142,10 @@ C:\environment\citywall-python312\Scripts\python.exe -m pip install -r scripts/r
 ```
 
 可通过 -Python、-MySQLPort、-APIPort、-WebPort 指定本机环境。-SkipBuildChecks 仅执行数据库集成和业务联调，适合构建检查已经通过后的部署复验。测试 PDF 保存在 C:\code\tmp 的独立目录。
+
+在 miniapp 目录执行 `npm test` 可单独验证上传的非 JSON 响应、登录过期、业务错误和网络超时，以及失败后调用方状态释放与重试。该回归使用模拟的 uni 上传回调，不代替真机网络及页面交互验收。
+
+隔离验收在正常业务闭环结束后停止测试识别服务，验证失败尝试仍能保存，人工补录可继续提交并通过审核；该用例不评估真实模型质量。
 
 分项检查：
 

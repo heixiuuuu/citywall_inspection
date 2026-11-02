@@ -51,6 +51,7 @@ try {
         foreach ($Frontend in @('web', 'miniapp')) {
             Invoke-Checked 'npm' @('ci') (Join-Path $ProjectRoot $Frontend)
         }
+        Invoke-Checked 'npm' @('test') (Join-Path $ProjectRoot 'miniapp')
         Invoke-Checked 'npm' @('run', 'build') (Join-Path $ProjectRoot 'web')
         foreach ($Target in @('build:h5', 'build:mp-weixin', 'build:app')) {
             Invoke-Checked 'npm' @('run', $Target) (Join-Path $ProjectRoot 'miniapp')
@@ -61,11 +62,15 @@ try {
     Invoke-Checked 'docker' ($ComposeArguments + @('exec', '-T', 'mysql', 'mysql', '-uroot', '-pcitywall_test_root', '-e', 'CREATE DATABASE city_wall_test CHARACTER SET utf8mb4;'))
     $FixtureSQL = "INSERT INTO users (username, password_hash, display_name, status) SELECT 'inspector_other', password_hash, '其他巡检员', 'ACTIVE' FROM users WHERE username='inspector'; INSERT INTO user_roles (user_id, role_code) SELECT id, 'INSPECTOR' FROM users WHERE username='inspector_other';"
     Invoke-Checked 'docker' ($ComposeArguments + @('exec', '-T', 'mysql', 'mysql', '--default-character-set=utf8mb4', '-uroot', '-pcitywall_test_root', '-D', 'city_wall', '-e', $FixtureSQL))
-    Invoke-Checked 'go' @('test', '-tags', 'integration', './internal/module/task', './internal/module/observation', '-count=1') (Join-Path $ProjectRoot 'server')
-    Invoke-Checked 'go' @('test', '-tags', 'integration', './internal/module/issue', '-count=1') (Join-Path $ProjectRoot 'server')
+    # 模块共享测试库，顺序执行避免其他模块的已提交任务干扰列表断言。
+    foreach ($Module in @('task', 'observation', 'issue')) {
+        Invoke-Checked 'go' @('test', '-tags', 'integration', "./internal/module/$Module", '-count=1') (Join-Path $ProjectRoot 'server')
+    }
     foreach ($Scenario in @('e2e_scenarios.py', 'e2e_issue.py', 'e2e_idempotency.py', 'e2e_evidence.py', 'e2e_report.py')) {
         Invoke-Checked $Python @((Join-Path $PSScriptRoot $Scenario))
     }
+    Invoke-Checked 'docker' ($ComposeArguments + @('stop', 'recognizer'))
+    Invoke-Checked $Python @((Join-Path $PSScriptRoot 'e2e_recognition_failure.py'))
     Write-Host "Acceptance checks passed. Test outputs: $TestOutput"
 } catch {
     & docker @ComposeArguments logs --no-color --tail 100

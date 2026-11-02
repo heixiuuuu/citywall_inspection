@@ -3,6 +3,7 @@
   "version": "0.2.0",
   "description": "古城墙病害巡检系统 - 巡检员现场端（uni-app，同时支持 Android App 与微信小程序）",
   "scripts": {
+    "test": "node --test tests/*.test.mjs",
     "dev:app": "uni -p app",
     "build:app": "uni build -p app",
     "dev:mp-weixin": "uni -p mp-weixin",
