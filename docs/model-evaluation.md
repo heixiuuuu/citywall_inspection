@@ -6,6 +6,8 @@
 
 数据入口为转换后的 YOLO YAML，`val` 或 `test` 指向 `images` 下的目录，对应标签位于 `labels` 下的相同相对路径。每张图片都必须有标签文件；空文件表示在声明的标注类别中没有目标，缺少文件则报错。标签编号按 YAML 的语义名称解析，不以模型编号对齐数据编号。
 
+推理前按部署的 max_image_bytes 检查完整输入列表，超限默认报错，尚未开始模型推理。显式使用 `--allow-rejected-inputs` 时单列拒绝原因、文件与标签哈希、未评估标注数和输入覆盖率，只对可接收图片计分。拒绝项不作为零候选或模型漏检；dataset_sha256 对应实际计分集合，input_dataset_sha256 对应原始完整输入集合。不能将可接收子集指标直接与全量集合指标比较。
+
 `--annotated-classes` 必填，声明这些类别在每张所选图片上均已完整标注。类别没有在某张图中出现时，该类候选仍计误检；声明范围外的模型候选只记为未评估候选。若实际标签包含声明范围外的类别，脚本报错，不能用缩小范围隐藏已有标注。YAML 中的类别字典或观测到的框数量不能单独证明标注完整性。
 
 MSD 覆盖 CRACK、DISCOLOURATION、EFFLORESCENCE、SURFACE_DISSOLUTION、MASONRY_LOSS、MOSS、PLANT 七类。FUNGUS、CORROSION、ARTISTIC 和 SURFACE_SPALLING 不在该标注范围。CIF 剥落入口只声明 SURFACE_SPALLING。不同来源的标注范围不一致时，使用分来源的 YAML 分别评价，不能将整份合并数据统一视为完整多类标注。
@@ -31,6 +33,7 @@ C:\environment\citywall-python312\Scripts\python.exe scripts/evaluate_operating_
 | --match-iou | 匹配 IoU 下限，默认 0.5 |
 | --warmup | 首张图片预热次数，默认 1；预热不进入计分或稳定耗时统计，0 表示首张计入冷启动耗时 |
 | --output | 输出 JSON，不覆盖已有文件 |
+| --allow-rejected-inputs | 单列超限输入并评价可接收子集，默认关闭；模型成员失败仍中止评估 |
 
 评估拒绝 dev 固定检测器。`mode=deployment` 表示从组合配置构造检测器；是否与运行服务完全一致，应核对有效配置、成员哈希及 runtime_members，而不能只看 model_version。单权重输出使用 single_weight 标识，部署权重和配置文件不会被修改。
 
@@ -50,3 +53,5 @@ C:\environment\citywall-python312\Scripts\python.exe scripts/evaluate_operating_
 detector_ms 是同步调用检测器的墙钟耗时，包含解码、模型路由、分块和后处理；recognition_without_vlm_ms 另包含服务的图像校验。两者均不包含文件读取、HTTP、业务服务、视觉语言模型或人工操作，不能作为完整上传识别请求的耗时。CUDA 推理输出转换为服务坐标与分数后才停止计时。
 
 这些结果是固定运行阈值下的 Precision、Recall、F1，不提供标准 mAP50 或 mAP50–95。标准单模型 mAP 使用 `train_model.py --evaluate`，并明确其原始模型验证口径；不能将其当作经过路由与分块后的组合指标。小样本、公开数据及未标注类别的候选数量均不足以证明现场可靠性。
+
+组合候选的 AP 可通过 `compare_model_experiments.py` 对不高于 0.001 推理阈值的服务输出进行计算，沿用 Ultralytics 的 IoU 匹配和 AP 积分实现，包含路由、整数框与置信度舍入；它与原始单模型验证口径分别标记。固定阈值输出不能直接用于完整 AP，操作与结果见 [模型实验](model-experiments.md)。

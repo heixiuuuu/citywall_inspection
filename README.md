@@ -107,6 +107,8 @@ C:\environment\citywall-python312\Scripts\python.exe scripts/evaluate_operating_
 
 --weights 启用单权重对照并关闭专项路由和分块。--confidence 设置主模型与专项模型阈值，剥落阈值仍取配置；--device、--nms-iou、--imgsz 可覆盖所有成员的对应参数，未指定时保留部署默认值。阈值选择使用验证集，冻结模型与参数后再使用 --split test。该固定运行点结果不提供标准 mAP，也不代表现场效果。
 
+数据审查、两项有限实验、组合候选 AP 与冻结后留出集复评见 [模型实验](docs/model-experiments.md)。实验工具核对比较双方的数据、主模型参数和权重；验证集选型与冻结后的测试报告使用不同入口。
+
 资料中的 Brick and Stone(annotated).zip 可作为裂缝补充标注。转换脚本仅读取 brick 和 stone 两套数据，隔离不明类别、像素相同但标注冲突的图片，以及与已有 MSD 重复的图片。相同原图名或像素内容相连的图片整体保留在同一划分中，留出集优先；这不能证明不同照片来自不同墙段。边界舍入误差在归一化坐标 0.0001 以内时裁至图像边界并计数，明显越界拒绝处理。
 
 ```powershell
