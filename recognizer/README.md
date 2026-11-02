@@ -16,6 +16,8 @@
 
 specialist_weights_path 和 specialist_class_codes 同时配置时，指定类别仅采用专项权重输出。spalling_weights_path 配置表面剥落权重，spalling_tile_size 配置局部裁剪边长，spalling_confidence_threshold 配置剥落候选阈值。各模型输出统一换算为原图坐标并重新编号，调用串行执行；任一模型不可用或坐标系不一致时识别失败。健康接口的 weights_available 检查全部已配置的权重文件。
 
+models/factory.py 的 build_detector 是服务与离线评估的共用装配入口。recognition 配置可选 device、imgsz、nms_iou，指定时作用于所有 YOLO 成员；省略时保留权重和推理库的默认值。离线评估使用相同的 RecognitionService 图像校验与检测路径，关闭视觉语言模型，详见 [部署模型评估](../docs/model-evaluation.md)。
+
 当前 model_version 为 yolo_routed_msd_spalling_001，主权重、裂缝专项权重和剥落权重分别位于 data/yolo/weights/best.pt、specialist.pt 和 spalling.pt，成员哈希与类别分工保存在同目录 manifest.json。主模型和裂缝专项模型的输入尺寸分别为 640、960，置信度均为 0.35；剥落模型按 1280 像素分块，模型输入 640，置信度为 0.25。剥落候选误检、漏检较多，必须人工复核。
 
 latency_ms 记录图像检查、检测及可选视觉分析的总耗时。视觉服务返回空内容或缺少有效描述时，辅助分析标记为 FAILED，已生成的检测候选继续返回。

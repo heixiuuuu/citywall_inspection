@@ -97,13 +97,15 @@ C:\environment\citywall-cuda312\Scripts\python.exe scripts/train_model.py --data
 
 data.yaml 提供合并入口，msd.yaml 和 bluebrick.yaml 提供分来源入口。评估现有权重可使用 --evaluate 权重路径、--evaluation-split val 或 test，以及 --evaluation-name 自定义名称；输出对应命名的指标 JSON 和图表，记录权重哈希。新权重的类别顺序从其名称元数据读取，须属于业务类别白名单，不能依靠数字编号猜测病害。
 
-部署前还需在相同验证集、设备和推理参数下比较固定置信度的候选数量。下面的脚本针对转换后的 images/labels 目录，默认使用权重的输入尺寸、0.35 置信度和 0.7 NMS IoU；按置信度顺序匹配同语义类别、IoU 至少 0.5 的未匹配标注，输出 TP、FP、FN、逐类及逐图结果。输出记录数据集与权重指纹，拒绝覆盖已有文件。该指标用于比较人工复核负担，不代替标准 mAP 或现场效果评估。
+部署评估复用识别服务的检测器构造和 RecognitionService 路径，包含类别路由、剥落分块、EXIF 方向归一、整数框和分数舍入。默认读取 conf/recognizer.json，显式声明所选图片的标注覆盖类别；范围外候选计入复核负担，单独列为未评估，不计误检。结果包含固定运行点的 Precision、Recall、F1、逐类与逐图匹配、数据和权重指纹、实际推理参数、设备与耗时，拒绝覆盖已有文件。具体口径见 [部署模型评估](docs/model-evaluation.md)。
 
 ```powershell
-C:\environment\citywall-python312\Scripts\python.exe scripts/evaluate_operating_point.py --data data/yolo/dataset_msd_oriented/data.yaml --weights data/yolo/weights/best.pt --output C:\code\tmp\operating-val.json
+$MsdClasses = @('CRACK', 'DISCOLOURATION', 'EFFLORESCENCE', 'SURFACE_DISSOLUTION', 'MASONRY_LOSS', 'MOSS', 'PLANT')
+C:\environment\citywall-python312\Scripts\python.exe scripts/evaluate_operating_point.py --data data/yolo/dataset_msd_oriented/data.yaml --split val --device cpu --annotated-classes $MsdClasses --output C:\code\tmp\deployment-val.json
+C:\environment\citywall-python312\Scripts\python.exe scripts/evaluate_operating_point.py --data data/yolo/dataset_msd_oriented/data.yaml --weights data/yolo/weights/best.pt --split val --device cpu --annotated-classes $MsdClasses --output C:\code\tmp\primary-val.json
 ```
 
---confidence、--nms-iou、--imgsz 可指定运行参数。阈值选择使用验证集，确定模型与参数后再使用 --split test 进行最终评估；更换数据配置时须重新核对类别语义和划分。
+--weights 启用单权重对照并关闭专项路由和分块。--confidence 设置主模型与专项模型阈值，剥落阈值仍取配置；--device、--nms-iou、--imgsz 可覆盖所有成员的对应参数，未指定时保留部署默认值。阈值选择使用验证集，冻结模型与参数后再使用 --split test。该固定运行点结果不提供标准 mAP，也不代表现场效果。
 
 资料中的 Brick and Stone(annotated).zip 可作为裂缝补充标注。转换脚本仅读取 brick 和 stone 两套数据，隔离不明类别、像素相同但标注冲突的图片，以及与已有 MSD 重复的图片。相同原图名或像素内容相连的图片整体保留在同一划分中，留出集优先；这不能证明不同照片来自不同墙段。边界舍入误差在归一化坐标 0.0001 以内时裁至图像边界并计数，明显越界拒绝处理。
 

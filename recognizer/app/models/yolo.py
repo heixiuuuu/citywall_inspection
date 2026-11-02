@@ -50,6 +50,9 @@ class YOLODetector:
     confidence_threshold: float = 0.35
     class_codes: frozenset[str] = CLASS_CODES
     required_class_codes: frozenset[str] = field(default_factory=frozenset)
+    device: str | None = None
+    imgsz: int | None = None
+    nms_iou: float | None = None
     _model: object = field(default=None, repr=False, compare=False)
     _lock: object = field(default_factory=Lock, repr=False, compare=False)
 
@@ -84,7 +87,10 @@ class YOLODetector:
             im = Image.open(io.BytesIO(image_bytes))
             im = ImageOps.exif_transpose(im) or im
             rgb = im.convert("RGB")
-            results = model.predict(rgb, conf=self.confidence_threshold, verbose=False)
+            parameters = {key: value for key, value in {
+                "device": self.device, "imgsz": self.imgsz, "iou": self.nms_iou,
+            }.items() if value is not None}
+            results = model.predict(rgb, conf=self.confidence_threshold, verbose=False, **parameters)
         except DetectorError:
             raise
         except Exception as e:

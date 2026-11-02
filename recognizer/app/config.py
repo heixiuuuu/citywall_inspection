@@ -16,6 +16,7 @@ from pathlib import Path
 _DEFAULT_CANDIDATES = (
     "conf/recognizer.json",
     "../conf/recognizer.json",
+    str(Path(__file__).resolve().parents[2] / "conf/recognizer.json"),
 )
 
 
@@ -25,6 +26,9 @@ class RecognitionConfig:
     detector_mode: str = "yolo"
     weights_path: str = "data/yolo/weights/best.pt"
     confidence_threshold: float = 0.35
+    device: str | None = None
+    imgsz: int | None = None
+    nms_iou: float | None = None
     specialist_weights_path: str = ""
     specialist_class_codes: list[str] = field(default_factory=list)
     spalling_weights_path: str = ""
@@ -77,8 +81,8 @@ def _find_config_file() -> Path:
     )
 
 
-def load_settings() -> Settings:
-    path = _find_config_file()
+def load_settings(path: Path | None = None) -> Settings:
+    path = path or _find_config_file()
     raw = json.loads(path.read_text(encoding="utf-8"))
     s = Settings()
     if "app" in raw:
@@ -102,6 +106,12 @@ def load_settings() -> Settings:
         s.internal.require_token = True
     if s.recognition.detector_mode not in ("dev", "yolo"):
         raise ValueError("detector_mode must be dev or yolo")
+    if not 0 < s.recognition.confidence_threshold <= 1:
+        raise ValueError("confidence threshold must be in (0, 1]")
+    if s.recognition.nms_iou is not None and not 0 < s.recognition.nms_iou <= 1:
+        raise ValueError("NMS IoU must be in (0, 1]")
+    if s.recognition.imgsz is not None and s.recognition.imgsz < 32:
+        raise ValueError("imgsz must be at least 32")
     if bool(s.recognition.specialist_weights_path) != bool(s.recognition.specialist_class_codes):
         raise ValueError("specialist weights and class codes must be configured together")
     if s.recognition.spalling_confidence_threshold is not None and not 0 < s.recognition.spalling_confidence_threshold <= 1:

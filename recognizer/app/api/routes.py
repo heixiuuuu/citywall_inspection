@@ -18,10 +18,8 @@ from fastapi.responses import JSONResponse
 from ..config import settings
 from ..schemas import RecognitionError, RecognitionResponse
 from ..service import RecognitionService
-from ..models.fixed import FixedDetector
-from ..models.yolo import DetectorError, YOLODetector
-from ..models.routed import ClassRoutedDetector
-from ..models.tiled import TiledDetector
+from ..models.factory import build_detector
+from ..models.yolo import DetectorError
 from ..images import ImageValidationError
 from ..vision import VisionAnalyzer
 from ..models.yolo import resolve_weights_path
@@ -30,39 +28,8 @@ from starlette.concurrency import run_in_threadpool
 router = APIRouter(prefix="/internal/v1", tags=["internal"])
 
 
-def _build_detector():
-    """按配置装配检测器：yolo=真实推理；dev=固定响应（仅首轮联调）。
-
-    固定响应与真实识别在配置层明确隔离，绝不会以固定响应冒充模型结果。
-    """
-    if settings.recognition.detector_mode == "yolo":
-        detector = YOLODetector(
-            weights_path=settings.recognition.weights_path,
-            confidence_threshold=settings.recognition.confidence_threshold,
-        )
-        if settings.recognition.specialist_weights_path:
-            detector = ClassRoutedDetector(detector, YOLODetector(
-                weights_path=settings.recognition.specialist_weights_path,
-                confidence_threshold=settings.recognition.confidence_threshold,
-                required_class_codes=frozenset(settings.recognition.specialist_class_codes),
-            ), frozenset(settings.recognition.specialist_class_codes))
-        if settings.recognition.spalling_weights_path:
-            spalling = YOLODetector(
-                weights_path=settings.recognition.spalling_weights_path,
-                confidence_threshold=(settings.recognition.spalling_confidence_threshold
-                                      if settings.recognition.spalling_confidence_threshold is not None
-                                      else settings.recognition.confidence_threshold),
-                required_class_codes=frozenset({"SURFACE_SPALLING"}),
-            )
-            if settings.recognition.spalling_tile_size:
-                spalling = TiledDetector(spalling, settings.recognition.spalling_tile_size)
-            detector = ClassRoutedDetector(detector, spalling, frozenset({"SURFACE_SPALLING"}))
-        return detector
-    return FixedDetector(detections=[])
-
-
 _service = RecognitionService(
-    detector=_build_detector(),
+    detector=build_detector(settings.recognition),
     model_version=settings.recognition.model_version if settings.recognition.detector_mode == "yolo" else "dev_fixed",
     analyzer=VisionAnalyzer(settings.vision),
 )
