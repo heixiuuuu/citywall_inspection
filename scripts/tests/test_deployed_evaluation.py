@@ -115,3 +115,22 @@ def test_missing_labels_fail_instead_of_becoming_negative_images(deployment_case
     (data.parent / "labels/val/sample.txt").unlink()
     with pytest.raises(FileNotFoundError):
         evaluate(data, "val", config, ["CRACK", "PLANT"], warmup=0)
+
+
+def test_input_rejection_is_preflighted_and_reported_without_false_negatives(deployment_case):
+    from dataclasses import replace
+    data, config, calls = deployment_case
+    content = (data.parent / "images/val/sample.jpg").read_bytes()
+    (data.parent / "images/val/zz-oversized.jpg").write_bytes(content + b"\0" * 100)
+    (data.parent / "labels/val/zz-oversized.txt").write_text("0 .055 .0275 .11 .055\n")
+    config = replace(config, max_image_bytes=len(content) + 50)
+    with pytest.raises(ValueError, match="service size limit"):
+        evaluate(data, "val", config, ["CRACK", "PLANT"], warmup=0)
+    assert calls == []
+    result = evaluate(data, "val", config, ["CRACK", "PLANT"], warmup=0, allow_rejected_inputs=True)
+    assert result["images"] == 1 and result["aggregate"]["tp"] == 2 and result["aggregate"]["fn"] == 0
+    admission = result["input_admission"]
+    assert admission["coverage"] == .5 and admission["requested_images"] == 2
+    assert admission["rejected"][0]["reason"] == "IMAGE_TOO_LARGE"
+    assert admission["rejected"][0]["unassessed_label_boxes"] == 1
+    assert result["dataset_sha256"] != result["input_dataset_sha256"]

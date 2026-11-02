@@ -132,7 +132,7 @@ def timing_summary(values):
             "p95_ms": sorted(values)[math.ceil(len(values) * .95) - 1]}
 
 
-def evaluate(data_path, split, config, annotated_classes, match_iou=.5, warmup=1):
+def evaluate(data_path, split, config, annotated_classes, match_iou=.5, warmup=1, allow_rejected_inputs=False):
     import torch
     import ultralytics
     import yaml
@@ -162,6 +162,23 @@ def evaluate(data_path, split, config, annotated_classes, match_iou=.5, warmup=1
         raise ValueError("no dataset images found for this split")
     if config.detector_mode != "yolo":
         raise ValueError("evaluation requires yolo mode, not fixed development responses")
+    rejected = []
+    admitted = []
+    for path in paths:
+        if path.stat().st_size <= config.max_image_bytes:
+            admitted.append(path)
+            continue
+        if not allow_rejected_inputs:
+            raise ValueError(f"image exceeds service size limit: {path}; use --allow-rejected-inputs to report input coverage separately")
+        relative = path.relative_to(image_root)
+        content = path.read_bytes()
+        label_bytes = (root / "labels" / relative).with_suffix(".txt").read_bytes()
+        rejected.append({"image": relative.as_posix(), "reason": "IMAGE_TOO_LARGE", "byte_size": len(content),
+                         "image_sha256": hashlib.sha256(content).hexdigest(), "label_sha256": hashlib.sha256(label_bytes).hexdigest(),
+                         "unassessed_label_boxes": sum(bool(line.strip()) for line in label_bytes.decode("utf-8").splitlines())})
+    paths = admitted
+    if not paths:
+        raise ValueError("no images satisfy the service input size limit")
     config = replace(config, **{key: str(resolve_weights_path(getattr(config, key)).resolve())
                                for key in ("weights_path", "specialist_weights_path", "spalling_weights_path") if getattr(config, key)})
     detector = build_detector(config)
@@ -220,8 +237,17 @@ def evaluate(data_path, split, config, annotated_classes, match_iou=.5, warmup=1
     source_paths = [Path(__file__), *(REPOSITORY / "recognizer" / "app").rglob("*.py")]
     source_hashes = {path.relative_to(REPOSITORY).as_posix(): file_hash(path) for path in sorted(source_paths)}
     candidates = [len(case["predictions"]) for case in cases]
+    input_digest = hashlib.sha256(json.dumps(names, sort_keys=True).encode())
+    for item in sorted(cases + rejected, key=lambda item: item["image"]):
+        input_digest.update(item["image"].encode())
+        input_digest.update(bytes.fromhex(item["image_sha256"]))
+        input_digest.update(bytes.fromhex(item["label_sha256"]))
     return {"dataset": str(data_path), "data_yaml_sha256": hashlib.sha256(data_bytes).hexdigest(), "split": split, "images": len(paths),
             "dataset_sha256": digest.hexdigest(),
+            "input_dataset_sha256": input_digest.hexdigest(),
+            "input_admission": {"requested_images": len(paths) + len(rejected), "evaluated_images": len(paths),
+                                "coverage": len(paths)/(len(paths) + len(rejected)), "max_image_bytes": config.max_image_bytes,
+                                "rejected": rejected, "metric_scope": "service-admissible images only; rejected inputs are unassessed, not zero-detection images"},
             "source_manifest_sha256": file_hash(root / "manifest.json") if (root / "manifest.json").is_file() else None,
             "annotation_coverage": {"classes": sorted(annotated_classes), "scope": "exhaustive for declared classes on every selected image",
                                     "outside_scope": "retained as unassessed candidates; excluded from TP/FP/FN"},
@@ -259,6 +285,7 @@ def main():
     parser.add_argument("--match-iou", type=float, default=.5)
     parser.add_argument("--imgsz", type=int)
     parser.add_argument("--warmup", type=int, default=1)
+    parser.add_argument("--allow-rejected-inputs", action="store_true", help="report oversized input rejections separately and score admitted images only")
     args = parser.parse_args()
     if args.output.exists():
         parser.error("output already exists")
@@ -273,7 +300,7 @@ def main():
     if args.weights:
         overrides.update(weights_path=str(args.weights.resolve()), model_version="single_weight",
                          specialist_weights_path="", specialist_class_codes=[], spalling_weights_path="", spalling_tile_size=0)
-    result = evaluate(args.data, args.split, replace(config, **overrides), args.annotated_classes, args.match_iou, args.warmup)
+    result = evaluate(args.data, args.split, replace(config, **overrides), args.annotated_classes, args.match_iou, args.warmup, args.allow_rejected_inputs)
     result.update(mode="single" if args.weights else "deployment", config_file=str(args.config.resolve()),
                   config_file_sha256=config_sha256, cli_overrides=overrides)
     payload = json.dumps(result, indent=2, ensure_ascii=False, allow_nan=False)
